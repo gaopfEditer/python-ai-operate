@@ -33,7 +33,7 @@ def manual_run():
     print("🔄 手动执行爬虫...")
     try:
         result = subprocess.run(
-            ["python", "main.py"], cwd="/app", capture_output=False, text=True
+            ["python", "crawler.py"], cwd="/app", capture_output=False, text=True
         )
         if result.returncode == 0:
             print("✅ 执行完成")
