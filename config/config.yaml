@@ -2,6 +2,18 @@ app:
   version_check_url: "https://raw.githubusercontent.com/sansan0/TrendRadar/refs/heads/master/version"
   show_version_update: true # 控制显示版本更新提示，如果 false，则不接受新版本提示
 
+# AI模型配置
+ai:
+  # 通义千问（Qwen）配置
+  qwen:
+    api_key: "sk-40fc3963ae51439db02c07d7b9995042" # 通义千问API Key，从 https://dashscope.console.aliyun.com/ 获取
+    api_endpoint: "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation" # API端点
+    model: "qwen-turbo" # 模型名称，可选：qwen-turbo, qwen-plus, qwen-max, qwen-max-longcontext
+    temperature: 0.7 # 温度参数，控制输出随机性（0-1），值越大越随机
+    max_tokens: 2000 # 最大生成token数
+    timeout: 30 # 请求超时时间（秒）
+    enable: true # 是否启用千问模型，如果 false，则不使用AI功能
+
 crawler:
   request_interval: 1000 # 请求间隔(毫秒)
   enable_crawler: true # 是否启用爬取新闻功能，如果 false，则直接停止程序
@@ -137,3 +149,46 @@ platforms:
     name: "抖音"
   - id: "zhihu"
     name: "知乎"
+
+# 发布平台配置
+publish:
+  # 是否启用发布功能
+  enable: true
+  # 默认发布的平台列表（使用平台ID，用逗号分隔）
+  default_platforms: "typecho"
+  # 是否使用无头模式（不显示浏览器）
+  # 建议首次测试时设为false，可以看到浏览器操作过程，便于调试
+  headless: false
+  # 浏览器等待时间（秒）
+  wait_timeout: 10
+  
+  # 平台配置
+  platforms:
+    - id: "typecho"
+      name: "Typecho博客"
+      type: "typecho"
+      login_url: "https://easycoin.gaopf.top/admin/"
+      write_url: "https://easycoin.gaopf.top/admin/write-post.php"
+      username: "admin"
+      password: "1245@qq.com"
+      enabled: true  # 是否启用此平台
+
+# 评论平台配置
+comment:
+  # 是否启用评论功能
+  enable: true
+  # 默认评论的平台列表（使用平台ID，用逗号分隔）
+  default_platforms: "csdn"
+  # 是否使用无头模式（不显示浏览器）
+  headless: false
+  # 浏览器等待时间（秒）
+  wait_timeout: 10
+  
+  # 平台配置
+  platforms:
+    - id: "csdn"
+      name: "CSDN"
+      type: "csdn"
+      username: "17681831400"  # CSDN用户名（手机号/邮箱/用户名）
+      password: "1245@qq.com"  # CSDN密码
+      enabled: true  # 是否启用此平台

@@ -1,7 +1,7 @@
 # coding=utf-8
 """
 创作模块入口
-用于创建和生成文本内容
+仅作为入口，真实功能在 create/index.py
 """
 
 import sys
@@ -11,26 +11,11 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# 导入模块的真实功能
+from create.index import main, generate_content
 
-def main():
-    """
-    创作功能主入口
-    后续将实现：
-    - 基于热点数据生成创作内容
-    - AI 辅助文本生成
-    - 内容优化和编辑
-    """
-    print("=" * 60)
-    print("📝 TrendRadar 创作模块")
-    print("=" * 60)
-    print("\n功能开发中...")
-    print("后续将支持：")
-    print("  • 基于热点数据生成创作内容")
-    print("  • AI 辅助文本生成")
-    print("  • 内容优化和编辑")
-    print("  • 多格式内容导出")
-    print("\n")
-
+# 导出函数供外部调用
+__all__ = ['main', 'generate_content']
 
 if __name__ == "__main__":
     main()
