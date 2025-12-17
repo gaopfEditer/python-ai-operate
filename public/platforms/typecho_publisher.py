@@ -84,11 +84,19 @@ class TypechoPublisher:
                 try:
                     self.driver = webdriver.Chrome(options=chrome_options)
                 except Exception as e:
-                    # 如果直接初始化失败，尝试指定Service
+                    # 如果直接初始化失败，尝试使用 webdriver-manager（如果已安装）
                     try:
                         from selenium.webdriver.chrome.service import Service
-                        service = Service()
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        try:
+                            from webdriver_manager.chrome import ChromeDriverManager
+                            service = Service(ChromeDriverManager().install())
+                            logger.info("使用 webdriver-manager 自动下载 ChromeDriver")
+                            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        except ImportError:
+                            # webdriver-manager 未安装，尝试使用默认 Service
+                            logger.info("webdriver-manager 未安装，尝试使用默认 Service")
+                            service = Service()
+                            self.driver = webdriver.Chrome(service=service, options=chrome_options)
                     except Exception as e2:
                         logger.error(f"尝试使用Service初始化也失败: {e2}")
                         raise e
@@ -101,9 +109,35 @@ class TypechoPublisher:
                 for var, value in saved_proxy.items():
                     os.environ[var] = value
         except Exception as e:
-            logger.error(f"浏览器驱动初始化失败: {e}")
+            error_msg = str(e)
+            error_type = type(e).__name__
+            
+            # 提供更详细的错误信息
+            detailed_error = f"浏览器驱动初始化失败 ({error_type}): {error_msg}"
+            
+            # 根据错误类型提供解决建议
+            suggestions = []
+            if "chromedriver" in error_msg.lower() or "driver" in error_msg.lower():
+                suggestions.append("请确保已安装 ChromeDriver，且版本与 Chrome 浏览器匹配")
+                suggestions.append("推荐解决方案: pip install webdriver-manager (会自动管理 ChromeDriver)")
+                suggestions.append("或者手动下载 ChromeDriver: https://chromedriver.chromium.org/")
+            if "chrome" in error_msg.lower() and ("not found" in error_msg.lower() or "path" in error_msg.lower()):
+                suggestions.append("请确保已安装 Google Chrome 浏览器")
+                suggestions.append("Chrome 浏览器下载: https://www.google.com/chrome/")
+            if "permission" in error_msg.lower() or "access" in error_msg.lower():
+                suggestions.append("请检查文件权限，确保有权限访问 Chrome 和 ChromeDriver")
+            if not suggestions:
+                suggestions.append("请检查 Chrome 浏览器和 ChromeDriver 是否正确安装")
+                suggestions.append("可以尝试运行: pip install webdriver-manager")
+            
+            logger.error(detailed_error)
+            if suggestions:
+                logger.error("可能的解决方案:")
+                for suggestion in suggestions:
+                    logger.error(f"  - {suggestion}")
+            
             import traceback
-            logger.error(traceback.format_exc())
+            logger.debug(traceback.format_exc())
             return False
     
     def _login(self) -> bool:
