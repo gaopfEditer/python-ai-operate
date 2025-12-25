@@ -154,9 +154,15 @@ class CreatePublishScheduler:
         else:
             # 2. 创建文章
             self.log(f"开始创建文章: {title}", "INFO")
+            if desc:
+                self.log(f"文章要求描述: {desc}", "INFO")
+                self.log("将根据标题和要求描述来组织文章内容", "INFO")
+            else:
+                self.log("未提供要求描述，将仅根据标题生成文章", "WARNING")
+            
             create_result = generate_article_by_topic(
                 topic=title,
-                requirements=desc,
+                requirements=desc if desc else "",  # 确保传递 desc，即使为空也传递空字符串
                 platform=platform,
                 content_type="技术文章",
                 word_count=word_count,
@@ -230,7 +236,23 @@ class CreatePublishScheduler:
                 self.log(f"文章发布成功: {title}", "SUCCESS")
                 result['success'] = True
             else:
-                self.log(f"文章发布失败: {publish_result.get('error', '未知错误')}", "ERROR")
+                # 提取错误信息：优先从顶层 error 字段获取，否则从 results 中提取
+                error_msg = publish_result.get('error', '')
+                
+                # 如果顶层没有错误信息，从 results 中提取
+                if not error_msg:
+                    error_messages = []
+                    for r in publish_result.get('results', []):
+                        if not r.get('success') and r.get('error'):
+                            platform_name = r.get('platform_name', r.get('platform', '未知平台'))
+                            error_messages.append(f"{platform_name}: {r.get('error')}")
+                    
+                    if error_messages:
+                        error_msg = "; ".join(error_messages)
+                    else:
+                        error_msg = '未知错误'
+                
+                self.log(f"文章发布失败: {error_msg}", "ERROR")
         
         return result
     
