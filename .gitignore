@@ -226,6 +226,10 @@ secrets/
 config.local.yaml
 config.local.yml
 
+# Telegram session files
+messages/*.session
+messages/*.session-journal
+
 # Docker
 .dockerignore
 
