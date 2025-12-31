@@ -5,6 +5,7 @@
 """
 
 import sys
+import io
 import re
 import logging
 import time
@@ -14,6 +15,14 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+
+# 设置标准输出编码为 UTF-8（Windows 兼容）
+if sys.platform == 'win32':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    except:
+        pass
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
@@ -69,13 +78,14 @@ class BlogReader:
             logger.error(f"获取网页失败 {url}: {e}")
             return None
     
-    def extract_article_links(self, soup: BeautifulSoup, limit: int = 20) -> List[Dict]:
+    def extract_article_links(self, soup: BeautifulSoup, limit: int = 20, try_archives: bool = True) -> List[Dict]:
         """
         从博客首页或列表页提取文章链接
         
         Args:
             soup: BeautifulSoup 对象
             limit: 最大提取数量
+            try_archives: 如果当前页面没找到文章，是否尝试访问 archives 页面
             
         Returns:
             文章链接列表，每个元素包含 title 和 url
@@ -134,7 +144,27 @@ class BlogReader:
                         continue
                     
                     # 过滤掉明显不是文章链接的 URL
-                    if any(skip in href.lower() for skip in ['#', 'javascript:', 'mailto:', '/tag/', '/category/', '/author/', '/page/']):
+                    skip_patterns = ['#', 'javascript:', 'mailto:', '/tag/', '/category/', '/author/', 
+                                   '/page/', '/charts/', '/link/', '/comment/', '/shuoshuo/', 
+                                   '/subscribe/', '/statement/', '/info/', '/about/', '/devices/', 
+                                   '/rewards/', '/addlink/', '/fcircle/', '/archives/']
+                    if any(skip in href.lower() for skip in skip_patterns):
+                        continue
+                    
+                    # 优先识别文章链接模式（Hexo 风格：/posts/xxxxx/）
+                    is_article = False
+                    if '/posts/' in href and href.count('/') >= 3:
+                        is_article = True
+                    elif '/post/' in href and href.count('/') >= 3:
+                        is_article = True
+                    elif re.search(r'/\d{4}/\d{2}/\d{2}/', href):  # 日期格式
+                        is_article = True
+                    elif href.startswith('/') and len(href) > 5 and any(char.isdigit() for char in href):
+                        # 包含数字的路径可能是文章
+                        is_article = True
+                    
+                    # 如果不是明确的文章链接，跳过
+                    if not is_article and href.startswith('/') and len(href) <= 10:
                         continue
                     
                     articles.append({
@@ -167,11 +197,25 @@ class BlogReader:
                         continue
                     
                     # 更严格的过滤
-                    if any(skip in href.lower() for skip in ['#', 'javascript:', 'mailto:', '/tag/', '/category/', '/author/', '/page/', '/search', '/login', '/register']):
+                    skip_patterns = ['#', 'javascript:', 'mailto:', '/tag/', '/category/', '/author/', 
+                                   '/page/', '/search', '/login', '/register', '/charts/', '/link/', 
+                                   '/comment/', '/shuoshuo/', '/subscribe/', '/statement/', '/info/', 
+                                   '/about/', '/devices/', '/rewards/', '/addlink/', '/fcircle/', '/archives/']
+                    if any(skip in href.lower() for skip in skip_patterns):
                         continue
                     
-                    # 检查是否可能是文章链接（包含日期、数字等）
-                    if re.search(r'/\d{4}/|/\d+/|\.html|\.php|/post/', href):
+                    # 检查是否可能是文章链接
+                    is_article = False
+                    if '/posts/' in href or '/post/' in href:
+                        is_article = True
+                    elif re.search(r'/\d{4}/\d{2}/\d{2}/', href):  # 日期格式
+                        is_article = True
+                    elif re.search(r'/\d{4}/|/\d+/|\.html|\.php', href):
+                        is_article = True
+                    elif href.startswith('/') and len(href) > 5 and any(char.isdigit() for char in href):
+                        is_article = True
+                    
+                    if is_article:
                         articles.append({
                             'title': title,
                             'url': href
@@ -179,6 +223,21 @@ class BlogReader:
                         seen_urls.add(href)
             except Exception as e:
                 logger.debug(f"通用链接提取失败: {e}")
+        
+        # 如果当前页面没有找到文章，尝试访问 archives 页面
+        if not articles and try_archives:
+            try:
+                archives_url = urljoin(self.base_url, '/archives/')
+                logger.info(f"当前页面未找到文章，尝试访问: {archives_url}")
+                archives_soup = self.fetch_page(archives_url)
+                if archives_soup:
+                    # 递归调用自己，但不再尝试 archives（避免无限递归）
+                    archives_articles = self.extract_article_links(archives_soup, limit=limit, try_archives=False)
+                    if archives_articles:
+                        articles = archives_articles
+                        logger.info(f"从 archives 页面提取到 {len(articles)} 篇文章")
+            except Exception as e:
+                logger.debug(f"访问 archives 页面失败: {e}")
         
         logger.info(f"提取到 {len(articles)} 篇文章链接")
         return articles[:limit]
