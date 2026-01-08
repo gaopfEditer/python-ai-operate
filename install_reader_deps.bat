@@ -11,3 +11,12 @@ echo 例如: .\trendradar-mcp\Scripts\activate
 
 pause
 
+
+
+
+
+
+
+
+
+
