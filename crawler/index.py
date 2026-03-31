@@ -18,6 +18,9 @@ from typing import Dict, List, Tuple, Optional, Union
 import pytz
 import requests
 import yaml
+from selenium import webdriver
+from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.common.by import By
 
 
 VERSION = "3.5.0"
@@ -172,6 +175,7 @@ def load_config():
     print(f"配置文件加载成功: {config_path}")
 
     # 构建配置
+    x_cdp_config = config_data.get("crawler", {}).get("x_cdp", {})
     config = {
         "VERSION_CHECK_URL": config_data["app"]["version_check_url"],
         "SHOW_VERSION_UPDATE": config_data["app"]["show_version_update"],
@@ -255,6 +259,21 @@ def load_config():
             "HOTNESS_WEIGHT": config_data["weight"]["hotness_weight"],
         },
         "PLATFORMS": config_data["platforms"],
+        "X_CDP": {
+            "ENABLED": bool(x_cdp_config.get("enabled", False)),
+            "DEBUGGER_URL": str(x_cdp_config.get("debugger_url", "127.0.0.1:9222")),
+            "FOLLOWING_URL": str(x_cdp_config.get("following_url", "https://x.com/home?filter=following")),
+            "FOR_YOU_URL": str(x_cdp_config.get("for_you_url", "https://x.com/home")),
+            "HOT_URL": str(x_cdp_config.get("hot_url", "https://x.com/explore/tabs/trending")),
+            "REC_URL": str(x_cdp_config.get("rec_url", "https://x.com/home")),  # 向后兼容
+            "TARGET_FOLLOWING_COUNT": int(x_cdp_config.get("target_following_count", 20)),
+            "TARGET_FOR_YOU_COUNT": int(x_cdp_config.get("target_for_you_count", 15)),
+            "TARGET_HOT_COUNT": int(x_cdp_config.get("target_hot_count", 5)),
+            "TARGET_REC_COUNT": int(x_cdp_config.get("target_rec_count", 15)),  # 向后兼容
+            "MAX_SCROLL_ROUNDS": int(x_cdp_config.get("max_scroll_rounds", 25)),
+            "SCROLL_STEP": int(x_cdp_config.get("scroll_step", 1200)),
+            "WAIT_MS": int(x_cdp_config.get("wait_ms", 2000)),
+        },
     }
 
     # 通知渠道配置（环境变量优先）
@@ -619,6 +638,139 @@ class DataFetcher:
 
     def __init__(self, proxy_url: Optional[str] = None):
         self.proxy_url = proxy_url
+        self._x_driver = None
+
+    def _get_x_driver(self):
+        """连接已启动的 Chrome CDP 调试端口。"""
+        if self._x_driver is not None:
+            return self._x_driver
+
+        x_cfg = CONFIG.get("X_CDP", {})
+        debugger_url = x_cfg.get("DEBUGGER_URL", "127.0.0.1:9222")
+        options = webdriver.ChromeOptions()
+        options.add_experimental_option("debuggerAddress", debugger_url)
+        self._x_driver = webdriver.Chrome(options=options)
+        return self._x_driver
+
+    @staticmethod
+    def _extract_tweet_id(status_url: str) -> str:
+        match = re.search(r"/status/(\d+)", status_url or "")
+        return match.group(1) if match else ""
+
+    def _collect_x_tweets(
+        self,
+        page_url: str,
+        label: str,
+        target_count: int,
+        seen_ids: set,
+    ) -> List[Dict]:
+        """滚动页面抓取推文，按 tweet_id 去重。"""
+        x_cfg = CONFIG.get("X_CDP", {})
+        max_rounds = max(1, int(x_cfg.get("MAX_SCROLL_ROUNDS", 25)))
+        scroll_step = max(300, int(x_cfg.get("SCROLL_STEP", 1200)))
+        wait_ms = max(500, int(x_cfg.get("WAIT_MS", 2000)))
+
+        driver = self._get_x_driver()
+        driver.get(page_url)
+        time.sleep(wait_ms / 1000)
+
+        collected = []
+        for _ in range(max_rounds):
+            articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+            for article in articles:
+                links = article.find_elements(By.CSS_SELECTOR, "a[href*='/status/']")
+                status_url = ""
+                for a in links:
+                    href = (a.get_attribute("href") or "").strip()
+                    if "/status/" in href:
+                        status_url = href
+                        break
+                if not status_url:
+                    continue
+
+                tweet_id = self._extract_tweet_id(status_url)
+                if not tweet_id or tweet_id in seen_ids:
+                    continue
+
+                text_nodes = article.find_elements(By.CSS_SELECTOR, "[data-testid='tweetText']")
+                text = " ".join(
+                    n.text.strip() for n in text_nodes if n.text and n.text.strip()
+                ).strip()
+                if not text:
+                    continue
+
+                user_nodes = article.find_elements(By.CSS_SELECTOR, "a[role='link'] span")
+                author = ""
+                for node in user_nodes:
+                    t = (node.text or "").strip()
+                    if t.startswith("@"):
+                        author = t
+                        break
+
+                seen_ids.add(tweet_id)
+                collected.append(
+                    {
+                        "tweet_id": tweet_id,
+                        "title": text[:280],
+                        "url": status_url,
+                        "mobileUrl": status_url,
+                        "author": author,
+                        "category": label,
+                    }
+                )
+                if len(collected) >= target_count:
+                    break
+
+            if len(collected) >= target_count:
+                break
+
+            driver.execute_script(f"window.scrollBy(0, {scroll_step});")
+            time.sleep(wait_ms / 1000)
+
+        return collected
+
+    def fetch_x_cdp_data(self) -> Tuple[Dict[str, Dict], str]:
+        """
+        从 X.com 通过 CDP 抓取 Following / For You / Trending，返回与现有结果兼容的数据结构。
+        """
+        x_cfg = CONFIG.get("X_CDP", {})
+        if not x_cfg.get("ENABLED", False):
+            raise ValueError("X CDP 抓取未启用，请在 config.yaml 中开启 crawler.x_cdp.enabled")
+
+        following_url = x_cfg.get("FOLLOWING_URL", "https://x.com/home?filter=following")
+        for_you_url = x_cfg.get("FOR_YOU_URL", x_cfg.get("REC_URL", "https://x.com/home"))
+        hot_url = x_cfg.get("HOT_URL", "https://x.com/explore/tabs/trending")
+
+        target_following = max(1, int(x_cfg.get("TARGET_FOLLOWING_COUNT", 20)))
+        target_for_you = max(1, int(x_cfg.get("TARGET_FOR_YOU_COUNT", x_cfg.get("TARGET_REC_COUNT", 15))))
+        target_hot = max(1, int(x_cfg.get("TARGET_HOT_COUNT", 5)))
+
+        seen_ids = set()
+        following_items = self._collect_x_tweets(
+            following_url, "following", target_following, seen_ids
+        )
+        for_you_items = self._collect_x_tweets(
+            for_you_url, "for_you", target_for_you, seen_ids
+        )
+        hot_items = self._collect_x_tweets(hot_url, "hot", target_hot, seen_ids)
+        all_items = following_items + for_you_items + hot_items
+
+        merged = {}
+        for idx, item in enumerate(all_items, 1):
+            title = item["title"]
+            if title in merged:
+                merged[title]["ranks"].append(idx)
+                continue
+            merged[title] = {
+                "ranks": [idx],
+                "url": item["url"],
+                "mobileUrl": item["mobileUrl"],
+            }
+
+        print(
+            f"X CDP 抓取完成：关注 {len(following_items)} 条，推荐 {len(for_you_items)} 条，热门 {len(hot_items)} 条"
+        )
+        return merged, "X.com(CDP)"
 
     def fetch_data(
         self,
@@ -698,6 +850,20 @@ class DataFetcher:
                 name = id_value
 
             id_to_name[id_value] = name
+            if id_value == "x-cdp":
+                try:
+                    x_data, x_name = self.fetch_x_cdp_data()
+                    id_to_name[id_value] = x_name
+                    results[id_value] = x_data
+                except (ValueError, WebDriverException, Exception) as e:
+                    print(f"抓取 {id_value} 失败: {e}")
+                    failed_ids.append(id_value)
+                if i < len(ids_list) - 1:
+                    actual_interval = request_interval + random.randint(-10, 20)
+                    actual_interval = max(50, actual_interval)
+                    time.sleep(actual_interval / 1000)
+                continue
+
             response, _, _ = self.fetch_data(id_info)
 
             if response:

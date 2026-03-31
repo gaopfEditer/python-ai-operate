@@ -19,6 +19,32 @@ crawler:
   enable_crawler: true # 是否启用爬取新闻功能，如果 false，则直接停止程序
   use_proxy: false # 是否启用代理，false 时为关闭
   default_proxy: "http://127.0.0.1:10086"
+  # X.com CDP 抓取（可选）
+  # 使用前先启动 Chrome：
+  #   chrome.exe --remote-debugging-port=9222 --user-data-dir="D:\chrome-cdp-profile"
+  # 并在 platforms 中添加:
+  #   - id: "x-cdp"
+  #     name: "X 热门推荐"
+  x_cdp:
+    enabled: true
+    debugger_url: "127.0.0.1:9222"
+    # 关注流（核心信息源）
+    following_url: "https://x.com/home?filter=following"
+    # 推荐流（For You）
+    for_you_url: "https://x.com/home"
+    # 热门榜（Trending）
+    hot_url: "https://x.com/explore/tabs/trending"
+    # 向后兼容旧字段：rec_url 等价于 for_you_url
+    rec_url: "https://x.com/home"
+    # 建议采样量
+    target_following_count: 20
+    target_for_you_count: 15
+    target_hot_count: 5
+    # 向后兼容旧字段：target_rec_count 等价于 target_for_you_count
+    target_rec_count: 15
+    max_scroll_rounds: 25
+    scroll_step: 1200
+    wait_ms: 2000
 
 # 🔸 daily（当日汇总模式）
 #   • 推送时机：按时推送(默认每小时推送一次)
@@ -127,28 +153,30 @@ weight:
 
 # name 可以定义任意名称，只具有显示作用，即使项目运行了几天后，忽然改掉 name 也不会影响代码的正常运行
 platforms:
-  - id: "toutiao"
-    name: "今日头条"
-  - id: "baidu"
-    name: "百度热搜"
-  - id: "wallstreetcn-hot"
-    name: "华尔街见闻"
-  - id: "thepaper"
-    name: "澎湃新闻"
-  - id: "bilibili-hot-search"
-    name: "bilibili 热搜"
-  - id: "cls-hot"
-    name: "财联社热门"
-  - id: "ifeng"
-    name: "凤凰网"
-  - id: "tieba"
-    name: "贴吧"
-  - id: "weibo"
-    name: "微博"
-  - id: "douyin"
-    name: "抖音"
-  - id: "zhihu"
-    name: "知乎"
+  # - id: "toutiao"
+  #   name: "今日头条"
+  # - id: "baidu"
+  #   name: "百度热搜"
+  # - id: "wallstreetcn-hot"
+  #   name: "华尔街见闻"
+  # - id: "thepaper"
+  #   name: "澎湃新闻"
+  # - id: "bilibili-hot-search"
+  #   name: "bilibili 热搜"
+  # - id: "cls-hot"
+  #   name: "财联社热门"
+  # - id: "ifeng"
+  #   name: "凤凰网"
+  # - id: "tieba"
+  #   name: "贴吧"
+  # - id: "weibo"
+  #   name: "微博"
+  # - id: "douyin"
+  #   name: "抖音"
+  # - id: "zhihu"
+  #   name: "知乎"
+  - id: "x-cdp"
+    name: "X 热门推荐"
 
 # 发布平台配置
 publish:
