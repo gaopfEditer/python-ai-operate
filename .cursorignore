@@ -1,0 +1,64 @@
+﻿# Cursor 索引/搜索排除（不影响 Git；与 .gitignore 可并存）
+# 目标：减少噪音、加快语义搜索与补全，优先索引业务代码与配置
+
+# ---------- 生成物与运行时数据 ----------
+output/
+**/.push_records/
+logs/
+tmp/
+temp/
+
+# 根目录常见生成页（爬虫/汇总会写入）
+/index.html
+
+# ---------- Python ----------
+**/__pycache__/
+**/*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.hypothesis/
+
+# ---------- 依赖与锁文件（体积大、对改代码帮助小）----------
+node_modules/
+uv.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ---------- 环境与密钥（避免误入上下文）----------
+.env
+.env.*
+!.env.example
+
+# ---------- Git / IDE ----------
+.git/
+.idea/
+*.iml
+
+# ---------- 媒体与二进制 ----------
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ico
+*.pdf
+*.zip
+*.tar
+*.gz
+
+# ---------- 超长文档（需要全库搜文档时删掉下面几行）----------
+# 根目录 README 往往数千行，易占满上下文
+/README.md
+/README-*.md
