@@ -19,7 +19,7 @@ import pytz
 import requests
 import yaml
 from selenium import webdriver
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import WebDriverException, StaleElementReferenceException
 from selenium.webdriver.common.by import By
 
 
@@ -652,6 +652,66 @@ class DataFetcher:
         self._x_driver = webdriver.Chrome(options=options)
         return self._x_driver
 
+    def _reset_x_driver(self):
+        """重置 CDP driver，用于连接被远端关闭时恢复。"""
+        try:
+            if self._x_driver is not None:
+                self._x_driver.quit()
+        except Exception:
+            pass
+        self._x_driver = None
+
+    @staticmethod
+    def _jitter_sleep(base_ms: int, jitter_ratio: float = 0.35):
+        """增加随机抖动等待，降低固定节奏触发风控概率。"""
+        base_ms = max(300, int(base_ms))
+        jitter = int(base_ms * jitter_ratio)
+        delay_ms = max(200, base_ms + random.randint(-jitter, jitter))
+        time.sleep(delay_ms / 1000)
+
+    @staticmethod
+    def _safe_text(element) -> str:
+        """安全读取元素文本，避免页面刷新/节点失效导致中断。"""
+        try:
+            txt = element.text
+            return txt.strip() if txt else ""
+        except (StaleElementReferenceException, WebDriverException):
+            return ""
+
+    def _try_click_x_tab(self, driver, page_url: str):
+        """进入页面后尝试点击目标 tab，提升命中率与页面稳定性。"""
+        click_patterns = []
+        if "filter=following" in page_url:
+            click_patterns = [
+                "a[href*='filter=following']",
+                "a[href='/home?filter=following']",
+            ]
+        elif "/home" in page_url:
+            click_patterns = [
+                "a[href='/home']",
+                "a[href*='/home']",
+            ]
+        elif "/explore" in page_url:
+            click_patterns = [
+                "a[href*='/explore/tabs/trending']",
+                "a[href='/explore']",
+            ]
+
+        for selector in click_patterns:
+            try:
+                candidates = driver.find_elements(By.CSS_SELECTOR, selector)
+                if not candidates:
+                    continue
+                for el in candidates[:2]:
+                    try:
+                        driver.execute_script("arguments[0].click();", el)
+                        self._jitter_sleep(900, 0.4)
+                        return
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
     @staticmethod
     def _extract_tweet_id(status_url: str) -> str:
         match = re.search(r"/status/(\d+)", status_url or "")
@@ -671,17 +731,41 @@ class DataFetcher:
         wait_ms = max(500, int(x_cfg.get("WAIT_MS", 2000)))
 
         driver = self._get_x_driver()
-        driver.get(page_url)
-        time.sleep(wait_ms / 1000)
+        try:
+            driver.get(page_url)
+        except WebDriverException as e:
+            print(f"X 页面打开失败，尝试重连 CDP: {e}")
+            self._reset_x_driver()
+            driver = self._get_x_driver()
+            driver.get(page_url)
+
+        self._jitter_sleep(wait_ms, 0.45)
+        self._try_click_x_tab(driver, page_url)
 
         collected = []
-        for _ in range(max_rounds):
-            articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+        for _round in range(max_rounds):
+            try:
+                articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+            except WebDriverException as e:
+                print(f"X 抓取中断，重连后继续: {e}")
+                self._reset_x_driver()
+                driver = self._get_x_driver()
+                driver.get(page_url)
+                self._jitter_sleep(wait_ms, 0.5)
+                self._try_click_x_tab(driver, page_url)
+                articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+
             for article in articles:
-                links = article.find_elements(By.CSS_SELECTOR, "a[href*='/status/']")
+                try:
+                    links = article.find_elements(By.CSS_SELECTOR, "a[href*='/status/']")
+                except (StaleElementReferenceException, WebDriverException):
+                    continue
                 status_url = ""
                 for a in links:
-                    href = (a.get_attribute("href") or "").strip()
+                    try:
+                        href = (a.get_attribute("href") or "").strip()
+                    except (StaleElementReferenceException, WebDriverException):
+                        continue
                     if "/status/" in href:
                         status_url = href
                         break
@@ -692,17 +776,23 @@ class DataFetcher:
                 if not tweet_id or tweet_id in seen_ids:
                     continue
 
-                text_nodes = article.find_elements(By.CSS_SELECTOR, "[data-testid='tweetText']")
+                try:
+                    text_nodes = article.find_elements(By.CSS_SELECTOR, "[data-testid='tweetText']")
+                except (StaleElementReferenceException, WebDriverException):
+                    continue
                 text = " ".join(
-                    n.text.strip() for n in text_nodes if n.text and n.text.strip()
+                    self._safe_text(n) for n in text_nodes if self._safe_text(n)
                 ).strip()
                 if not text:
                     continue
 
-                user_nodes = article.find_elements(By.CSS_SELECTOR, "a[role='link'] span")
+                try:
+                    user_nodes = article.find_elements(By.CSS_SELECTOR, "a[role='link'] span")
+                except (StaleElementReferenceException, WebDriverException):
+                    user_nodes = []
                 author = ""
                 for node in user_nodes:
-                    t = (node.text or "").strip()
+                    t = self._safe_text(node)
                     if t.startswith("@"):
                         author = t
                         break
@@ -724,8 +814,17 @@ class DataFetcher:
             if len(collected) >= target_count:
                 break
 
-            driver.execute_script(f"window.scrollBy(0, {scroll_step});")
-            time.sleep(wait_ms / 1000)
+            try:
+                # 人类化滚动：随机步长 + 随机停顿
+                step = max(300, int(scroll_step + random.randint(-250, 350)))
+                driver.execute_script(f"window.scrollBy(0, {step});")
+            except WebDriverException:
+                break
+            self._jitter_sleep(wait_ms, 0.5)
+
+            # 每几轮轻量点击一次页面，降低失焦导致的加载停滞
+            if _round % 4 == 3:
+                self._try_click_x_tab(driver, page_url)
 
         return collected
 
