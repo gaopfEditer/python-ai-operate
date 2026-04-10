@@ -5444,6 +5444,4 @@ def main():
         print(f"❌ 程序运行错误: {e}")
         raise
 
-
-if __name__ == "__main__":
-    main()
+# 不再在此处 if __name__ 调用 main：顶部已执行 crawler.index.main，避免重复运行。
