@@ -864,6 +864,8 @@ class DataFetcher:
                 "ranks": [idx],
                 "url": item["url"],
                 "mobileUrl": item["mobileUrl"],
+                "author": item.get("author", ""),
+                "category": item.get("category", ""),
             }
 
         print(
@@ -980,12 +982,17 @@ class DataFetcher:
 
                         if title in results[id_value]:
                             results[id_value][title]["ranks"].append(index)
+                            _merge_item_metadata_into_entry(
+                                results[id_value][title], item
+                            )
                         else:
-                            results[id_value][title] = {
+                            entry = {
                                 "ranks": [index],
                                 "url": url,
                                 "mobileUrl": mobile_url,
                             }
+                            _merge_item_metadata_into_entry(entry, item)
+                            results[id_value][title] = entry
                 except json.JSONDecodeError:
                     print(f"解析 {id_value} 响应失败")
                     failed_ids.append(id_value)
@@ -1004,10 +1011,113 @@ class DataFetcher:
         return results, id_to_name, failed_ids
 
 
+def _merge_item_metadata_into_entry(entry: Dict, item: Dict) -> None:
+    """将 API item 中的额外字段（发布时间、作者等）合并到条目，不覆盖已有非空值。"""
+    skip = {"title", "url", "mobileUrl"}
+    for k, v in item.items():
+        if k in skip or v is None:
+            continue
+        if k not in entry:
+            entry[k] = v
+        elif isinstance(entry[k], str) and not str(entry[k]).strip() and v:
+            entry[k] = v
+
+
+def _post_state_key(href: str, platform_id: str, rank: int, cleaned_title: str) -> str:
+    """posts 下每条帖子的键：优先使用链接，否则用稳定占位键。"""
+    if href:
+        return href
+    safe = cleaned_title.replace("\n", " ").strip()[:200]
+    return f"__no_href__:{platform_id}:{rank}:{hash(safe) & 0xFFFFFFFF}"
+
+
+def _build_post_state_entry(
+    title: str, info: Dict, cleaned_title: str, rank: int
+) -> Dict:
+    """从单条榜单数据构造 trendradar_posts_state 中的帖子对象。"""
+    if not isinstance(info, dict):
+        info = {}
+    url = (info.get("url") or "").strip()
+    mobile_url = (info.get("mobileUrl") or "").strip()
+    href = url or mobile_url
+
+    def pick(*keys):
+        for k in keys:
+            v = info.get(k)
+            if v is not None and str(v).strip() != "":
+                return v
+        return ""
+
+    published_at = pick(
+        "published_at",
+        "publishedAt",
+        "pub_time",
+        "pubTime",
+        "publishTime",
+        "publish_time",
+    )
+    published_iso = pick("published_iso", "publishedIso", "isoDate")
+    time_label = pick("time_label", "timeLabel", "relativeTime", "timeAgo")
+    raw = pick("raw", "text", "content", "summary")
+    if not raw:
+        raw = title
+    author = pick("author", "user", "username", "name")
+
+    pinned = info.get("is_pinned")
+    if pinned is None:
+        pinned = info.get("isPinned")
+    if pinned is None:
+        pinned = info.get("pinned")
+    is_pinned = bool(pinned) if pinned is not None else False
+
+    entry: Dict = {
+        "href": href,
+        "published_at": published_at,
+        "published_iso": published_iso if isinstance(published_iso, str) else str(published_iso or ""),
+        "time_label": time_label,
+        "is_pinned": is_pinned,
+        "title": cleaned_title,
+        "raw": raw if isinstance(raw, str) else str(raw),
+        "author": author if isinstance(author, str) else str(author or ""),
+        "rank": rank,
+    }
+    if mobile_url and mobile_url != url:
+        entry["mobile_href"] = mobile_url
+
+    internal = {
+        "ranks",
+        "url",
+        "mobileUrl",
+        "published_at",
+        "publishedAt",
+        "published_iso",
+        "publishedIso",
+        "time_label",
+        "timeLabel",
+        "is_pinned",
+        "isPinned",
+        "pinned",
+        "raw",
+        "author",
+        "mobile_href",
+        "rank",
+    }
+    for k, v in info.items():
+        if k in internal or k.startswith("_"):
+            continue
+        if k not in entry:
+            entry[k] = v
+    return entry
+
+
 # === 数据处理 ===
 def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> str:
-    """保存标题到文件"""
+    """保存标题到文件，并同步写入 trendradar_posts_state.json 至 output 根目录与当日 output/日期/txt/。"""
     file_path = get_output_path("txt", f"{format_time_filename()}.txt")
+    state_path = get_output_path("txt", "trendradar_posts_state.json")
+    ensure_directory_exists("output")
+    state_path_root = str(Path("output") / "trendradar_posts_state.json")
+    posts_by_platform: Dict[str, Dict] = {}
 
     with open(file_path, "w", encoding="utf-8") as f:
         for id_value, title_data in results.items():
@@ -1017,6 +1127,10 @@ def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> st
                 f.write(f"{id_value} | {name}\n")
             else:
                 f.write(f"{id_value}\n")
+
+            platform_key = str(id_value)
+            if platform_key not in posts_by_platform:
+                posts_by_platform[platform_key] = {}
 
             # 按排名排序标题
             sorted_titles = []
@@ -1032,11 +1146,11 @@ def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> st
                     mobile_url = ""
 
                 rank = ranks[0] if ranks else 1
-                sorted_titles.append((rank, cleaned_title, url, mobile_url))
+                sorted_titles.append((rank, cleaned_title, url, mobile_url, title, info))
 
             sorted_titles.sort(key=lambda x: x[0])
 
-            for rank, cleaned_title, url, mobile_url in sorted_titles:
+            for rank, cleaned_title, url, mobile_url, raw_title, info in sorted_titles:
                 line = f"{rank}. {cleaned_title}"
 
                 if url:
@@ -1045,12 +1159,40 @@ def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> st
                     line += f" [MOBILE:{mobile_url}]"
                 f.write(line + "\n")
 
+                if isinstance(info, dict):
+                    post_entry = _build_post_state_entry(
+                        raw_title, info, cleaned_title, rank
+                    )
+                else:
+                    post_entry = _build_post_state_entry(
+                        raw_title, {}, cleaned_title, rank
+                    )
+                href = (url or mobile_url).strip()
+                pk = _post_state_key(href, platform_key, rank, cleaned_title)
+                posts_by_platform[platform_key][pk] = post_entry
+
             f.write("\n")
 
         if failed_ids:
             f.write("==== 以下ID请求失败 ====\n")
             for id_value in failed_ids:
                 f.write(f"{id_value}\n")
+
+    state_obj = {
+        "version": 1,
+        "generated_at": get_beijing_time().strftime("%Y-%m-%d %H:%M:%S 北京时间"),
+        "platform_labels": {str(k): v for k, v in id_to_name.items()},
+        "posts": posts_by_platform,
+    }
+    if failed_ids:
+        state_obj["failed_platform_ids"] = [str(x) for x in failed_ids]
+
+    state_json = json.dumps(state_obj, ensure_ascii=False, indent=2)
+    with open(state_path, "w", encoding="utf-8") as jf:
+        jf.write(state_json)
+    with open(state_path_root, "w", encoding="utf-8") as jf:
+        jf.write(state_json)
+    print(f"帖子状态已保存到: {state_path_root}（output 根目录）与 {state_path}（当日目录）")
 
     return file_path
 
