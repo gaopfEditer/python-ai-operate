@@ -36,10 +36,12 @@ crawler:
     hot_url: "https://x.com/explore/tabs/trending"
     # 向后兼容旧字段：rec_url 等价于 for_you_url
     rec_url: "https://x.com/home"
-    # 建议采样量
+    # 建议采样量（各流单独上限；三流共用推文 ID 去重，实际合计常小于三者之和）
     target_following_count: 20
     target_for_you_count: 15
     target_hot_count: 5
+    # 三流抓完后若去重合计仍不足此数量，会在「推荐流」上继续滚动补抓（0 表示不补抓）
+    min_unique_total: 12
     # 向后兼容旧字段：target_rec_count 等价于 target_for_you_count
     target_rec_count: 15
     max_scroll_rounds: 25

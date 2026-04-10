@@ -273,6 +273,7 @@ def load_config():
             "MAX_SCROLL_ROUNDS": int(x_cdp_config.get("max_scroll_rounds", 25)),
             "SCROLL_STEP": int(x_cdp_config.get("scroll_step", 1200)),
             "WAIT_MS": int(x_cdp_config.get("wait_ms", 2000)),
+            "MIN_UNIQUE_TOTAL": int(x_cdp_config.get("min_unique_total", 0)),
         },
     }
 
@@ -854,6 +855,20 @@ class DataFetcher:
         hot_items = self._collect_x_tweets(hot_url, "hot", target_hot, seen_ids)
         all_items = following_items + for_you_items + hot_items
 
+        min_unique = max(0, int(x_cfg.get("MIN_UNIQUE_TOTAL", 0)))
+        if min_unique > 0 and len(all_items) < min_unique:
+            need = min_unique - len(all_items)
+            # 多抓一些：无正文/解析失败会丢条，标题合并也会减少键数量
+            buffer = max(4, min_unique // 3)
+            print(
+                f"X CDP 去重后仅 {len(all_items)} 条，低于 min_unique_total={min_unique}，"
+                f"在推荐流补抓约 {need + buffer} 条…"
+            )
+            extra = self._collect_x_tweets(
+                for_you_url, "for_you_topup", need + buffer, seen_ids
+            )
+            all_items.extend(extra)
+
         merged = {}
         for idx, item in enumerate(all_items, 1):
             title = item["title"]
@@ -869,8 +884,15 @@ class DataFetcher:
             }
 
         print(
-            f"X CDP 抓取完成：关注 {len(following_items)} 条，推荐 {len(for_you_items)} 条，热门 {len(hot_items)} 条"
+            f"X CDP 抓取完成：关注 {len(following_items)} 条，推荐 {len(for_you_items)} 条，"
+            f"热门 {len(hot_items)} 条；推文 ID 去重后合计 {len(all_items)} 条"
         )
+        if len(merged) != len(all_items):
+            print(
+                f"X CDP 按标题合并后 {len(merged)} 条（有 {len(all_items) - len(merged)} 条标题与其他推文完全相同）"
+            )
+        else:
+            print(f"X CDP 按标题合并后 {len(merged)} 条（与去重条数一致）")
         return merged, "X.com(CDP)"
 
     def fetch_data(
