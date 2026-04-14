@@ -1077,8 +1077,28 @@ def _post_state_key(href: str, platform_id: str, rank: int, cleaned_title: str) 
     return f"__no_href__:{platform_id}:{rank}:{hash(safe) & 0xFFFFFFFF}"
 
 
+def _extract_time_from_html_tag(value: Union[str, object]) -> Tuple[str, str]:
+    """从 <time datetime="...">label</time> 提取 ISO 时间与展示文案。"""
+    if value is None:
+        return "", ""
+    text = value if isinstance(value, str) else str(value)
+    if "<time" not in text:
+        return "", ""
+    match = re.search(
+        r"<time\b[^>]*\bdatetime=(['\"])(.*?)\1[^>]*>(.*?)</time>",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return "", ""
+    published_iso = (match.group(2) or "").strip()
+    label_raw = re.sub(r"<[^>]+>", "", match.group(3) or "")
+    time_label = re.sub(r"\s+", " ", label_raw).strip()
+    return published_iso, time_label
+
+
 def _build_post_state_entry(
-    title: str, info: Dict, cleaned_title: str, rank: int
+    title: str, info: Dict, cleaned_title: str, rank: int, fetched_at: str = ""
 ) -> Dict:
     """从单条榜单数据构造 trendradar_posts_state 中的帖子对象。"""
     if not isinstance(info, dict):
@@ -1116,8 +1136,31 @@ def _build_post_state_entry(
         pinned = info.get("pinned")
     is_pinned = bool(pinned) if pinned is not None else False
 
+    # 优先从 HTML time 标签里提取 datetime 与展示文本
+    tag_iso = ""
+    tag_label = ""
+    for candidate in (
+        published_at,
+        published_iso,
+        time_label,
+        raw,
+        info.get("html"),
+        info.get("time_html"),
+        info.get("published_html"),
+    ):
+        tag_iso, tag_label = _extract_time_from_html_tag(candidate)
+        if tag_iso or tag_label:
+            break
+    if not published_iso and tag_iso:
+        published_iso = tag_iso
+    if not published_at and tag_iso:
+        published_at = tag_iso
+    if not time_label and tag_label:
+        time_label = tag_label
+
     entry: Dict = {
         "href": href,
+        "fetched_at": fetched_at,
         "published_at": published_at,
         "published_iso": published_iso if isinstance(published_iso, str) else str(published_iso or ""),
         "time_label": time_label,
@@ -1134,6 +1177,7 @@ def _build_post_state_entry(
         "ranks",
         "url",
         "mobileUrl",
+        "fetched_at",
         "published_at",
         "publishedAt",
         "published_iso",
@@ -1164,6 +1208,7 @@ def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> st
     ensure_directory_exists("output")
     state_path_root = str(Path("output") / "trendradar_posts_state.json")
     posts_by_platform: Dict[str, Dict] = {}
+    fetched_at = get_beijing_time().strftime("%Y-%m-%d %H:%M:%S 北京时间")
 
     with open(file_path, "w", encoding="utf-8") as f:
         for id_value, title_data in results.items():
@@ -1207,11 +1252,11 @@ def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> st
 
                 if isinstance(info, dict):
                     post_entry = _build_post_state_entry(
-                        raw_title, info, cleaned_title, rank
+                        raw_title, info, cleaned_title, rank, fetched_at
                     )
                 else:
                     post_entry = _build_post_state_entry(
-                        raw_title, {}, cleaned_title, rank
+                        raw_title, {}, cleaned_title, rank, fetched_at
                     )
                 href = (url or mobile_url).strip()
                 pk = _post_state_key(href, platform_key, rank, cleaned_title)
