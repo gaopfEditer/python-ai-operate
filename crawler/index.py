@@ -785,6 +785,9 @@ class DataFetcher:
                     self._safe_text(n) for n in text_nodes if self._safe_text(n)
                 ).strip()
                 if not text:
+                    # 兜底：tweetText 节点偶发缺失时，用整条 article 文本降低漏抓概率
+                    text = clean_title(self._safe_text(article))
+                if not text:
                     continue
 
                 try:
@@ -855,25 +858,46 @@ class DataFetcher:
         hot_items = self._collect_x_tweets(hot_url, "hot", target_hot, seen_ids)
         all_items = following_items + for_you_items + hot_items
 
-        min_unique = max(0, int(x_cfg.get("MIN_UNIQUE_TOTAL", 0)))
-        if min_unique > 0 and len(all_items) < min_unique:
+        # 强制保底至少 5 条（可用 min_unique_total 配更高值）
+        min_unique = max(5, int(x_cfg.get("MIN_UNIQUE_TOTAL", 0)))
+        topup_attempt = 0
+        while len(all_items) < min_unique and topup_attempt < 3:
+            topup_attempt += 1
             need = min_unique - len(all_items)
             # 多抓一些：无正文/解析失败会丢条，标题合并也会减少键数量
             buffer = max(4, min_unique // 3)
+            target = need + buffer + (topup_attempt - 1) * 2
             print(
-                f"X CDP 去重后仅 {len(all_items)} 条，低于 min_unique_total={min_unique}，"
-                f"在推荐流补抓约 {need + buffer} 条…"
+                f"X CDP 去重后仅 {len(all_items)} 条，低于目标 {min_unique} 条，"
+                f"第 {topup_attempt}/3 次在推荐流补抓约 {target} 条…"
             )
             extra = self._collect_x_tweets(
-                for_you_url, "for_you_topup", need + buffer, seen_ids
+                for_you_url, f"for_you_topup_{topup_attempt}", target, seen_ids
             )
+            if not extra:
+                print("X CDP 补抓未获得新推文，本轮停止补抓")
+                break
             all_items.extend(extra)
 
         merged = {}
         for idx, item in enumerate(all_items, 1):
             title = item["title"]
             if title in merged:
-                merged[title]["ranks"].append(idx)
+                # 同标题但不同链接的帖子不要合并，否则结果条数会被压得过低
+                if merged[title].get("url") != item["url"]:
+                    tweet_tail = str(item.get("tweet_id", ""))[-6:] or str(idx)
+                    disamb_title = f"{title} [#{tweet_tail}]"
+                    while disamb_title in merged:
+                        disamb_title += "+"
+                    merged[disamb_title] = {
+                        "ranks": [idx],
+                        "url": item["url"],
+                        "mobileUrl": item["mobileUrl"],
+                        "author": item.get("author", ""),
+                        "category": item.get("category", ""),
+                    }
+                else:
+                    merged[title]["ranks"].append(idx)
                 continue
             merged[title] = {
                 "ranks": [idx],
