@@ -5876,21 +5876,17 @@ class NewsAnalyzer:
                 # daily模式：直接生成汇总报告并发送通知
                 summary_html = self._generate_summary_report(mode_strategy)
 
-        # 打开浏览器（仅在非容器环境）
-        if self._should_open_browser() and html_file:
-            if summary_html:
-                summary_url = "file://" + str(Path(summary_html).resolve())
-                print(f"正在打开汇总报告: {summary_url}")
-                webbrowser.open(summary_url)
-            else:
-                file_url = "file://" + str(Path(html_file).resolve())
-                print(f"正在打开HTML报告: {file_url}")
-                webbrowser.open(file_url)
-        elif self.is_docker_container and html_file:
+        # 不自动打开浏览器，仅输出报告路径
+        if self.is_docker_container and html_file:
             if summary_html:
                 print(f"汇总报告已生成（Docker环境）: {summary_html}")
             else:
                 print(f"HTML报告已生成（Docker环境）: {html_file}")
+        elif html_file:
+            if summary_html:
+                print(f"汇总报告已生成: {summary_html}")
+            else:
+                print(f"HTML报告已生成: {html_file}")
 
         return summary_html
 
