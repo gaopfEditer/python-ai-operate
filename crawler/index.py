@@ -13,7 +13,7 @@ from email.header import Header
 from email.utils import formataddr, formatdate, make_msgid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Tuple, Optional, Union, Set
 
 import pytz
 import requests
@@ -640,6 +640,7 @@ class DataFetcher:
     def __init__(self, proxy_url: Optional[str] = None):
         self.proxy_url = proxy_url
         self._x_driver = None
+        self._fetched_identity_cache: Dict[str, Set[str]] = {}
 
     def _get_x_driver(self):
         """连接已启动的 Chrome CDP 调试端口。"""
@@ -857,6 +858,19 @@ class DataFetcher:
         )
         hot_items = self._collect_x_tweets(hot_url, "hot", target_hot, seen_ids)
         all_items = following_items + for_you_items + hot_items
+        seen_cache = self._fetched_identity_cache.get("x-cdp", set())
+        if seen_cache:
+            filtered_items = []
+            skipped = 0
+            for item in all_items:
+                identity_keys = _build_item_identity_keys(item)
+                if identity_keys and identity_keys.intersection(seen_cache):
+                    skipped += 1
+                    continue
+                filtered_items.append(item)
+            all_items = filtered_items
+            if skipped:
+                print(f"X CDP 命中历史缓存，跳过 {skipped} 条已抓取推文")
 
         # 强制保底至少 5 条（可用 min_unique_total 配更高值）
         min_unique = max(5, int(x_cfg.get("MIN_UNIQUE_TOTAL", 0)))
@@ -988,6 +1002,7 @@ class DataFetcher:
         results = {}
         id_to_name = {}
         failed_ids = []
+        self._fetched_identity_cache = _load_fetched_identity_cache()
 
         for i, id_info in enumerate(ids_list):
             if isinstance(id_info, tuple):
@@ -1017,6 +1032,8 @@ class DataFetcher:
                 try:
                     data = json.loads(response)
                     results[id_value] = {}
+                    seen_cache = self._fetched_identity_cache.get(str(id_value), set())
+                    skipped_cached = 0
                     for index, item in enumerate(data.get("items", []), 1):
                         title = item.get("title")
                         # 跳过无效标题（None、float、空字符串）
@@ -1025,6 +1042,10 @@ class DataFetcher:
                         title = str(title).strip()
                         url = item.get("url", "")
                         mobile_url = item.get("mobileUrl", "")
+                        identity_keys = _build_item_identity_keys(item)
+                        if seen_cache and identity_keys and identity_keys.intersection(seen_cache):
+                            skipped_cached += 1
+                            continue
 
                         if title in results[id_value]:
                             results[id_value][title]["ranks"].append(index)
@@ -1039,6 +1060,8 @@ class DataFetcher:
                             }
                             _merge_item_metadata_into_entry(entry, item)
                             results[id_value][title] = entry
+                    if skipped_cached:
+                        print(f"{id_value} 命中历史缓存，跳过 {skipped_cached} 条已抓取文章")
                 except json.JSONDecodeError:
                     print(f"解析 {id_value} 响应失败")
                     failed_ids.append(id_value)
@@ -1075,6 +1098,226 @@ def _post_state_key(href: str, platform_id: str, rank: int, cleaned_title: str) 
         return href
     safe = cleaned_title.replace("\n", " ").strip()[:200]
     return f"__no_href__:{platform_id}:{rank}:{hash(safe) & 0xFFFFFFFF}"
+
+
+def _load_trendradar_posts_state_file(path: str) -> Optional[Dict]:
+    """读取已存在的 trendradar_posts_state.json，失败则返回 None。"""
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"读取帖子状态文件失败 {path}: {e}")
+        return None
+
+
+def _build_item_identity_keys(item: Dict) -> Set[str]:
+    """从条目中提取可稳定识别的键（url/mobileUrl/常见 id 字段）。"""
+    keys: Set[str] = set()
+    if not isinstance(item, dict):
+        return keys
+
+    def add(v):
+        if v is None:
+            return
+        s = str(v).strip()
+        if s:
+            keys.add(s)
+
+    for field in (
+        "url",
+        "mobileUrl",
+        "href",
+        "mobile_href",
+        "id",
+        "post_id",
+        "postId",
+        "tweet_id",
+        "tweetId",
+        "article_id",
+        "articleId",
+    ):
+        add(item.get(field))
+    return keys
+
+
+def _load_fetched_identity_cache() -> Dict[str, Set[str]]:
+    """从历史状态文件构建已抓取身份缓存，按平台 ID 聚合。"""
+    state_path_root = str(Path("output") / "trendradar_posts_state.json")
+    state = _load_trendradar_posts_state_file(state_path_root) or {}
+    posts = state.get("posts") or {}
+    cache: Dict[str, Set[str]] = {}
+    for platform_id, bucket in posts.items():
+        pid = str(platform_id)
+        cache.setdefault(pid, set())
+        if not isinstance(bucket, dict):
+            continue
+        for post_key, entry in bucket.items():
+            cache[pid].add(str(post_key))
+            if isinstance(entry, dict):
+                cache[pid].update(_build_item_identity_keys(entry))
+    return cache
+
+
+_ARTICLE_ENRICH_CACHE: Dict[str, Dict] = {}
+
+
+def _fetch_article_enrichment_for_make_money(message: str) -> Dict:
+    """
+    调用本地 chat 接口获取摘要与重要程度。
+    返回结构:
+    {
+      "isUseful": bool,
+      "content": "核心动作: ... | 实操门槛: ... | 变现路径: ...",
+      "star": number
+    }
+    """
+    msg = (message or "").strip()
+    if not msg:
+        return {"isUseful": False, "content": "", "star": 0}
+    if msg in _ARTICLE_ENRICH_CACHE:
+        return dict(_ARTICLE_ENRICH_CACHE[msg])
+
+    api_url = os.environ.get("CHAT_ENRICH_URL", "http://127.0.0.1:3860/chat")
+    payload = {"role": "make_money", "message": msg}
+    fallback = {"isUseful": False, "content": "", "star": 0}
+
+    try:
+        resp = requests.post(
+            api_url,
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            data = {}
+
+        # 兼容两类返回:
+        # 1) 直接对象: {"isUseful": ..., "content": ..., "star": ...}
+        # 2) 包裹对象: {"text":"```json ... ```"} 或 {"text":"{...}"}
+        parsed_obj = data
+        if not {"isUseful", "content", "star"}.intersection(parsed_obj.keys()):
+            text_payload = data.get("text")
+            if isinstance(text_payload, str) and text_payload.strip():
+                s = text_payload.strip()
+                fence = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", s, flags=re.IGNORECASE)
+                if fence:
+                    s = fence.group(1).strip()
+                try:
+                    maybe_obj = json.loads(s)
+                    if isinstance(maybe_obj, dict):
+                        parsed_obj = maybe_obj
+                except Exception:
+                    pass
+
+        star_raw = parsed_obj.get("star", 0)
+        try:
+            star_value = int(float(star_raw or 0))
+        except Exception:
+            star_value = 0
+        result = {
+            "isUseful": bool(parsed_obj.get("isUseful", False)),
+            "content": str(parsed_obj.get("content", "") or ""),
+            "star": star_value,
+        }
+        _ARTICLE_ENRICH_CACHE[msg] = result
+        return dict(result)
+    except Exception as e:
+        print(f"摘要服务调用失败（已忽略）: {e}")
+        _ARTICLE_ENRICH_CACHE[msg] = fallback
+        return dict(fallback)
+
+
+def _merge_post_state_entries(prev: Optional[Dict], new: Dict) -> Dict:
+    """将本轮帖子条目累进合并到已有条目（保留 first_fetched_at、追加 fetched_at_history）。"""
+    if not prev:
+        out = dict(new)
+        fa = (out.get("fetched_at") or "").strip()
+        if fa:
+            out.setdefault("first_fetched_at", fa)
+            out.setdefault("fetched_at_history", [fa])
+        return out
+
+    out = dict(prev)
+    new_fa = (new.get("fetched_at") or "").strip()
+    first = (prev.get("first_fetched_at") or prev.get("fetched_at") or "").strip()
+
+    skip_from_new = {"first_fetched_at", "fetched_at_history"}
+    for k, v in new.items():
+        if k in skip_from_new:
+            continue
+        if k == "fetched_at" and not (str(v).strip() if v is not None else ""):
+            continue
+        out[k] = v
+
+    if first:
+        out["first_fetched_at"] = first
+    if new_fa:
+        out["fetched_at"] = new_fa
+        hist = list(prev.get("fetched_at_history") or [])
+        if not hist and (prev.get("fetched_at") or "").strip():
+            hist = [(prev.get("fetched_at") or "").strip()]
+        if not hist or hist[-1] != new_fa:
+            hist.append(new_fa)
+        out["fetched_at_history"] = hist[-500:]
+    return out
+
+
+def _merge_posts_state_maps(
+    old_posts: Dict[str, Dict], delta_posts: Dict[str, Dict]
+) -> Dict[str, Dict]:
+    """按平台、按帖子键累进合并 posts（未出现在本轮的平台桶保留）。"""
+    merged: Dict[str, Dict] = {}
+    for plat, bucket in old_posts.items():
+        merged[plat] = {k: dict(v) for k, v in bucket.items()}
+    for plat, bucket in delta_posts.items():
+        if plat not in merged:
+            merged[plat] = {}
+        for pk, new_entry in bucket.items():
+            merged[plat][pk] = _merge_post_state_entries(merged[plat].get(pk), new_entry)
+    return merged
+
+
+def _merge_trendradar_state_document(
+    prev: Optional[Dict],
+    posts_delta: Dict[str, Dict],
+    id_to_name: Dict,
+    failed_ids: List,
+    generated_at: str,
+) -> Dict:
+    """合并整份 trendradar_posts_state 文档（累进 posts，合并 platform_labels）。"""
+    if prev and isinstance(prev, dict):
+        base = dict(prev)
+        base["generated_at"] = generated_at
+        labels = dict(base.get("platform_labels") or {})
+        labels.update({str(k): v for k, v in id_to_name.items()})
+        base["platform_labels"] = labels
+        base["posts"] = _merge_posts_state_maps(
+            base.get("posts") or {}, posts_delta
+        )
+    else:
+        base = {
+            "version": 1,
+            "generated_at": generated_at,
+            "platform_labels": {str(k): v for k, v in id_to_name.items()},
+            "posts": _merge_posts_state_maps({}, posts_delta),
+        }
+
+    if failed_ids:
+        prev_failed: List[str] = []
+        if prev and isinstance(prev.get("failed_platform_ids"), list):
+            prev_failed = [str(x) for x in prev["failed_platform_ids"]]
+        base["failed_platform_ids"] = sorted(
+            set(prev_failed) | {str(x) for x in failed_ids}
+        )
+    elif prev and isinstance(prev.get("failed_platform_ids"), list):
+        base["failed_platform_ids"] = prev["failed_platform_ids"]
+
+    return base
 
 
 def _extract_time_from_html_tag(value: Union[str, object]) -> Tuple[str, str]:
@@ -1157,6 +1400,7 @@ def _build_post_state_entry(
         published_at = tag_iso
     if not time_label and tag_label:
         time_label = tag_label
+    enrich = _fetch_article_enrichment_for_make_money(cleaned_title or title)
 
     entry: Dict = {
         "href": href,
@@ -1169,6 +1413,9 @@ def _build_post_state_entry(
         "raw": raw if isinstance(raw, str) else str(raw),
         "author": author if isinstance(author, str) else str(author or ""),
         "rank": rank,
+        "isUseful": bool(enrich.get("isUseful", False)),
+        "content": str(enrich.get("content", "") or ""),
+        "star": int(float(enrich.get("star", 0) or 0)),
     }
     if mobile_url and mobile_url != url:
         entry["mobile_href"] = mobile_url
@@ -1178,6 +1425,8 @@ def _build_post_state_entry(
         "url",
         "mobileUrl",
         "fetched_at",
+        "first_fetched_at",
+        "fetched_at_history",
         "published_at",
         "publishedAt",
         "published_iso",
@@ -1269,21 +1518,21 @@ def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> st
             for id_value in failed_ids:
                 f.write(f"{id_value}\n")
 
-    state_obj = {
-        "version": 1,
-        "generated_at": get_beijing_time().strftime("%Y-%m-%d %H:%M:%S 北京时间"),
-        "platform_labels": {str(k): v for k, v in id_to_name.items()},
-        "posts": posts_by_platform,
-    }
-    if failed_ids:
-        state_obj["failed_platform_ids"] = [str(x) for x in failed_ids]
+    generated_at = get_beijing_time().strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    prev_root = _load_trendradar_posts_state_file(state_path_root)
+    prev_day = _load_trendradar_posts_state_file(state_path)
+    state_root = _merge_trendradar_state_document(
+        prev_root, posts_by_platform, id_to_name, failed_ids, generated_at
+    )
+    state_day = _merge_trendradar_state_document(
+        prev_day, posts_by_platform, id_to_name, failed_ids, generated_at
+    )
 
-    state_json = json.dumps(state_obj, ensure_ascii=False, indent=2)
     with open(state_path, "w", encoding="utf-8") as jf:
-        jf.write(state_json)
+        jf.write(json.dumps(state_day, ensure_ascii=False, indent=2))
     with open(state_path_root, "w", encoding="utf-8") as jf:
-        jf.write(state_json)
-    print(f"帖子状态已保存到: {state_path_root}（output 根目录）与 {state_path}（当日目录）")
+        jf.write(json.dumps(state_root, ensure_ascii=False, indent=2))
+    print(f"帖子状态已累进保存到: {state_path_root}（output 根目录）与 {state_path}（当日目录）")
 
     return file_path
 
