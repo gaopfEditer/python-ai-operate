@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-22 00:01:28 北京时间",
+  "platform_labels": {
+    "x-cdp": "X.com(CDP)"
+  },
+  "posts": {
+    "x-cdp": {
+      "https://x.com/liyue_ai/status/2046565972199580020": {
+        "href": "https://x.com/liyue_ai/status/2046565972199580020",
+        "fetched_at": "2026-04-22 00:01:28 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "中国移动这也太土豪了吧，直接免费送Token！ 之前收到短信还以为又是什么营销捆绑套餐。 今天登录中国移动App发现居然是免费的，而且还不需要后续取消订阅之类的。 目前接入了OpenAI和Minimal 2.5，一个月最多可请求45000次，平均一天得请求1500次才能用完。 壕无人性，我喜欢，已办理",
+        "raw": "中国移动这也太土豪了吧，直接免费送Token！\n\n之前收到短信还以为又是什么营销捆绑套餐。\n\n今天登录中国移动App发现居然是免费的，而且还不需要后续取消订阅之类的。\n\n目前接入了OpenAI和Minimal 2.5，一个月最多可请求45000次，平均一天得请求1500次才能用完。\n\n壕无人性，我喜欢，已办理",
+        "author": "@liyue_ai",
+        "rank": 1,
+        "isUseful": true,
+        "content": "核心动作: 利用中国移动赠送的免费 Token 接入 OpenAI 和 Minimal 2.5 进行 API 请求，实现高频使用。\n实操门槛: 需要中国移动手机号，能收到短信，并能登录中国移动 App 办理。\n变现路径: 尽管此推文未明确说明变现，但高频 API 请求可用于数据抓取、自动化任务、AI 应用开发等，间接实现变现。",
+        "star": 3,
+        "category": "following",
+        "first_fetched_at": "2026-04-22 00:01:03 北京时间",
+        "fetched_at_history": [
+          "2026-04-22 00:01:03 北京时间",
+          "2026-04-22 00:01:28 北京时间"
+        ]
+      },
+      "https://x.com/LQP2021/status/2046610824475885813": {
+        "href": "https://x.com/LQP2021/status/2046610824475885813",
+        "fetched_at": "2026-04-22 00:01:28 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "一个大学生，把 2400 美元奖学金全砸在一台 iPad 和一台 Mac Mini 上。 父母以为：买电脑学习用的。 室友以为：挖矿的。 真相？他从 GitHub 上克隆了 39 个 AI 代理，敲下回车，然后睡觉去了。 醒来时，终端已经干完了初级开发 4 天的活。零 bug，零提问，零监督。 在他录屏的第 40 秒暂停",
+        "raw": "一个大学生，把 2400 美元奖学金全砸在一台 iPad 和一台 Mac Mini 上。  \n父母以为：买电脑学习用的。  \n室友以为：挖矿的。  \n\n真相？他从 GitHub 上克隆了 39 个 AI 代理，敲下回车，然后睡觉去了。  \n醒来时，终端已经干完了初级开发 4 天的活。零 bug，零提问，零监督。  \n\n在他录屏的第 40 秒暂停",
+        "author": "@LQP2021",
+        "rank": 2,
+        "isUseful": true,
+        "content": "核心动作: 利用 GitHub 上的 AI 代理自动化完成初级开发工作，并将此作为一种服务或项目进行变现。\n实操门槛: 需要了解 GitHub 平台、具备一定的 AI 代理使用经验，并能配置和运行 AI 模型。\n变现路径: 将自动化完成的开发任务作为服务出售，或开发基于 AI 代理的项目。",
+        "star": 4,
+        "category": "following",
+        "first_fetched_at": "2026-04-22 00:01:03 北京时间",
+        "fetched_at_history": [
+          "2026-04-22 00:01:03 北京时间",
+          "2026-04-22 00:01:28 北京时间"
+        ]
+      },
+      "https://x.com/zstmfhy/status/2046550494110519602": {
+        "href": "https://x.com/zstmfhy/status/2046550494110519602",
+        "fetched_at": "2026-04-22 00:01:28 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "我没想到自己的一时感触竟然引来了这么多同行交流，我觉得是时候建立一个微信沟通群了，欢迎各个行业的大佬进群沟通AI Agent企业落地，后续我有合作的项目也会在群里分享，另外再说一下，私聊我实在是没处理过来，后面我会对于每一条回复都进行沟通 昨晚跟一位副总吃饭，酒过三巡他跟我说：\"我们服务的200多家企业，全都在喊转型，全都想上AI Agent，但我们自己真搞不定。\" 那一刻我筷子顿了一下。 不是惊讶于这个数字，而是突然意识到——AI这阵风已经刮到了每一家传统企业的会议室里，刮得他们坐立不安。 他们不缺客户、不缺场景，缺的是能把\"AI",
+        "raw": "我没想到自己的一时感触竟然引来了这么多同行交流，我觉得是时候建立一个微信沟通群了，欢迎各个行业的大佬进群沟通AI Agent企业落地，后续我有合作的项目也会在群里分享，另外再说一下，私聊我实在是没处理过来，后面我会对于每一条回复都进行沟通 昨晚跟一位副总吃饭，酒过三巡他跟我说：\"我们服务的200多家企业，全都在喊转型，全都想上AI Agent，但我们自己真搞不定。\"\n\n那一刻我筷子顿了一下。\n\n不是惊讶于这个数字，而是突然意识到——AI这阵风已经刮到了每一家传统企业的会议室里，刮得他们坐立不安。\n\n他们不缺客户、不缺场景，缺的是能把\"AI",
+        "author": "@zstmfhy",
+        "rank": 3,
+        "isUseful": false,
+        "content": "核心动作: 建立微信群，促进AI Agent企业落地交流。 | 实操门槛: 无明确技术或资源要求，主要为沟通和组织能力。 | 变现路径: 通过分享合作项目和提供咨询服务进行潜在变现。",
+        "star": 1,
+        "category": "for_you_topup_1",
+        "first_fetched_at": "2026-04-22 00:01:03 北京时间",
+        "fetched_at_history": [
+          "2026-04-22 00:01:03 北京时间",
+          "2026-04-22 00:01:28 北京时间"
+        ]
+      },
+      "https://x.com/Sur_dragon8306/status/2046468172656828868": {
+        "href": "https://x.com/Sur_dragon8306/status/2046468172656828868",
+        "fetched_at": "2026-04-22 00:01:28 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "之前介绍过一个资源搜索引擎（跨云盘搜索），今天再带来一个。相当不错。搜索速度非常快，秒出！！ 这两个结合起来，基本上没有你找不到的资源",
+        "raw": "之前介绍过一个资源搜索引擎（跨云盘搜索），今天再带来一个。相当不错。搜索速度非常快，秒出！！\n\n这两个结合起来，基本上没有你找不到的资源",
+        "author": "@Sur_dragon8306",
+        "rank": 4,
+        "isUseful": false,
+        "content": "核心动作: 分享了两个资源搜索引擎的组合，但未提供具体操作步骤或变现方式。 | 实操门槛: 未提及。 | 变现路径: 未提及。",
+        "star": 1,
+        "category": "for_you_topup_2",
+        "first_fetched_at": "2026-04-22 00:01:03 北京时间",
+        "fetched_at_history": [
+          "2026-04-22 00:01:03 北京时间",
+          "2026-04-22 00:01:28 北京时间"
+        ]
+      },
+      "https://x.com/yujuhao/status/2046557408240324699": {
+        "href": "https://x.com/yujuhao/status/2046557408240324699",
+        "fetched_at": "2026-04-22 00:01:28 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "币圈不得不知道的几个常用网站 1.行情与基础数据 CoinMarketCap: coinmarketcap.com (全球最全的代币库) CoinGecko: coingecko.com (数据更新极快，深受老玩家喜爱) TradingView: tradingview.com (专业 K 线分析图表) AiCoin:",
+        "raw": "币圈不得不知道的几个常用网站\n\n1.行情与基础数据\n\nCoinMarketCap: \ncoinmarketcap.com (全球最全的代币库)\n\nCoinGecko: \ncoingecko.com (数据更新极快，深受老玩家喜爱)\n\nTradingView: \ntradingview.com (专业 K 线分析图表)\n\nAiCoin:",
+        "author": "@yujuhao",
+        "rank": 5,
+        "isUseful": false,
+        "content": "核心动作: 分享了币圈常用网站列表。 | 实操门槛: 无。 | 变现路径: 无。",
+        "star": 0,
+        "category": "for_you_topup_2",
+        "first_fetched_at": "2026-04-22 00:01:03 北京时间",
+        "fetched_at_history": [
+          "2026-04-22 00:01:03 北京时间",
+          "2026-04-22 00:01:28 北京时间"
+        ]
+      },
+      "https://x.com/aronhouyu/status/2046608057002795130": {
+        "href": "https://x.com/aronhouyu/status/2046608057002795130",
+        "fetched_at": "2026-04-22 00:01:28 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "saas有个非常好的切入点 1.找到对标的头部厂商 2.他们的客单价在1w以上 3.复刻他们的功能 4.做c端用户 5.价格干大厂的五分之一 6.小团队垂直作战 具体例子如下",
+        "raw": "saas有个非常好的切入点\n\n1.找到对标的头部厂商\n2.他们的客单价在1w以上\n3.复刻他们的功能\n4.做c端用户\n5.价格干大厂的五分之一\n6.小团队垂直作战\n\n具体例子如下",
+        "author": "@aronhouyu",
+        "rank": 6,
+        "isUseful": true,
+        "content": "核心动作: 模仿头部 SaaS厂商的低价策略，面向 C 端用户提供功能复刻服务。 | 实操门槛: 需要分析和复刻竞品功能的能力，了解 C 端用户需求，组建小型垂直团队。 | 变现路径: 通过低价吸引 C 端用户，薄利多销，与高客单价的 B 端 SaaS 形成价格差异化竞争。",
+        "star": 3,
+        "category": "for_you_topup_2",
+        "first_fetched_at": "2026-04-22 00:01:03 北京时间",
+        "fetched_at_history": [
+          "2026-04-22 00:01:03 北京时间",
+          "2026-04-22 00:01:28 北京时间"
+        ]
+      },
+      "https://x.com/beefnoode/status/2046568869926695412": {
+        "href": "https://x.com/beefnoode/status/2046568869926695412",
+        "fetched_at": "2026-04-22 00:01:28 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "想在深圳再注册一家公司，主营AI技术服务，尽量低成本启动，希望各位大佬给点建议： 深圳哪个区政策最友好，适合小公司 办公地点怎么最低成本解决 总成本控制在什么范围比较合理 除此之外有没有什么要注意的小细节，避免踩坑 有无必要找中介，自己注册方便不",
+        "raw": "想在深圳再注册一家公司，主营AI技术服务，尽量低成本启动，希望各位大佬给点建议：\n\n深圳哪个区政策最友好，适合小公司\n办公地点怎么最低成本解决\n总成本控制在什么范围比较合理\n除此之外有没有什么要注意的小细节，避免踩坑\n有无必要找中介，自己注册方便不",
+        "author": "@beefnoode",
+        "rank": 7,
+        "isUseful": false,
+        "content": "核心动作: 寻求在深圳注册AI技术服务公司的低成本启动建议。 | 实操门槛: 了解深圳各区政策、寻找低成本办公解决方案、控制公司注册成本。 | 变现路径: 未明确提及。",
+        "star": 1,
+        "category": "for_you_topup_2",
+        "first_fetched_at": "2026-04-22 00:01:03 北京时间",
+        "fetched_at_history": [
+          "2026-04-22 00:01:03 北京时间",
+          "2026-04-22 00:01:28 北京时间"
+        ]
+      }
+    }
+  }
+}
