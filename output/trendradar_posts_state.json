@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generated_at": "2026-04-24 14:14:52 北京时间",
+  "generated_at": "2026-04-24 17:37:30 北京时间",
   "platform_labels": {
-    "x-cdp": "X 热门推荐"
+    "x-cdp": "X.com(CDP)"
   },
   "posts": {
     "x-cdp": {
@@ -8799,7 +8799,7 @@
       },
       "https://x.com/Xiaoniu6161/status/2047320075049545781": {
         "href": "https://x.com/Xiaoniu6161/status/2047320075049545781",
-        "fetched_at": "2026-04-24 12:39:49 北京时间",
+        "fetched_at": "2026-04-24 17:37:30 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -8807,15 +8807,17 @@
         "title": "使用 Claude Code 链接 10 部手机一个电脑，很多评论区的疯狂评论就是这么来的 。",
         "raw": "使用 Claude Code 链接 10 部手机一个电脑，很多评论区的疯狂评论就是这么来的 。",
         "author": "@Xiaoniu6161",
-        "rank": 2,
-        "isUseful": false,
-        "content": "",
-        "star": 0,
-        "category": "following",
+        "rank": 6,
+        "isUseful": true,
+        "content": "核心动作: 利用 Claude Code 驱动 10 部手机和 1 台电脑，批量生成或操控社交媒体评论区内容。| 实操门槛: 需要掌握 Claude Code 的使用，并能管理多部手机和电脑的联动操作。| 变现路径: 提供社交媒体控评服务、增加内容曝光度、或通过批量生成评论吸引流量。",
+        "star": 3,
+        "category": "for_you_topup_1",
         "first_fetched_at": "2026-04-24 12:39:42 北京时间",
         "fetched_at_history": [
           "2026-04-24 12:39:42 北京时间",
-          "2026-04-24 12:39:49 北京时间"
+          "2026-04-24 12:39:49 北京时间",
+          "2026-04-24 17:37:18 北京时间",
+          "2026-04-24 17:37:30 北京时间"
         ]
       },
       "https://x.com/wolfyxbt/status/2047524944280793505": {
@@ -8900,6 +8902,111 @@
         "fetched_at_history": [
           "2026-04-24 12:39:42 北京时间",
           "2026-04-24 12:39:49 北京时间"
+        ]
+      },
+      "https://x.com/elonmusk/status/2047574971774611553": {
+        "href": "https://x.com/elonmusk/status/2047574971774611553",
+        "fetched_at": "2026-04-24 17:37:30 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Cybercab has started production",
+        "raw": "Cybercab has started production",
+        "author": "@elonmusk",
+        "rank": 1,
+        "isUseful": false,
+        "content": "核心动作: 无法识别具体副业、变现机会或商业模式 | 实操门槛: 无法识别 | 变现路径: 无法识别",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-04-24 17:37:18 北京时间",
+        "fetched_at_history": [
+          "2026-04-24 17:37:18 北京时间",
+          "2026-04-24 17:37:30 北京时间"
+        ]
+      },
+      "https://x.com/_miuj_9/status/2047470072915190022": {
+        "href": "https://x.com/_miuj_9/status/2047470072915190022",
+        "fetched_at": "2026-04-24 17:37:30 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "这个号靠 AI 做穿搭号，11万粉卖了110万件",
+        "raw": "这个号靠 AI 做穿搭号，11万粉卖了110万件",
+        "author": "@_miuj_9",
+        "rank": 2,
+        "isUseful": true,
+        "content": "核心动作: 利用 AI 工具生成穿搭内容，通过社交媒体账号吸引粉丝并进行商品销售。 | 实操门槛: 需要掌握 AI 内容生成工具，了解社交媒体运营和选品能力。 | 变现路径: 商品销售佣金。",
+        "star": 3,
+        "category": "following",
+        "first_fetched_at": "2026-04-24 17:37:18 北京时间",
+        "fetched_at_history": [
+          "2026-04-24 17:37:18 北京时间",
+          "2026-04-24 17:37:30 北京时间"
+        ]
+      },
+      "https://x.com/ai_xiaomu/status/2047285104884764824": {
+        "href": "https://x.com/ai_xiaomu/status/2047285104884764824",
+        "fetched_at": "2026-04-24 17:37:30 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "问大家一个问题： 如果给你3个月时间，全职做一个产品， 你会做什么？ 规则： - 只能一个人 - 启动资金不超过1000块 - 必须在3个月内有第一笔收入 评论区说说你的想法，大家一起评估下可行性。",
+        "raw": "问大家一个问题：\n如果给你3个月时间，全职做一个产品，\n你会做什么？\n\n 规则：\n - 只能一个人\n - 启动资金不超过1000块\n - 必须在3个月内有第一笔收入\n\n 评论区说说你的想法，大家一起评估下可行性。",
+        "author": "@ai_xiaomu",
+        "rank": 3,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-04-24 17:37:18 北京时间",
+        "fetched_at_history": [
+          "2026-04-24 17:37:18 北京时间",
+          "2026-04-24 17:37:30 北京时间"
+        ]
+      },
+      "https://x.com/jjjkkkunb666/status/2047270644132565277": {
+        "href": "https://x.com/jjjkkkunb666/status/2047270644132565277",
+        "fetched_at": "2026-04-24 17:37:30 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "一个中国开发者，用Claude Code给孩子们做了个数学游戏。 拔河比赛，大屏幕上两支队伍。谁最快解出方程，谁就把绳子往自己这边拉。 有老师发了条班级玩游戏的视频。其他学校看到了，第二天就开始用。 评论区所有人都在聊孩子。聊他们多聪明。聊中国AI教育已经领先世界多少年。",
+        "raw": "一个中国开发者，用Claude Code给孩子们做了个数学游戏。\n\n拔河比赛，大屏幕上两支队伍。谁最快解出方程，谁就把绳子往自己这边拉。\n\n有老师发了条班级玩游戏的视频。其他学校看到了，第二天就开始用。\n\n评论区所有人都在聊孩子。聊他们多聪明。聊中国AI教育已经领先世界多少年。",
+        "author": "@jjjkkkunb666",
+        "rank": 4,
+        "isUseful": true,
+        "content": "核心动作: 利用 AI 工具（如 Claude Code）为儿童开发互动式教育游戏，通过解方程来控制游戏进程。 | 实操门槛: 需要掌握 AI 编程能力（如 Claude Code），理解儿童教育需求。 | 变现路径: 游戏授权给学校、教育机构；开发面向家庭的付费教育游戏；提供定制化教育游戏开发服务。",
+        "star": 4,
+        "category": "following",
+        "first_fetched_at": "2026-04-24 17:37:18 北京时间",
+        "fetched_at_history": [
+          "2026-04-24 17:37:18 北京时间",
+          "2026-04-24 17:37:30 北京时间"
+        ]
+      },
+      "https://x.com/siantgirl/status/2047490860993130858": {
+        "href": "https://x.com/siantgirl/status/2047490860993130858",
+        "fetched_at": "2026-04-24 17:37:30 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "怎么寄快递最便宜，从闲鱼上开个链接，自己拍自己的，然后发特惠寄。10kg23元，20kg大概47元，大概一块钱一斤，网友们的省钱智慧。",
+        "raw": "怎么寄快递最便宜，从闲鱼上开个链接，自己拍自己的，然后发特惠寄。10kg23元，20kg大概47元，大概一块钱一斤，网友们的省钱智慧。",
+        "author": "@siantgirl",
+        "rank": 5,
+        "isUseful": true,
+        "content": "核心动作: 通过在闲鱼创建虚拟链接，自己拍下自己的快递订单，利用平台提供的特惠价格来降低物流成本。实操门槛: 需要有闲鱼账号，并了解其交易流程；需要能够计算不同重量的快递成本。变现路径: 通过低价寄件节省个人开支；若有大量寄件需求，可视为一种低成本物流解决方案。",
+        "star": 3,
+        "category": "for_you_topup_1",
+        "first_fetched_at": "2026-04-24 17:37:18 北京时间",
+        "fetched_at_history": [
+          "2026-04-24 17:37:18 北京时间",
+          "2026-04-24 17:37:30 北京时间"
         ]
       }
     }
