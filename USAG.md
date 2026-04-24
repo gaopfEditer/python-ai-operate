@@ -104,7 +104,8 @@ python index.py --mode scheduler --crawler --create
 python crawler.py
 
 # 执行创作模块
-python create.py
+// 写一个深入浅出债券问题相关的大纲，我要给qwen生成内容，需要你给出很多切入点
+python create.py --topic 'Vue3与Vue2响应式区别和底层原理'
 
 # 编排：先爬取 → 用千问从当日爬取结果中提炼话题 → 再按话题创作并保存到 output/articles/
 python pipeline.py
