@@ -76,6 +76,103 @@ TrendRadar/
 - `main/scheduler.py`: 工作流调度器，用于串联爬取、创建、发布、评论等流程
 - 可以单独执行某个模块，也可以执行完整工作流
 
+## 环境要求
+
+- **Python**：3.10–3.13 推荐；3.14 需 `lxml>=6.0.2`（已写入 `requirements.txt`）
+- **Chrome 浏览器**：发布、评论模块通过 Selenium 控制浏览器，需本机已安装 Chrome
+- **ChromeDriver**：版本需与 Chrome 一致（详见 [INSTALL_SELENIUM.md](INSTALL_SELENIUM.md)）
+- **通义千问 API Key**：创作、编排等 AI 功能需在配置中填写（详见 [AI_USAGE.md](AI_USAGE.md)）
+- **X.com CDP 抓取（可选）**：若启用 `x-cdp` 平台，需先以远程调试模式启动 Chrome（见下方「可选：X.com 抓取」）
+
+## 安装依赖
+
+在项目根目录执行（先 `cd` 到仓库根目录）：
+
+### 方式一：pip + 虚拟环境（推荐）
+
+```bash
+# 创建并激活虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate          # macOS / Linux
+# .venv\Scripts\activate         # Windows
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 验证
+python -c "import yaml, requests, selenium; print('依赖安装成功')"
+
+# 若使用系统自带的 Python 3.14 且安装仍失败，可改用 3.13 重建虚拟环境：
+# rm -rf venv && python3.13 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+```
+
+### 方式二：uv
+
+```bash
+# 若未安装 uv，可先：curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
+# 或
+uv pip install -r requirements.txt
+
+# 之后用 uv run 执行命令，例如：
+uv run python index.py --mode crawler
+```
+
+### 浏览器驱动（发布 / 评论必看）
+
+Selenium 除 Python 包外，还需要 ChromeDriver：
+
+- **macOS**：`brew install chromedriver`
+- **Windows / Linux**：从 [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) 下载与 Chrome 版本匹配的驱动，并加入系统 PATH
+
+完整说明见 [INSTALL_SELENIUM.md](INSTALL_SELENIUM.md)。
+
+## 配置
+
+编辑 `config/config.yaml`：
+
+1. **AI（必配，若使用创作 / pipeline）**  
+   在 `ai.qwen.api_key` 填入通义千问 API Key（从 [DashScope 控制台](https://dashscope.console.aliyun.com/) 获取），并确认 `ai.qwen.enable: true`。
+
+2. **爬虫**  
+   在 `platforms` 中启用需要的平台；默认示例为 `x-cdp`。
+
+3. **发布 / 评论（按需）**  
+   在 `publish.platforms`、`comment.platforms` 中配置各平台登录信息与 URL。
+
+## 运行
+
+所有命令均在**项目根目录**下执行；若使用了虚拟环境，请先 `source .venv/bin/activate`。
+
+### 快速验证
+
+```bash
+# 仅爬取（不依赖千问）
+python crawler.py
+
+# 指定话题创作（需已配置千问 API Key）
+python create.py --topic 'Vue3与Vue2响应式区别和底层原理'
+
+# 完整编排：爬取 → 提炼话题 → 创作，结果在 output/articles/
+python pipeline.py
+```
+
+### 可选：X.com 抓取
+
+若使用 `x-cdp`，需先启动带远程调试的 Chrome，再运行爬虫：
+
+```bash
+# macOS 示例（路径按本机 Chrome 安装位置调整）
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/chrome-cdp-profile"
+
+# Windows 示例
+# chrome.exe --remote-debugging-port=9222 --user-data-dir="D:\chrome-cdp-profile"
+```
+
+并在 `config/config.yaml` 的 `crawler.x_cdp` 中确认 `debugger_url` 与端口一致。
+
 ## 使用方式
 
 ### 1. 使用主入口（推荐）
@@ -104,7 +201,6 @@ python index.py --mode scheduler --crawler --create
 python crawler.py
 
 # 执行创作模块
-// 写一个深入浅出债券问题相关的大纲，我要给qwen生成内容，需要你给出很多切入点
 python create.py --topic 'Vue3与Vue2响应式区别和底层原理'
 
 # 编排：先爬取 → 用千问从当日爬取结果中提炼话题 → 再按话题创作并保存到 output/articles/

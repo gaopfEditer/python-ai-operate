@@ -16,6 +16,16 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+
+def _html_parser() -> str:
+    """优先 lxml，未安装时回退到内置 html.parser。"""
+    try:
+        import lxml  # noqa: F401
+        return "lxml"
+    except ImportError:
+        return "html.parser"
+
+
 # 设置标准输出编码为 UTF-8（Windows 兼容）
 if sys.platform == 'win32':
     try:
@@ -72,7 +82,7 @@ class BlogReader:
             response.raise_for_status()
             response.encoding = response.apparent_encoding or 'utf-8'
             
-            soup = BeautifulSoup(response.text, 'lxml')
+            soup = BeautifulSoup(response.text, _html_parser())
             return soup
         except Exception as e:
             logger.error(f"获取网页失败 {url}: {e}")
