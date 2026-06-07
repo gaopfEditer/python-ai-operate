@@ -664,6 +664,54 @@ class DataFetcher:
         self._x_driver = None
 
     @staticmethod
+    def _cdp_urls_match(page_url: str, tab_url: str) -> bool:
+        """判断已有标签页 URL 是否与目标任务 URL 对应同一页面。"""
+        if not tab_url:
+            return False
+        page = page_url.split("#")[0].strip().rstrip("/")
+        tab = tab_url.split("#")[0].strip().rstrip("/")
+        if page == tab:
+            return True
+        page_lower = page.lower()
+        tab_lower = tab.lower()
+        if "filter=following" in page_lower:
+            return "filter=following" in tab_lower and "/home" in tab_lower
+        if "/explore" in page_lower:
+            return "/explore" in tab_lower
+        if "/home" in page_lower:
+            return "/home" in tab_lower and "filter=following" not in tab_lower
+        return page_lower in tab_lower or tab_lower.startswith(page_lower)
+
+    def _navigate_cdp_page(self, driver, page_url: str):
+        """
+        在独立标签页执行任务：已存在同 URL 标签则切换并刷新，否则新建标签再打开。
+        避免 driver.get 直接覆盖用户当前正在浏览的标签页。
+        """
+        matched_handle = None
+        for handle in driver.window_handles:
+            try:
+                driver.switch_to.window(handle)
+                if self._cdp_urls_match(page_url, driver.current_url):
+                    matched_handle = handle
+                    break
+            except WebDriverException:
+                continue
+
+        if matched_handle:
+            driver.switch_to.window(matched_handle)
+            driver.refresh()
+            print(f"X CDP 复用已有标签页并刷新: {page_url}")
+            return
+
+        try:
+            driver.switch_to.new_window("tab")
+        except WebDriverException:
+            driver.execute_script("window.open('about:blank','_blank');")
+            driver.switch_to.window(driver.window_handles[-1])
+        driver.get(page_url)
+        print(f"X CDP 新建标签页: {page_url}")
+
+    @staticmethod
     def _jitter_sleep(base_ms: int, jitter_ratio: float = 0.35):
         """增加随机抖动等待，降低固定节奏触发风控概率。"""
         base_ms = max(300, int(base_ms))
@@ -734,12 +782,12 @@ class DataFetcher:
 
         driver = self._get_x_driver()
         try:
-            driver.get(page_url)
+            self._navigate_cdp_page(driver, page_url)
         except WebDriverException as e:
             print(f"X 页面打开失败，尝试重连 CDP: {e}")
             self._reset_x_driver()
             driver = self._get_x_driver()
-            driver.get(page_url)
+            self._navigate_cdp_page(driver, page_url)
 
         self._jitter_sleep(wait_ms, 0.45)
         self._try_click_x_tab(driver, page_url)
@@ -752,7 +800,7 @@ class DataFetcher:
                 print(f"X 抓取中断，重连后继续: {e}")
                 self._reset_x_driver()
                 driver = self._get_x_driver()
-                driver.get(page_url)
+                self._navigate_cdp_page(driver, page_url)
                 self._jitter_sleep(wait_ms, 0.5)
                 self._try_click_x_tab(driver, page_url)
                 articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
