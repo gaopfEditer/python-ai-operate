@@ -144,6 +144,23 @@ Selenium 除 Python 包外，还需要 ChromeDriver：
 
 所有命令均在**项目根目录**下执行；若使用了虚拟环境，请先 `source .venv/bin/activate`。
 
+### 一体化控制台（推荐）
+
+网页整合：按关键词获取资讯、历史缓存、Prompt 创作、CDP 发布。
+
+```bash
+# Windows
+start-console.bat
+
+# macOS / Linux
+chmod +x start-console.sh && ./start-console.sh
+
+# 或直接
+python console.py
+```
+
+浏览器打开：http://127.0.0.1:8787/
+
 ### 快速验证
 
 ```bash

@@ -14,6 +14,7 @@ from email.utils import formataddr, formatdate, make_msgid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union, Set
+from urllib.parse import quote
 
 import pytz
 import requests
@@ -22,6 +23,16 @@ from selenium import webdriver
 from selenium.common.exceptions import WebDriverException, StaleElementReferenceException
 from selenium.webdriver.common.by import By
 
+try:
+    from utils.stdio_encoding import ensure_utf8_stdio, safe_print
+except Exception:  # 直接脚本运行时的兜底
+    def ensure_utf8_stdio():
+        pass
+
+    def safe_print(*args, **kwargs):
+        print(*args, **kwargs)
+
+ensure_utf8_stdio()
 
 VERSION = "3.5.0"
 
@@ -113,7 +124,7 @@ def validate_paired_configs(
     unique_lengths = set(lengths.values())
 
     if len(unique_lengths) > 1:
-        print(f"❌ {channel_name} 配置错误：配对配置数量不一致，将跳过该渠道推送")
+        print(f"[X] {channel_name} 配置错误：配对配置数量不一致，将跳过该渠道推送")
         for key, length in lengths.items():
             print(f"   - {key}: {length} 个")
         return False, 0
@@ -138,8 +149,8 @@ def limit_accounts(
         限制后的账号列表
     """
     if len(accounts) > max_count:
-        print(f"⚠️ {channel_name} 配置了 {len(accounts)} 个账号，超过最大限制 {max_count}，只使用前 {max_count} 个")
-        print(f"   ⚠️ 警告：如果您是 fork 用户，过多账号可能导致 GitHub Actions 运行时间过长，存在账号风险")
+        print(f"[!] {channel_name} 配置了 {len(accounts)} 个账号，超过最大限制 {max_count}，只使用前 {max_count} 个")
+        print(f"   [!] 警告：如果您是 fork 用户，过多账号可能导致 GitHub Actions 运行时间过长，存在账号风险")
         return accounts[:max_count]
     return accounts
 
@@ -274,6 +285,14 @@ def load_config():
             "SCROLL_STEP": int(x_cdp_config.get("scroll_step", 1200)),
             "WAIT_MS": int(x_cdp_config.get("wait_ms", 2000)),
             "MIN_UNIQUE_TOTAL": int(x_cdp_config.get("min_unique_total", 0)),
+            # 静默抓取：不置顶抢焦点，抓取期间保持 Chrome 最小化
+            "SILENT": bool(x_cdp_config.get("silent", True)),
+            # 信息流开关
+            "ENABLE_FOLLOWING": bool(x_cdp_config.get("enable_following", False)),
+            "ENABLE_FOR_YOU": bool(x_cdp_config.get("enable_for_you", False)),
+            "ENABLE_HOT": bool(x_cdp_config.get("enable_hot", False)),
+            # 搜索工作流（Latest / Top / 平衡）
+            "SEARCH": x_cdp_config.get("search") or {},
         },
     }
 
@@ -641,6 +660,12 @@ class DataFetcher:
         self.proxy_url = proxy_url
         self._x_driver = None
         self._fetched_identity_cache: Dict[str, Set[str]] = {}
+        # 静默抓取专用标签：全程复用，避免反复新建/切换导致置顶
+        self._x_crawl_handle: Optional[str] = None
+        # 首次允许抢一次焦点；之后禁止 switch_to / new_window / get
+        self._x_silent_primed: bool = False
+        self._x_user_hwnd: int = 0
+        self._x_fg_guard = None
 
     def _get_x_driver(self):
         """连接已启动的 Chrome CDP 调试端口。"""
@@ -656,37 +681,212 @@ class DataFetcher:
 
     def _reset_x_driver(self):
         """重置 CDP driver，用于连接被远端关闭时恢复。"""
+        self._stop_x_focus_guard()
         try:
             if self._x_driver is not None:
+                # CDP 附着模式：只断开驱动，不关闭用户的 Chrome
                 self._x_driver.quit()
         except Exception:
             pass
         self._x_driver = None
+        self._x_crawl_handle = None
+        self._x_silent_primed = False
 
     @staticmethod
-    def _cdp_urls_match(page_url: str, tab_url: str) -> bool:
-        """判断已有标签页 URL 是否与目标任务 URL 对应同一页面。"""
-        if not tab_url:
-            return False
-        page = page_url.split("#")[0].strip().rstrip("/")
-        tab = tab_url.split("#")[0].strip().rstrip("/")
-        if page == tab:
-            return True
-        page_lower = page.lower()
-        tab_lower = tab.lower()
-        if "filter=following" in page_lower:
-            return "filter=following" in tab_lower and "/home" in tab_lower
-        if "/explore" in page_lower:
-            return "/explore" in tab_lower
-        if "/home" in page_lower:
-            return "/home" in tab_lower and "filter=following" not in tab_lower
-        return page_lower in tab_lower or tab_lower.startswith(page_lower)
+    def _x_silent_enabled() -> bool:
+        return bool(CONFIG.get("X_CDP", {}).get("SILENT", True))
+
+    def _capture_user_hwnd(self) -> None:
+        if self._x_user_hwnd:
+            return
+        try:
+            from utils.window_focus import get_foreground_hwnd, enum_chrome_hwnds
+
+            hwnd = get_foreground_hwnd()
+            # 若当前已在 Chrome，仍记录；首次抢完后还回可能无效，但后续可防反复抢
+            self._x_user_hwnd = hwnd
+            chrome = set(enum_chrome_hwnds())
+            if hwnd in chrome:
+                # 尽量记住：用户稍后切走的窗口会在 guard 里动态不处理 chrome->chrome
+                pass
+        except Exception:
+            self._x_user_hwnd = 0
+
+    def _start_x_focus_guard(self) -> None:
+        """首次抢焦点完成后启动：之后 Chrome 再置顶就立刻还回。"""
+        if not self._x_silent_enabled():
+            return
+        if self._x_fg_guard is not None:
+            return
+        try:
+            from utils.window_focus import ForegroundGuardThread
+
+            self._x_fg_guard = ForegroundGuardThread(
+                preferred_hwnd=self._x_user_hwnd, interval=0.04
+            )
+            self._x_fg_guard.start()
+        except Exception:
+            self._x_fg_guard = None
+
+    def _stop_x_focus_guard(self) -> None:
+        guard = self._x_fg_guard
+        self._x_fg_guard = None
+        if guard is not None:
+            try:
+                guard.stop()
+            except Exception:
+                pass
+
+    def _give_back_focus_once(self) -> None:
+        try:
+            from utils.window_focus import yield_focus_if_chrome_stolen
+
+            yield_focus_if_chrome_stolen(self._x_user_hwnd)
+        except Exception:
+            pass
+
+    def _x_focus_guard(self):
+        """整段抓取的焦点生命周期：先允许一次，再守护。"""
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _cm():
+            if not self._x_silent_enabled():
+                yield None
+                return
+            self._capture_user_hwnd()
+            try:
+                yield self._x_user_hwnd
+            finally:
+                self._stop_x_focus_guard()
+                self._give_back_focus_once()
+
+        return _cm()
+
+    def _force_x_browser_silent(self, driver) -> None:
+        """
+        静默策略（按你的要求）：
+        - 窗口保留，不最小化、不挪出屏幕
+        - 仅在「已 primed」后：若 Chrome 抢了前台，立刻还回用户窗口
+        """
+        if not self._x_silent_enabled():
+            return
+        if not self._x_silent_primed:
+            return
+        self._give_back_focus_once()
+
+    def _ensure_silent_crawl_tab(self, driver) -> str:
+        """
+        专用抓取标签：
+        - 未 primed：允许创建/切换一次（可抢焦点）
+        - 已 primed：禁止 switch_to / new_window，只复用当前会话
+        """
+        handles = list(driver.window_handles or [])
+
+        # 已就绪：绝不 switch_to（这是后续抢焦点的主因）
+        if self._x_silent_primed and self._x_crawl_handle:
+            if self._x_crawl_handle in handles:
+                return self._x_crawl_handle
+            # 标签丢了，只能重建（算异常恢复，会再抢一次）
+            print("[!] 静默抓取标签丢失，将重建（可能再抢一次焦点）")
+            self._x_silent_primed = False
+            self._x_crawl_handle = None
+
+        if self._x_crawl_handle and self._x_crawl_handle in handles:
+            try:
+                if driver.current_window_handle != self._x_crawl_handle:
+                    driver.switch_to.window(self._x_crawl_handle)
+            except WebDriverException:
+                self._x_crawl_handle = None
+            if self._x_crawl_handle:
+                return self._x_crawl_handle
+
+        # 第一次：创建专用标签（允许抢一次）
+        created_handle = None
+        try:
+            before = set(handles)
+            driver.execute_cdp_cmd(
+                "Target.createTarget",
+                {"url": "about:blank", "background": True},
+            )
+            for _ in range(25):
+                now = list(driver.window_handles or [])
+                new_ones = [h for h in now if h not in before]
+                if new_ones:
+                    created_handle = new_ones[-1]
+                    break
+                time.sleep(0.08)
+        except Exception:
+            created_handle = None
+
+        if not created_handle:
+            try:
+                driver.switch_to.new_window("tab")
+                created_handle = driver.current_window_handle
+            except WebDriverException:
+                driver.execute_script("window.open('about:blank','_blank');")
+                created_handle = driver.window_handles[-1]
+
+        driver.switch_to.window(created_handle)
+        self._x_crawl_handle = created_handle
+        return created_handle
 
     def _navigate_cdp_page(self, driver, page_url: str):
         """
-        在独立标签页执行任务：已存在同 URL 标签则切换并刷新，否则新建标签再打开。
-        避免 driver.get 直接覆盖用户当前正在浏览的标签页。
+        静默规则：
+        1) 第一次：建标签 + 打开页面（可抢一次焦点）→ 还回焦点 → primed
+        2) 之后：只 Page.navigate，禁止 switch_to / new_window / driver.get
         """
+        silent = self._x_silent_enabled()
+        if silent:
+            first = not self._x_silent_primed
+            if first:
+                self._capture_user_hwnd()
+                print("X CDP 静默：第一次允许抢焦点，正在打开抓取标签…")
+                self._ensure_silent_crawl_tab(driver)
+            else:
+                # 已 primed：不调用 ensure 里的 switch；只确认 handle
+                if not self._x_crawl_handle:
+                    self._ensure_silent_crawl_tab(driver)
+                # 若当前不在 crawl 标签，也绝不 switch（避免二次抢焦点）
+                try:
+                    cur = driver.current_window_handle
+                except Exception:
+                    cur = None
+                if cur != self._x_crawl_handle:
+                    print(
+                        "[!] 当前不在抓取标签且已静默锁定，跳过 switch_to，改用 CDP navigate"
+                    )
+
+            try:
+                driver.execute_cdp_cmd("Page.navigate", {"url": page_url})
+            except Exception:
+                if first:
+                    driver.get(page_url)
+                else:
+                    # 后续禁止 get（会置顶）
+                    driver.execute_script("window.location.href = arguments[0];", page_url)
+
+            for _ in range(50):
+                try:
+                    ready = driver.execute_script("return document.readyState")
+                    if ready in ("interactive", "complete"):
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.1)
+
+            if first:
+                self._x_silent_primed = True
+                self._give_back_focus_once()
+                self._start_x_focus_guard()
+                print("X CDP 静默：首次完成，已还回焦点；后续不再抢窗口")
+            else:
+                self._give_back_focus_once()
+
+            print(f"X CDP 静默导航: {page_url}")
+            return
+
         matched_handle = None
         for handle in driver.window_handles:
             try:
@@ -699,7 +899,10 @@ class DataFetcher:
 
         if matched_handle:
             driver.switch_to.window(matched_handle)
-            driver.refresh()
+            try:
+                driver.execute_script("location.reload();")
+            except WebDriverException:
+                driver.refresh()
             print(f"X CDP 复用已有标签页并刷新: {page_url}")
             return
 
@@ -710,6 +913,155 @@ class DataFetcher:
             driver.switch_to.window(driver.window_handles[-1])
         driver.get(page_url)
         print(f"X CDP 新建标签页: {page_url}")
+
+    @staticmethod
+    def _cdp_urls_match(page_url: str, tab_url: str) -> bool:
+        """判断已有标签页 URL 是否与目标任务 URL 对应同一页面。"""
+        if not tab_url:
+            return False
+        page = page_url.split("#")[0].strip().rstrip("/")
+        tab = tab_url.split("#")[0].strip().rstrip("/")
+        if page == tab:
+            return True
+        page_lower = page.lower()
+        tab_lower = tab.lower()
+        if "/search" in page_lower and "/search" in tab_lower:
+
+            def _param(u: str, key: str) -> str:
+                m = re.search(rf"[?&]{key}=([^&]*)", u)
+                return (m.group(1) if m else "").strip()
+
+            return _param(page_lower, "q") == _param(tab_lower, "q") and (
+                _param(page_lower, "f") == _param(tab_lower, "f")
+                or (not _param(page_lower, "f") and not _param(tab_lower, "f"))
+            )
+        if "/i/lists/" in page_lower:
+            return (
+                "/i/lists/" in tab_lower
+                and page_lower.rstrip("/").split("/")[-1]
+                == tab_lower.rstrip("/").split("/")[-1]
+            )
+        if "filter=following" in page_lower:
+            return "filter=following" in tab_lower and "/home" in tab_lower
+        if "/explore" in page_lower:
+            return "/explore" in tab_lower
+        if "/home" in page_lower:
+            return "/home" in tab_lower and "filter=following" not in tab_lower
+        return page_lower in tab_lower or tab_lower.startswith(page_lower)
+
+    @staticmethod
+    def _build_x_search_url(query: str, tab: str = "live") -> str:
+        """构造 X 高级搜索 URL。tab=live 最新，tab=top 热门。"""
+        q = (query or "").strip()
+        f = "live" if (tab or "").lower() in ("live", "latest", "new") else "top"
+        return f"https://x.com/search?q={quote(q)}&src=typed_query&f={f}"
+
+    def _build_x_search_jobs(self) -> List[Dict]:
+        """按配置生成搜索任务（兼顾最新与最热）。"""
+        x_cfg = CONFIG.get("X_CDP", {})
+        search_cfg = x_cfg.get("SEARCH") or {}
+        if not bool(search_cfg.get("enabled", False)):
+            return []
+
+        mode = str(search_cfg.get("mode") or "balanced").strip().lower()
+        env_kw = os.environ.get("X_SEARCH_KEYWORDS", "").strip()
+        if env_kw:
+            keywords = [k.strip() for k in re.split(r"[,，;；|]+", env_kw) if k.strip()]
+        else:
+            raw_kw = search_cfg.get("keywords") or []
+            if isinstance(raw_kw, str):
+                keywords = [
+                    k.strip() for k in re.split(r"[,，;；|]+", raw_kw) if k.strip()
+                ]
+            else:
+                keywords = [str(k).strip() for k in raw_kw if str(k).strip()]
+        if not keywords:
+            keywords = ["Gemini"]
+
+        accounts = search_cfg.get("accounts") or []
+        if isinstance(accounts, str):
+            accounts = [
+                a.strip().lstrip("@")
+                for a in re.split(r"[,，;；|\s]+", accounts)
+                if a.strip()
+            ]
+        else:
+            accounts = [
+                str(a).strip().lstrip("@") for a in accounts if str(a).strip()
+            ]
+
+        min_faves_top = int(search_cfg.get("min_faves_top", 100) or 100)
+        min_faves_bal = int(search_cfg.get("min_faves_balanced", 20) or 20)
+        min_rt_bal = int(search_cfg.get("min_retweets_balanced", 5) or 5)
+        target = max(1, int(search_cfg.get("target_per_query", 15) or 15))
+
+        jobs: List[Dict] = []
+
+        def add_job(query: str, tab: str, label: str):
+            jobs.append(
+                {
+                    "url": self._build_x_search_url(query, tab),
+                    "label": label,
+                    "target": target,
+                    "query": query,
+                    "tab": tab,
+                }
+            )
+
+        run_balanced = mode in ("balanced", "all", "balance")
+        run_latest = mode in ("latest", "all", "new")
+        run_top = mode in ("top", "all", "hot", "viral")
+        if mode == "balanced":
+            run_latest = False
+            run_top = False
+            run_balanced = True
+
+        for kw in keywords:
+            if run_balanced:
+                q = (
+                    f"{kw} (min_faves:{min_faves_bal} OR min_retweets:{min_rt_bal}) "
+                    f"-filter:replies"
+                )
+                add_job(q, "live", f"search_balanced:{kw}")
+            if run_top:
+                add_job(
+                    f"{kw} min_faves:{min_faves_top}",
+                    "top",
+                    f"search_top:{kw}",
+                )
+            if run_latest:
+                add_job(
+                    f"{kw} -filter:retweets -filter:replies",
+                    "live",
+                    f"search_latest:{kw}",
+                )
+                if accounts:
+                    from_parts = " OR ".join(f"from:{a}" for a in accounts[:8])
+                    add_job(
+                        f"({from_parts}) {kw}",
+                        "live",
+                        f"search_from:{kw}",
+                    )
+
+        list_ids = search_cfg.get("list_ids") or []
+        if isinstance(list_ids, str):
+            list_ids = [
+                x.strip() for x in re.split(r"[,，;；|\s]+", list_ids) if x.strip()
+            ]
+        for lid in list_ids:
+            lid = str(lid).strip()
+            if not lid:
+                continue
+            jobs.append(
+                {
+                    "url": f"https://x.com/i/lists/{lid}",
+                    "label": f"list:{lid}",
+                    "target": target,
+                    "query": f"list:{lid}",
+                    "tab": "list",
+                }
+            )
+        return jobs
 
     @staticmethod
     def _jitter_sleep(base_ms: int, jitter_ratio: float = 0.35):
@@ -730,8 +1082,24 @@ class DataFetcher:
 
     def _try_click_x_tab(self, driver, page_url: str):
         """进入页面后尝试点击目标 tab，提升命中率与页面稳定性。"""
+        if self._x_silent_enabled():
+            # 静默模式避免额外点击导致窗口激活
+            self._force_x_browser_silent(driver)
+            return
         click_patterns = []
-        if "filter=following" in page_url:
+        page_lower = (page_url or "").lower()
+        if "/search" in page_lower:
+            if "f=live" in page_lower:
+                click_patterns = [
+                    "a[href*='f=live']",
+                    "a[role='tab'][href*='live']",
+                ]
+            else:
+                click_patterns = [
+                    "a[href*='f=top']",
+                    "a[role='tab'][href*='top']",
+                ]
+        elif "filter=following" in page_url:
             click_patterns = [
                 "a[href*='filter=following']",
                 "a[href='/home?filter=following']",
@@ -779,6 +1147,7 @@ class DataFetcher:
         max_rounds = max(1, int(x_cfg.get("MAX_SCROLL_ROUNDS", 25)))
         scroll_step = max(300, int(x_cfg.get("SCROLL_STEP", 1200)))
         wait_ms = max(500, int(x_cfg.get("WAIT_MS", 2000)))
+        silent = self._x_silent_enabled()
 
         driver = self._get_x_driver()
         try:
@@ -789,25 +1158,35 @@ class DataFetcher:
             driver = self._get_x_driver()
             self._navigate_cdp_page(driver, page_url)
 
+        self._force_x_browser_silent(driver)
         self._jitter_sleep(wait_ms, 0.45)
-        self._try_click_x_tab(driver, page_url)
+        if not silent:
+            self._try_click_x_tab(driver, page_url)
+        self._force_x_browser_silent(driver)
 
         collected = []
         for _round in range(max_rounds):
             try:
-                articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+                articles = driver.find_elements(
+                    By.CSS_SELECTOR, "article[data-testid='tweet']"
+                )
             except WebDriverException as e:
                 print(f"X 抓取中断，重连后继续: {e}")
                 self._reset_x_driver()
                 driver = self._get_x_driver()
                 self._navigate_cdp_page(driver, page_url)
                 self._jitter_sleep(wait_ms, 0.5)
-                self._try_click_x_tab(driver, page_url)
-                articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+                if not silent:
+                    self._try_click_x_tab(driver, page_url)
+                articles = driver.find_elements(
+                    By.CSS_SELECTOR, "article[data-testid='tweet']"
+                )
 
             for article in articles:
                 try:
-                    links = article.find_elements(By.CSS_SELECTOR, "a[href*='/status/']")
+                    links = article.find_elements(
+                        By.CSS_SELECTOR, "a[href*='/status/']"
+                    )
                 except (StaleElementReferenceException, WebDriverException):
                     continue
                 status_url = ""
@@ -827,20 +1206,23 @@ class DataFetcher:
                     continue
 
                 try:
-                    text_nodes = article.find_elements(By.CSS_SELECTOR, "[data-testid='tweetText']")
+                    text_nodes = article.find_elements(
+                        By.CSS_SELECTOR, "[data-testid='tweetText']"
+                    )
                 except (StaleElementReferenceException, WebDriverException):
                     continue
                 text = " ".join(
                     self._safe_text(n) for n in text_nodes if self._safe_text(n)
                 ).strip()
                 if not text:
-                    # 兜底：tweetText 节点偶发缺失时，用整条 article 文本降低漏抓概率
                     text = clean_title(self._safe_text(article))
                 if not text:
                     continue
 
                 try:
-                    user_nodes = article.find_elements(By.CSS_SELECTOR, "a[role='link'] span")
+                    user_nodes = article.find_elements(
+                        By.CSS_SELECTOR, "a[role='link'] span"
+                    )
                 except (StaleElementReferenceException, WebDriverException):
                     user_nodes = []
                 author = ""
@@ -868,118 +1250,195 @@ class DataFetcher:
                 break
 
             try:
-                # 人类化滚动：随机步长 + 随机停顿
                 step = max(300, int(scroll_step + random.randint(-250, 350)))
                 driver.execute_script(f"window.scrollBy(0, {step});")
             except WebDriverException:
                 break
+            self._force_x_browser_silent(driver)
             self._jitter_sleep(wait_ms, 0.5)
 
-            # 每几轮轻量点击一次页面，降低失焦导致的加载停滞
-            if _round % 4 == 3:
+            if not silent and _round % 4 == 3:
                 self._try_click_x_tab(driver, page_url)
+            else:
+                self._force_x_browser_silent(driver)
 
+        self._force_x_browser_silent(driver)
         return collected
 
     def fetch_x_cdp_data(self) -> Tuple[Dict[str, Dict], str]:
         """
-        从 X.com 通过 CDP 抓取 Following / For You / Trending，返回与现有结果兼容的数据结构。
+        从 X.com 通过 CDP 抓取：
+        - 默认 / 有关键词时：只跑搜索工作流（新词必须靠搜索）
+        - 信息流（关注/推荐/热门）仅在显式开启时补充
         """
         x_cfg = CONFIG.get("X_CDP", {})
         if not x_cfg.get("ENABLED", False):
             raise ValueError("X CDP 抓取未启用，请在 config.yaml 中开启 crawler.x_cdp.enabled")
 
-        following_url = x_cfg.get("FOLLOWING_URL", "https://x.com/home?filter=following")
-        for_you_url = x_cfg.get("FOR_YOU_URL", x_cfg.get("REC_URL", "https://x.com/home"))
-        hot_url = x_cfg.get("HOT_URL", "https://x.com/explore/tabs/trending")
+        # 整段抓取包在前台守护里，避免 Chrome 置顶抢走焦点
+        with self._x_focus_guard():
+            if self._x_silent_enabled():
+                print(
+                    "X CDP 静默：第一次可抢焦点打开抓取页；之后只 navigate，不再切窗置顶"
+                )
 
-        target_following = max(1, int(x_cfg.get("TARGET_FOLLOWING_COUNT", 20)))
-        target_for_you = max(1, int(x_cfg.get("TARGET_FOR_YOU_COUNT", x_cfg.get("TARGET_REC_COUNT", 15))))
-        target_hot = max(1, int(x_cfg.get("TARGET_HOT_COUNT", 5)))
+            following_url = x_cfg.get(
+                "FOLLOWING_URL", "https://x.com/home?filter=following"
+            )
+            for_you_url = x_cfg.get(
+                "FOR_YOU_URL", x_cfg.get("REC_URL", "https://x.com/home")
+            )
+            hot_url = x_cfg.get("HOT_URL", "https://x.com/explore/tabs/trending")
 
-        seen_ids = set()
-        following_items = self._collect_x_tweets(
-            following_url, "following", target_following, seen_ids
-        )
-        for_you_items = self._collect_x_tweets(
-            for_you_url, "for_you", target_for_you, seen_ids
-        )
-        hot_items = self._collect_x_tweets(hot_url, "hot", target_hot, seen_ids)
-        all_items = following_items + for_you_items + hot_items
-        seen_cache = self._fetched_identity_cache.get("x-cdp", set())
-        if seen_cache:
-            filtered_items = []
-            skipped = 0
-            for item in all_items:
-                identity_keys = _build_item_identity_keys(item)
-                if identity_keys and identity_keys.intersection(seen_cache):
-                    skipped += 1
+            target_following = max(1, int(x_cfg.get("TARGET_FOLLOWING_COUNT", 20)))
+            target_for_you = max(
+                1,
+                int(
+                    x_cfg.get(
+                        "TARGET_FOR_YOU_COUNT", x_cfg.get("TARGET_REC_COUNT", 15)
+                    )
+                ),
+            )
+            target_hot = max(1, int(x_cfg.get("TARGET_HOT_COUNT", 5)))
+
+            # 有控制台关键词 / 搜索开启时：默认不刷关注/推荐，避免“只在推荐里找”
+            search_jobs = self._build_x_search_jobs()
+            has_keyword_override = bool(os.environ.get("X_SEARCH_KEYWORDS", "").strip())
+            # 有关键词或已启用搜索时：默认不刷关注/推荐（新词只能靠搜索）
+            if has_keyword_override or search_jobs:
+                enable_following = False
+                enable_for_you = False
+                enable_hot = False
+            else:
+                enable_following = bool(x_cfg.get("ENABLE_FOLLOWING", False))
+                enable_for_you = bool(x_cfg.get("ENABLE_FOR_YOU", False))
+                enable_hot = bool(x_cfg.get("ENABLE_HOT", False))
+
+            if not search_jobs:
+                print(
+                    "[X] X CDP 未生成任何搜索任务：请在控制台填写关键词，"
+                    "或在 config.yaml 的 crawler.x_cdp.search.keywords 配置"
+                )
+
+            seen_ids = set()
+            following_items: List[Dict] = []
+            for_you_items: List[Dict] = []
+            hot_items: List[Dict] = []
+            search_items: List[Dict] = []
+
+            # 1) 先搜索（核心）
+            if search_jobs:
+                mode = (x_cfg.get("SEARCH") or {}).get("mode", "balanced")
+                print(
+                    f"X CDP 搜索优先：共 {len(search_jobs)} 条查询（mode={mode}）"
+                )
+                for job in search_jobs:
+                    print(f"  >> 搜索 [{job['tab']}] {job['query']}")
+                    print(f"     URL: {job['url']}")
+                    part = self._collect_x_tweets(
+                        job["url"], job["label"], int(job["target"]), seen_ids
+                    )
+                    print(f"     本查询抓到 {len(part)} 条")
+                    search_items.extend(part)
+
+            # 2) 信息流仅补充（默认关闭）
+            if enable_following:
+                print("X CDP 补充抓取：关注流")
+                following_items = self._collect_x_tweets(
+                    following_url, "following", target_following, seen_ids
+                )
+            if enable_for_you:
+                print("X CDP 补充抓取：推荐流")
+                for_you_items = self._collect_x_tweets(
+                    for_you_url, "for_you", target_for_you, seen_ids
+                )
+            if enable_hot:
+                print("X CDP 补充抓取：热门榜")
+                hot_items = self._collect_x_tweets(
+                    hot_url, "hot", target_hot, seen_ids
+                )
+
+            all_items = search_items + following_items + for_you_items + hot_items
+            seen_cache = self._fetched_identity_cache.get("x-cdp", set())
+            if seen_cache:
+                filtered_items = []
+                skipped = 0
+                for item in all_items:
+                    identity_keys = _build_item_identity_keys(item)
+                    if identity_keys and identity_keys.intersection(seen_cache):
+                        skipped += 1
+                        continue
+                    filtered_items.append(item)
+                all_items = filtered_items
+                if skipped:
+                    print(f"X CDP 命中历史缓存，跳过 {skipped} 条已抓取推文")
+
+            min_unique = max(5, int(x_cfg.get("MIN_UNIQUE_TOTAL", 0)))
+            topup_attempt = 0
+            if search_jobs:
+                topup_url = search_jobs[0]["url"]
+                topup_label_prefix = "search_topup"
+            else:
+                topup_url = for_you_url
+                topup_label_prefix = "for_you_topup"
+            while len(all_items) < min_unique and topup_attempt < 3 and search_jobs:
+                topup_attempt += 1
+                need = min_unique - len(all_items)
+                buffer = max(4, min_unique // 3)
+                target = need + buffer + (topup_attempt - 1) * 2
+                print(
+                    f"X CDP 搜索结果不足 {min_unique}，第 {topup_attempt}/3 次继续搜索补抓约 {target} 条…"
+                )
+                extra = self._collect_x_tweets(
+                    topup_url,
+                    f"{topup_label_prefix}_{topup_attempt}",
+                    target,
+                    seen_ids,
+                )
+                if not extra:
+                    print("X CDP 补抓未获得新推文，本轮停止补抓")
+                    break
+                all_items.extend(extra)
+
+            merged = {}
+            for idx, item in enumerate(all_items, 1):
+                title = item["title"]
+                if title in merged:
+                    if merged[title].get("url") != item["url"]:
+                        tweet_tail = str(item.get("tweet_id", ""))[-6:] or str(idx)
+                        disamb_title = f"{title} [#{tweet_tail}]"
+                        while disamb_title in merged:
+                            disamb_title += "+"
+                        merged[disamb_title] = {
+                            "ranks": [idx],
+                            "url": item["url"],
+                            "mobileUrl": item["mobileUrl"],
+                            "author": item.get("author", ""),
+                            "category": item.get("category", ""),
+                        }
+                    else:
+                        merged[title]["ranks"].append(idx)
                     continue
-                filtered_items.append(item)
-            all_items = filtered_items
-            if skipped:
-                print(f"X CDP 命中历史缓存，跳过 {skipped} 条已抓取推文")
+                merged[title] = {
+                    "ranks": [idx],
+                    "url": item["url"],
+                    "mobileUrl": item["mobileUrl"],
+                    "author": item.get("author", ""),
+                    "category": item.get("category", ""),
+                }
 
-        # 强制保底至少 5 条（可用 min_unique_total 配更高值）
-        min_unique = max(5, int(x_cfg.get("MIN_UNIQUE_TOTAL", 0)))
-        topup_attempt = 0
-        while len(all_items) < min_unique and topup_attempt < 3:
-            topup_attempt += 1
-            need = min_unique - len(all_items)
-            # 多抓一些：无正文/解析失败会丢条，标题合并也会减少键数量
-            buffer = max(4, min_unique // 3)
-            target = need + buffer + (topup_attempt - 1) * 2
             print(
-                f"X CDP 去重后仅 {len(all_items)} 条，低于目标 {min_unique} 条，"
-                f"第 {topup_attempt}/3 次在推荐流补抓约 {target} 条…"
+                f"X CDP 抓取完成：搜索 {len(search_items)} 条，关注 {len(following_items)} 条，"
+                f"推荐 {len(for_you_items)} 条，热门 {len(hot_items)} 条；"
+                f"去重后合计 {len(all_items)} 条"
             )
-            extra = self._collect_x_tweets(
-                for_you_url, f"for_you_topup_{topup_attempt}", target, seen_ids
-            )
-            if not extra:
-                print("X CDP 补抓未获得新推文，本轮停止补抓")
-                break
-            all_items.extend(extra)
-
-        merged = {}
-        for idx, item in enumerate(all_items, 1):
-            title = item["title"]
-            if title in merged:
-                # 同标题但不同链接的帖子不要合并，否则结果条数会被压得过低
-                if merged[title].get("url") != item["url"]:
-                    tweet_tail = str(item.get("tweet_id", ""))[-6:] or str(idx)
-                    disamb_title = f"{title} [#{tweet_tail}]"
-                    while disamb_title in merged:
-                        disamb_title += "+"
-                    merged[disamb_title] = {
-                        "ranks": [idx],
-                        "url": item["url"],
-                        "mobileUrl": item["mobileUrl"],
-                        "author": item.get("author", ""),
-                        "category": item.get("category", ""),
-                    }
-                else:
-                    merged[title]["ranks"].append(idx)
-                continue
-            merged[title] = {
-                "ranks": [idx],
-                "url": item["url"],
-                "mobileUrl": item["mobileUrl"],
-                "author": item.get("author", ""),
-                "category": item.get("category", ""),
-            }
-
-        print(
-            f"X CDP 抓取完成：关注 {len(following_items)} 条，推荐 {len(for_you_items)} 条，"
-            f"热门 {len(hot_items)} 条；推文 ID 去重后合计 {len(all_items)} 条"
-        )
-        if len(merged) != len(all_items):
-            print(
-                f"X CDP 按标题合并后 {len(merged)} 条（有 {len(all_items) - len(merged)} 条标题与其他推文完全相同）"
-            )
-        else:
-            print(f"X CDP 按标题合并后 {len(merged)} 条（与去重条数一致）")
-        return merged, "X.com(CDP)"
+            if len(merged) != len(all_items):
+                print(
+                    f"X CDP 按标题合并后 {len(merged)} 条（有 {len(all_items) - len(merged)} 条标题重复）"
+                )
+            else:
+                print(f"X CDP 按标题合并后 {len(merged)} 条")
+            return merged, "X.com(CDP)"
 
     def fetch_data(
         self,
@@ -4705,7 +5164,7 @@ def send_to_notifications(
     if ntfy_server_url and ntfy_topics:
         # 验证 token 和 topic 数量一致（如果配置了 token）
         if ntfy_tokens and len(ntfy_tokens) != len(ntfy_topics):
-            print(f"❌ ntfy 配置错误：topic 数量({len(ntfy_topics)})与 token 数量({len(ntfy_tokens)})不一致，跳过 ntfy 推送")
+            print(f"[X] ntfy 配置错误：topic 数量({len(ntfy_topics)})与 token 数量({len(ntfy_tokens)})不一致，跳过 ntfy 推送")
         else:
             ntfy_topics = limit_accounts(ntfy_topics, max_accounts, "ntfy")
             if ntfy_tokens:
@@ -5933,7 +6392,7 @@ class NewsAnalyzer:
             )
             return True
         elif CONFIG["ENABLE_NOTIFICATION"] and not has_notification:
-            print("⚠️ 警告：通知功能已启用但未配置任何通知渠道，将跳过通知发送")
+            print("[!] 警告：通知功能已启用但未配置任何通知渠道，将跳过通知发送")
         elif not CONFIG["ENABLE_NOTIFICATION"]:
             print(f"跳过{report_type}通知：通知功能已禁用")
         elif (
@@ -6131,7 +6590,7 @@ class NewsAnalyzer:
                         html_file_path=html_file,
                     )
             else:
-                print("❌ 严重错误：无法读取刚保存的数据文件")
+                print("[错误] 严重错误：无法读取刚保存的数据文件")
                 raise RuntimeError("数据一致性检查失败：保存后立即读取失败")
         else:
             title_info = self._prepare_current_title_info(results, time_info)
@@ -6204,17 +6663,18 @@ class NewsAnalyzer:
 
 
 def main():
+    ensure_utf8_stdio()
     try:
         analyzer = NewsAnalyzer()
         analyzer.run()
     except FileNotFoundError as e:
-        print(f"❌ 配置文件错误: {e}")
-        print("\n请确保以下文件存在:")
-        print("  • config/config.yaml")
-        print("  • config/frequency_words.txt")
-        print("\n参考项目文档进行正确配置")
+        safe_print(f"[错误] 配置文件错误: {e}")
+        safe_print("\n请确保以下文件存在:")
+        safe_print("  - config/config.yaml")
+        safe_print("  - config/frequency_words.txt")
+        safe_print("\n参考项目文档进行正确配置")
     except Exception as e:
-        print(f"❌ 程序运行错误: {e}")
+        safe_print(f"[错误] 程序运行错误: {e}")
         raise
 
 

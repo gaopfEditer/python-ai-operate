@@ -21,7 +21,15 @@ logger = logging.getLogger(__name__)
 class TypechoPublisher:
     """Typecho平台发布器"""
     
-    def __init__(self, login_url: str, write_url: str, username: str, password: str, headless: bool = False):
+    def __init__(
+        self,
+        login_url: str,
+        write_url: str,
+        username: str,
+        password: str,
+        headless: bool = False,
+        debugger_url: Optional[str] = None,
+    ):
         """
         初始化Typecho发布器
         
@@ -31,12 +39,14 @@ class TypechoPublisher:
             username: 用户名
             password: 密码
             headless: 是否使用无头模式（不显示浏览器）
+            debugger_url: 已启动 Chrome 的 CDP 地址（如 127.0.0.1:9222）
         """
         self.login_url = login_url
         self.write_url = write_url
         self.username = username
         self.password = password
         self.headless = headless
+        self.debugger_url = (debugger_url or "").strip() or None
         self.driver = None
     
     def _init_driver(self):
@@ -53,13 +63,19 @@ class TypechoPublisher:
             
             try:
                 chrome_options = Options()
-                if self.headless:
-                    chrome_options.add_argument('--headless')
-                chrome_options.add_argument('--no-sandbox')
-                chrome_options.add_argument('--disable-dev-shm-usage')
-                chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-                chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-                chrome_options.add_experimental_option('useAutomationExtension', False)
+                if self.debugger_url:
+                    chrome_options.add_experimental_option(
+                        "debuggerAddress", self.debugger_url
+                    )
+                    logger.info(f"使用 CDP 连接已有 Chrome: {self.debugger_url}")
+                else:
+                    if self.headless:
+                        chrome_options.add_argument('--headless')
+                    chrome_options.add_argument('--no-sandbox')
+                    chrome_options.add_argument('--disable-dev-shm-usage')
+                    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+                    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                    chrome_options.add_experimental_option('useAutomationExtension', False)
                 
                 # 不使用临时用户数据目录，使用默认Chrome配置
                 # 这样可以避免"偏好设置文件已损坏"的弹窗
@@ -101,7 +117,10 @@ class TypechoPublisher:
                         logger.error(f"尝试使用Service初始化也失败: {e2}")
                         raise e
                 
-                self.driver.maximize_window()
+                try:
+                    self.driver.maximize_window()
+                except Exception:
+                    pass
                 logger.info("浏览器驱动初始化成功")
                 return True
             finally:
@@ -123,6 +142,10 @@ class TypechoPublisher:
                 suggestions.append("或者手动下载 ChromeDriver: https://chromedriver.chromium.org/")
             if "chrome" in error_msg.lower() and ("not found" in error_msg.lower() or "path" in error_msg.lower()):
                 suggestions.append("请确保已安装 Google Chrome 浏览器")
+            if self.debugger_url:
+                suggestions.append(
+                    f"CDP 模式请确认 Chrome 已用调试端口启动，且地址正确: {self.debugger_url}"
+                )
                 suggestions.append("Chrome 浏览器下载: https://www.google.com/chrome/")
             if "permission" in error_msg.lower() or "access" in error_msg.lower():
                 suggestions.append("请检查文件权限，确保有权限访问 Chrome 和 ChromeDriver")

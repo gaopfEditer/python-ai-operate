@@ -44,7 +44,9 @@ def get_platform_config(platform_id: str) -> Optional[Dict]:
 def publish_content(
     content: dict,
     platform_ids: Optional[List[str]] = None,
-    tags: Optional[str] = None
+    tags: Optional[str] = None,
+    use_cdp: bool = False,
+    debugger_url: Optional[str] = None,
 ) -> Dict:
     """
     发布内容到指定平台
@@ -53,11 +55,19 @@ def publish_content(
         content: 内容字典，包含title（标题）、content（正文）等
         platform_ids: 平台ID列表，如果为None则使用配置的默认平台
         tags: 标签（可选，逗号分隔）
+        use_cdp: 是否复用已启动的 Chrome CDP 调试会话
+        debugger_url: CDP 地址，如 127.0.0.1:9222；为空则读配置
         
     Returns:
         包含发布结果的字典
     """
     config = load_publish_config()
+    if use_cdp and not debugger_url:
+        debugger_url = (
+            config.get("debugger_url")
+            or config.get("cdp_debugger_url")
+            or "127.0.0.1:9222"
+        )
     
     if not config.get('enable', True):
         return {
@@ -112,7 +122,8 @@ def publish_content(
                 write_url=platform_config.get('write_url', ''),
                 username=platform_config.get('username', ''),
                 password=platform_config.get('password', ''),
-                headless=config.get('headless', False)
+                headless=config.get('headless', False),
+                debugger_url=debugger_url if use_cdp else None,
             )
             
             result = publisher.publish(

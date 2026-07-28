@@ -47,6 +47,28 @@ crawler:
     max_scroll_rounds: 25
     scroll_step: 1200
     wait_ms: 2000
+    # 静默：窗口保留；第一次允许抢一次焦点，之后禁止再置顶
+    silent: true
+    # 信息流默认全关：有关键词时只走「搜索」，否则新词根本搜不到
+    enable_following: false
+    enable_for_you: false
+    enable_hot: false
+    # 搜索工作流：兼顾「最新」与「最热」（Search Operators）
+    search:
+      enabled: true
+      # balanced=低门槛+近期过滤 | latest=原创最新 | top=高互动热门 | all=三者都跑
+      mode: balanced
+      # 无控制台关键词时的默认主题；页面输入的关键词会覆盖
+      keywords:
+        - Gemini
+      accounts:
+        - Google
+        - GoogleAI
+      min_faves_top: 100
+      min_faves_balanced: 20
+      min_retweets_balanced: 5
+      target_per_query: 20
+      list_ids: []
 
 # 🔸 daily（当日汇总模式）
 #   • 推送时机：按时推送(默认每小时推送一次)
@@ -191,6 +213,8 @@ publish:
   headless: false
   # 浏览器等待时间（秒）
   wait_timeout: 10
+  # CDP：复用已启动的 Chrome（控制台「CDP 发布」默认开启）
+  debugger_url: "127.0.0.1:9222"
   
   # 平台配置
   platforms:
