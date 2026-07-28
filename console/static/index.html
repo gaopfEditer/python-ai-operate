@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TrendRadar Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="brand-rail">
+      <div>
+        <p class="eyebrow">TRENDRADAR</p>
+        <h1 class="brand">Console</h1>
+        <p class="brand-sub">资讯获取 · 历史缓存 · Prompt 创作 · CDP 发布</p>
+        <div class="signal" aria-hidden="true"></div>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="功能分区">
+        <button class="tab active" type="button" role="tab" data-tab="news" aria-selected="true">资讯获取</button>
+        <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false">历史缓存</button>
+        <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
+        <button class="tab" type="button" role="tab" data-tab="publish" aria-selected="false">CDP 发布</button>
+      </nav>
+
+      <div class="rail-foot">
+        <span id="healthDot" class="dot" aria-hidden="true"></span>
+        <span id="healthText">检测中…</span>
+      </div>
+    </aside>
+
+    <main class="stage">
+      <section id="panel-news" class="panel active" role="tabpanel">
+        <div class="panel-head">
+          <h2>资讯获取</h2>
+          <p>默认按关键词直接查询；需要时可先衍生搜索词，或开启任务化做周期抓取。</p>
+        </div>
+        <div class="toolbar">
+          <label class="field grow">
+            <span>主题关键词</span>
+            <input id="newsKeyword" type="search" placeholder="例如：远程工作 / remote work" />
+          </label>
+          <button id="btnFilterNews" class="btn ghost" type="button">筛选缓存</button>
+          <button id="btnExpand" class="btn ghost" type="button">衍生后查询</button>
+          <button id="btnCrawl" class="btn primary" type="button">开始抓取</button>
+        </div>
+        <div class="crawl-opts">
+          <label class="field check">
+            <input id="crawlExpand" type="checkbox" />
+            <span>使用 AI 衍生词再搜</span>
+          </label>
+          <label class="field check">
+            <input id="platX" type="checkbox" checked />
+            <span>X</span>
+          </label>
+          <label class="field check">
+            <input id="platReddit" type="checkbox" checked />
+            <span>Reddit</span>
+          </label>
+          <label class="field check">
+            <input id="platTelegram" type="checkbox" checked />
+            <span>Telegram</span>
+          </label>
+          <label class="field check">
+            <input id="crawlScheduled" type="checkbox" />
+            <span>添加为周期任务</span>
+          </label>
+        </div>
+        <div id="taskScheduleOpts" class="crawl-opts task-only" hidden>
+          <label class="field">
+            <span>间隔（分钟）</span>
+            <input id="crawlInterval" type="number" min="5" value="30" />
+          </label>
+          <label class="field">
+            <span>随机抖动 ±分钟</span>
+            <input id="crawlJitter" type="number" min="0" value="10" />
+          </label>
+          <p class="task-hint">约每 30±10 分钟执行一次；重启控制台后需重新添加任务。</p>
+        </div>
+        <p id="crawlStatus" class="status"></p>
+        <div id="expandPreview" class="preview" hidden>
+          <h3>衍生预览</h3>
+          <pre id="expandPreviewBody" class="preview-body muted"></pre>
+        </div>
+        <div id="taskPanel" class="task-only" hidden>
+          <div class="panel-head" style="margin-top:18px">
+            <h2 style="font-size:1.2rem">周期任务</h2>
+            <p>当前运行中的重复抓取。</p>
+          </div>
+          <div id="taskList" class="card-list"></div>
+        </div>
+        <div id="newsList" class="card-list"></div>
+      </section>
+
+      <section id="panel-history" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h2>历史缓存</h2>
+          <p>浏览 <code>trendradar_posts_state.json</code> 中已入库的帖子。</p>
+        </div>
+        <div class="toolbar">
+          <label class="field grow">
+            <span>关键词</span>
+            <input id="historyKeyword" type="search" placeholder="标题 / 正文 / 链接" />
+          </label>
+          <label class="field">
+            <span>平台 ID</span>
+            <input id="historyPlatform" type="text" placeholder="如 x-cdp" />
+          </label>
+          <button id="btnLoadHistory" class="btn primary" type="button">加载</button>
+        </div>
+        <p id="historyMeta" class="status"></p>
+        <div id="historyList" class="card-list"></div>
+      </section>
+
+      <section id="panel-create" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h2>Prompt 创作</h2>
+          <p>基于主题与自定义 Prompt 生成文章，可直接送去发布。</p>
+        </div>
+        <div class="form-grid">
+          <label class="field full">
+            <span>主题</span>
+            <input id="createTopic" type="text" placeholder="文章主题" />
+          </label>
+          <label class="field full">
+            <span>自定义 Prompt（可选）</span>
+            <textarea id="createPrompt" rows="5" placeholder="补充写作要求、结构、受众等"></textarea>
+          </label>
+          <label class="field">
+            <span>风格</span>
+            <input id="createStyle" type="text" value="专业" />
+          </label>
+          <label class="field">
+            <span>字数</span>
+            <input id="createWords" type="number" min="300" step="100" value="2000" />
+          </label>
+          <div class="field" style="justify-content:end">
+            <span>&nbsp;</span>
+            <button id="btnCreate" class="btn primary" type="button">生成文章</button>
+          </div>
+        </div>
+        <p id="createStatus" class="status"></p>
+        <div class="preview">
+          <h3 id="createTitlePreview">预览</h3>
+          <pre id="createContentPreview" class="preview-body muted">生成后内容会显示在这里。</pre>
+          <div class="toolbar" style="margin-top:12px;margin-bottom:0">
+            <button id="btnUseForPublish" class="btn ghost" type="button">用于发布</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-publish" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h2>CDP 发布</h2>
+          <p>载入本地文章或粘贴正文，通过已配置的平台发布。</p>
+        </div>
+        <div class="toolbar">
+          <label class="field grow">
+            <span>本地文章</span>
+            <select id="articleSelect">
+              <option value="">选择本地文章…</option>
+            </select>
+          </label>
+          <button id="btnLoadArticles" class="btn ghost" type="button">刷新列表</button>
+        </div>
+        <div class="form-grid">
+          <label class="field full">
+            <span>标题</span>
+            <input id="publishTitle" type="text" />
+          </label>
+          <label class="field full">
+            <span>正文</span>
+            <textarea id="publishContent" rows="12"></textarea>
+          </label>
+          <label class="field">
+            <span>标签（逗号分隔）</span>
+            <input id="publishTags" type="text" placeholder="AI, 热点" />
+          </label>
+          <label class="field">
+            <span>发布平台</span>
+            <select id="publishPlatform"></select>
+          </label>
+          <label class="field">
+            <span>CDP debugger</span>
+            <input id="debuggerUrl" type="text" placeholder="127.0.0.1:9222" value="127.0.0.1:9222" />
+          </label>
+          <label class="field check">
+            <input id="useCdp" type="checkbox" checked />
+            <span>使用 CDP 发布</span>
+          </label>
+        </div>
+        <div class="toolbar">
+          <button id="btnPublish" class="btn primary" type="button">发布</button>
+        </div>
+        <p id="publishStatus" class="status"></p>
+        <pre id="publishResult" class="preview-body muted"></pre>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

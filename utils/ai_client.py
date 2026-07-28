@@ -247,6 +247,7 @@ class QwenClient:
 
 # 全局客户端实例
 _qwen_client: Optional[QwenClient] = None
+_ollama_client: Optional["OllamaClient"] = None
 
 
 def get_qwen_client() -> QwenClient:
@@ -255,4 +256,272 @@ def get_qwen_client() -> QwenClient:
     if _qwen_client is None:
         _qwen_client = QwenClient()
     return _qwen_client
+
+
+class OllamaClient:
+    """本地 Ollama 客户端（POST {base}/api/generate，对齐 polish.py）。"""
+
+    def __init__(self, config_path: Optional[str] = None):
+        if config_path is None:
+            project_root = Path(__file__).parent.parent
+            config_path = project_root / "config" / "config.yaml"
+        self.config_path = Path(config_path)
+        self._load_config()
+
+    def _load_config(self) -> None:
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+            ai = config.get("ai") or {}
+            o = ai.get("ollama") or {}
+            self.base_url = str(o.get("base_url") or "http://127.0.0.1:11434").rstrip("/")
+            self.model = str(o.get("model") or "gemma-uncensored").strip()
+            self.timeout = int(o.get("timeout") or 120)
+            self.enable = bool(o.get("enable", True))
+            if not self.base_url or not self.model:
+                self.enable = False
+        except Exception as e:
+            logger.error(f"加载 Ollama 配置失败: {e}")
+            self.enable = False
+            self.base_url = "http://127.0.0.1:11434"
+            self.model = ""
+            self.timeout = 120
+
+    def reachable(self, timeout: float = 1.5) -> bool:
+        if not self.enable or not self.base_url:
+            return False
+        try:
+            from urllib.parse import urlparse
+            import socket
+
+            parsed = urlparse(self.base_url if "://" in self.base_url else f"http://{self.base_url}")
+            host = (parsed.hostname or "").strip().lower()
+            port = parsed.port or 11434
+            if host in {"127.0.0.1", "localhost"}:
+                with socket.create_connection((host, int(port)), timeout=timeout):
+                    return True
+            r = requests.get(f"{self.base_url}/api/tags", timeout=timeout)
+            return r.status_code < 500
+        except Exception:
+            return False
+
+    def has_model(self, timeout: float = 3.0) -> bool:
+        """本机是否已拉取配置中的 model（名称或 name:tag 前缀匹配）。"""
+        if not self.reachable(timeout=min(1.5, timeout)):
+            return False
+        want = (self.model or "").strip().lower()
+        if not want:
+            return False
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            r = session.get(f"{self.base_url}/api/tags", timeout=timeout)
+            r.raise_for_status()
+            data = r.json() if r.content else {}
+            models = data.get("models") if isinstance(data, dict) else None
+            if not isinstance(models, list):
+                return True  # 探测失败时不阻断，交给 generate 再试
+            names = []
+            for m in models:
+                if not isinstance(m, dict):
+                    continue
+                name = str(m.get("name") or m.get("model") or "").strip().lower()
+                if name:
+                    names.append(name)
+            if not names:
+                return False
+            if want in names:
+                return True
+            # gemma-uncensored 可匹配 gemma-uncensored:latest
+            return any(n == want or n.startswith(want + ":") for n in names)
+        except Exception:
+            return True
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        if not self.enable:
+            return {
+                "success": False,
+                "content": "",
+                "error": "Ollama 未启用或配置不完整",
+                "usage": {},
+                "provider": "ollama",
+            }
+        if not self.reachable():
+            return {
+                "success": False,
+                "content": "",
+                "error": f"Ollama 不可达: {self.base_url}",
+                "usage": {},
+                "provider": "ollama",
+            }
+        if not self.has_model():
+            return {
+                "success": False,
+                "content": "",
+                "error": f"Ollama 未找到模型: {self.model}",
+                "usage": {},
+                "provider": "ollama",
+                "model": self.model,
+            }
+
+        full_prompt = prompt or ""
+        if system_prompt:
+            full_prompt = f"{system_prompt.strip()}\n\n{full_prompt}"
+
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "prompt": full_prompt,
+            "stream": False,
+        }
+        options: Dict[str, Any] = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+        if options:
+            payload["options"] = options
+        payload.update(kwargs)
+
+        url = f"{self.base_url}/api/generate"
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            r = session.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=self.timeout,
+            )
+            r.raise_for_status()
+            raw = r.json() if r.content else {}
+            text = raw.get("response") if isinstance(raw, dict) else ""
+            if not isinstance(text, str) or not text.strip():
+                return {
+                    "success": False,
+                    "content": "",
+                    "error": "Ollama 空响应",
+                    "usage": {},
+                    "provider": "ollama",
+                    "model": self.model,
+                }
+            return {
+                "success": True,
+                "content": text.strip(),
+                "error": "",
+                "usage": {},
+                "provider": "ollama",
+                "model": self.model,
+            }
+        except Exception as e:
+            logger.error(f"Ollama 请求失败: {e}")
+            return {
+                "success": False,
+                "content": "",
+                "error": f"Ollama 请求失败: {e}",
+                "usage": {},
+                "provider": "ollama",
+            }
+
+
+def get_ollama_client() -> OllamaClient:
+    global _ollama_client
+    if _ollama_client is None:
+        _ollama_client = OllamaClient()
+    return _ollama_client
+
+
+class PreferAIClient:
+    """
+    统一 AI 客户端：按 config.ai.prefer 路由。
+    默认 ollama_first —— 先用本地 gemma-uncensored 等，失败再千问。
+    """
+
+    @property
+    def enable(self) -> bool:
+        o = get_ollama_client()
+        q = get_qwen_client()
+        if o.enable and o.reachable():
+            return True
+        return bool(q.enable)
+
+    @property
+    def provider_hint(self) -> str:
+        o = get_ollama_client()
+        if o.enable and o.reachable() and o.has_model():
+            return f"ollama:{o.model}"
+        q = get_qwen_client()
+        if q.enable:
+            return f"qwen:{q.model}"
+        return "none"
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        return generate_text(
+            prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+
+
+_prefer_client: Optional[PreferAIClient] = None
+
+
+def get_ai_client() -> PreferAIClient:
+    """获取优先 Ollama、回退千问的统一客户端。"""
+    global _prefer_client
+    if _prefer_client is None:
+        _prefer_client = PreferAIClient()
+    return _prefer_client
+
+
+def generate_text(
+    prompt: str,
+    system_prompt: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    """优先本地 Ollama，失败再回退千问（ai.prefer 可控）。"""
+    prefer = "ollama_first"
+    try:
+        project_root = Path(__file__).parent.parent
+        with open(project_root / "config" / "config.yaml", "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        prefer = str((cfg.get("ai") or {}).get("prefer") or "ollama_first").strip().lower()
+    except Exception:
+        pass
+
+    def _ollama():
+        return get_ollama_client().generate(prompt, system_prompt=system_prompt, **kwargs)
+
+    def _qwen():
+        r = get_qwen_client().generate(prompt, system_prompt=system_prompt, **kwargs)
+        if isinstance(r, dict):
+            r.setdefault("provider", "qwen")
+        return r
+
+    if prefer == "qwen":
+        return _qwen()
+    if prefer == "ollama":
+        return _ollama()
+
+    # ollama_first
+    r = _ollama()
+    if r.get("success"):
+        return r
+    logger.warning(f"Ollama 不可用，回退千问: {r.get('error')}")
+    return _qwen()
 

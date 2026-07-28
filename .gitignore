@@ -183,6 +183,7 @@ $RECYCLE.BIN/
 # Output files (generated content)
 output/
 *.html
+!console/static/index.html
 *.txt
 !README*.txt
 !requirements.txt

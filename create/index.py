@@ -11,7 +11,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from utils.ai_client import get_qwen_client
+from utils.ai_client import get_ai_client
 
 
 def generate_content(hot_data: dict, platform: str = "通用", content_type: str = "文章") -> dict:
@@ -26,7 +26,7 @@ def generate_content(hot_data: dict, platform: str = "通用", content_type: str
     Returns:
         包含生成内容的字典
     """
-    client = get_qwen_client()
+    client = get_ai_client()
     
     # 构建用户输入
     user_input = f"""
@@ -52,7 +52,7 @@ def generate_content(hot_data: dict, platform: str = "通用", content_type: str
         with open(main_prompt_path, 'r', encoding='utf-8') as f:
             system_prompt += f.read()
     
-    # 调用千问生成内容
+    # 优先 Ollama，失败回退千问
     result = client.generate(
         prompt=user_input,
         system_prompt=system_prompt,
@@ -85,13 +85,13 @@ def generate_article_by_topic(
     Returns:
         包含生成内容的字典
     """
-    client = get_qwen_client()
+    client = get_ai_client()
     
     if not client.enable:
         return {
             'success': False,
             'content': '',
-            'error': '千问模型未启用或API Key未配置',
+            'error': 'AI 未启用：请启动 Ollama 并配置模型，或启用 ai.qwen',
             'usage': {}
         }
     
@@ -225,7 +225,7 @@ def generate_article_by_topic(
     # 根据字数调整max_tokens（通常1个中文字符约等于1-2个token）
     max_tokens = min(word_count * 2, 4000)  # 限制最大token数
     
-    # 调用千问生成内容
+    # 调用 AI 生成内容（优先 Ollama，回退千问）
     result = client.generate(
         prompt=user_input,
         system_prompt=system_prompt,
@@ -256,18 +256,18 @@ def main():
     print("📝 TrendRadar 创作模块")
     print("=" * 60)
     
-    client = get_qwen_client()
+    client = get_ai_client()
     if not client.enable:
-        print("\n⚠️  警告：千问模型未启用或API Key未配置")
-        print("请在 config/config.yaml 中配置 ai.qwen.api_key")
+        print("\n⚠️  警告：AI 未就绪（请启动 Ollama 或配置 ai.qwen）")
+        print("请在 config/config.yaml 中配置 ai.ollama / ai.qwen")
         print("\n")
         return
     
-    print("\n✅ 千问模型已就绪")
+    print(f"\n✅ AI 已就绪（优先路由: {client.provider_hint}）")
     print("\n功能说明：")
     print("  • 基于热点数据生成创作内容")
     print("  • 根据主题直接生成文章")
-    print("  • AI 辅助文本生成（使用通义千问）")
+    print("  • AI 辅助文本生成（Ollama → 千问回退）")
     print("  • 内容优化和编辑")
     print("  • 多格式内容导出")
     print("\n")

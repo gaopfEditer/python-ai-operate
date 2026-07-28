@@ -1016,32 +1016,46 @@ class DataFetcher:
             run_top = False
             run_balanced = True
 
-        for kw in keywords:
-            if run_balanced:
-                q = (
-                    f"{kw} (min_faves:{min_faves_bal} OR min_retweets:{min_rt_bal}) "
-                    f"-filter:replies"
-                )
-                add_job(q, "live", f"search_balanced:{kw}")
-            if run_top:
-                add_job(
-                    f"{kw} min_faves:{min_faves_top}",
-                    "top",
-                    f"search_top:{kw}",
-                )
-            if run_latest:
-                add_job(
-                    f"{kw} -filter:retweets -filter:replies",
-                    "live",
-                    f"search_latest:{kw}",
-                )
-                if accounts:
-                    from_parts = " OR ".join(f"from:{a}" for a in accounts[:8])
-                    add_job(
-                        f"({from_parts}) {kw}",
-                        "live",
-                        f"search_from:{kw}",
+        # 完整查询优先（控制台 AI 衍生的 Twitter 友好语法，不再二次包一层算子）
+        env_queries = os.environ.get("X_SEARCH_QUERIES", "").strip()
+        raw_queries: List[str] = []
+        if env_queries:
+            raw_queries = [
+                q.strip() for q in re.split(r"[|｜\n]+", env_queries) if q.strip()
+            ]
+        if raw_queries:
+            for qi, q in enumerate(raw_queries[:12], 1):
+                if run_balanced or run_latest:
+                    add_job(q, "live", f"search_query:{qi}")
+                if run_top:
+                    add_job(q, "top", f"search_query_top:{qi}")
+        else:
+            for kw in keywords:
+                if run_balanced:
+                    q = (
+                        f"{kw} (min_faves:{min_faves_bal} OR min_retweets:{min_rt_bal}) "
+                        f"-filter:replies"
                     )
+                    add_job(q, "live", f"search_balanced:{kw}")
+                if run_top:
+                    add_job(
+                        f"{kw} min_faves:{min_faves_top}",
+                        "top",
+                        f"search_top:{kw}",
+                    )
+                if run_latest:
+                    add_job(
+                        f"{kw} -filter:retweets -filter:replies",
+                        "live",
+                        f"search_latest:{kw}",
+                    )
+                    if accounts:
+                        from_parts = " OR ".join(f"from:{a}" for a in accounts[:8])
+                        add_job(
+                            f"({from_parts}) {kw}",
+                            "live",
+                            f"search_from:{kw}",
+                        )
 
         list_ids = search_cfg.get("list_ids") or []
         if isinstance(list_ids, str):

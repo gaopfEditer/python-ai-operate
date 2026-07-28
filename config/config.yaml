@@ -3,8 +3,17 @@ app:
   show_version_update: true # 控制显示版本更新提示，如果 false，则不接受新版本提示
 
 # AI模型配置
+# 统一入口 utils.ai_client.generate_text / get_ai_client：
+#   1) 优先本地 Ollama（下方 model）
+#   2) 未启动 / 无该模型 / 调用失败 → 自动回退千问
 ai:
-  # 通义千问（Qwen）配置
+  # 本地 Ollama（参考 polish.py：POST {base_url}/api/generate）
+  ollama:
+    enable: true
+    base_url: "http://127.0.0.1:11434"
+    model: "gemma-uncensored" # 按本机 ollama list 调整；不存在则回退 qwen
+    timeout: 120
+  # 通义千问（Ollama 不可用时的回退）
   qwen:
     api_key: "sk-40fc3963ae51439db02c07d7b9995042" # 通义千问API Key，从 https://dashscope.console.aliyun.com/ 获取
     api_endpoint: "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation" # API端点
@@ -12,7 +21,9 @@ ai:
     temperature: 0.7 # 温度参数，控制输出随机性（0-1），值越大越随机
     max_tokens: 2000 # 最大生成token数
     timeout: 60 # 请求超时时间（秒）
-    enable: true # 是否启用千问模型，如果 false，则不使用AI功能
+    enable: true # 是否启用千问回退；false 则 Ollama 失败后不再调用云端
+  # 路由：ollama_first（默认）| ollama（仅本地）| qwen（仅千问）
+  prefer: "ollama_first"
 
 crawler:
   request_interval: 1000 # 请求间隔(毫秒)

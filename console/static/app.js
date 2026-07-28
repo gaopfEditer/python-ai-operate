@@ -124,18 +124,98 @@ async function pollJob(jobId) {
     const data = await api(`/api/jobs/${jobId}`);
     const job = data.job || {};
     setStatus($("#crawlStatus"), job.message || job.status || "运行中…");
+    if (job.plan && job.plan.twitter_queries) {
+      const box = $("#expandPreview");
+      const body = $("#expandPreviewBody");
+      if (box && body) {
+        box.hidden = false;
+        body.textContent = JSON.stringify(
+          {
+            provider: (job.expansion && job.expansion.provider) || "",
+            seeds: job.plan.seeds,
+            twitter_queries: job.plan.twitter_queries,
+            reddit_queries: job.plan.reddit_queries,
+            telegram_queries: job.plan.telegram_queries,
+          },
+          null,
+          2
+        );
+      }
+    }
     if (job.status === "done") {
       setStatus($("#crawlStatus"), job.message || "完成", "ok");
       await loadPosts($("#newsKeyword").value.trim(), "", "news");
+      await loadTasks();
       return;
     }
     if (job.status === "error") {
       setStatus($("#crawlStatus"), job.message || "抓取失败", "error");
+      await loadTasks();
       return;
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
   setStatus($("#crawlStatus"), "等待超时，请稍后在历史缓存中查看", "error");
+}
+
+function selectedPlatforms() {
+  const plats = [];
+  if ($("#platX")?.checked) plats.push("x-cdp");
+  if ($("#platReddit")?.checked) plats.push("reddit");
+  if ($("#platTelegram")?.checked) plats.push("telegram");
+  return plats.length ? plats : ["x-cdp"];
+}
+
+async function loadTasks() {
+  const data = await api("/api/crawl/tasks");
+  const box = $("#taskList");
+  const queue = $("#taskPanel");
+  if (!box) return;
+  const items = (data.items || []).filter((t) => t.enabled || t.running);
+  const showTaskUi = !!$("#crawlScheduled")?.checked || items.length > 0;
+  if (queue) queue.hidden = !showTaskUi;
+  const opts = $("#taskScheduleOpts");
+  if (opts) opts.hidden = !$("#crawlScheduled")?.checked;
+
+  if (!items.length) {
+    box.innerHTML = showTaskUi
+      ? `<div class="item"><h3>暂无运行中的周期任务</h3><p class="snippet">勾选「添加为周期任务」后点开始抓取即可创建。</p></div>`
+      : "";
+    return;
+  }
+  box.innerHTML = items
+    .map((t) => {
+      const enabled = t.enabled ? "运行中" : "已停止";
+      const plats = (t.platforms || []).join(", ");
+      return `
+        <article class="item">
+          <h3>${escapeHtml(t.keyword || "")}</h3>
+          <div class="meta">
+            <span>${enabled}${t.running ? " · 执行中" : ""}</span>
+            <span>每 ${t.interval_min}±${t.jitter_min} 分</span>
+            <span>已跑 ${t.run_count || 0} 次</span>
+            <span>${escapeHtml(plats)}</span>
+            ${t.next_run_at ? `<span>下次 ${escapeHtml(t.next_run_at)}</span>` : ""}
+            ${t.enabled ? `<button class="btn ghost" data-stop-task="${escapeAttr(t.id)}">停止</button>` : ""}
+          </div>
+          <p class="snippet">${escapeHtml(t.last_message || "")}</p>
+        </article>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-stop-task]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-stop-task");
+      await api(`/api/crawl/tasks/${id}`, { method: "DELETE" });
+      await loadTasks();
+    });
+  });
+}
+
+function syncTaskUi() {
+  const scheduled = !!$("#crawlScheduled")?.checked;
+  const opts = $("#taskScheduleOpts");
+  if (opts) opts.hidden = !scheduled;
+  loadTasks();
 }
 
 async function loadPublishPlatforms() {
@@ -179,20 +259,68 @@ function bind() {
     loadPosts($("#newsKeyword").value.trim(), "", "news");
   });
 
-  $("#btnCrawl").addEventListener("click", async () => {
+  $("#btnExpand")?.addEventListener("click", async () => {
     const keyword = $("#newsKeyword").value.trim();
-    $("#btnCrawl").disabled = true;
-    setStatus($("#crawlStatus"), "已提交抓取任务…");
+    if (!keyword) {
+      setStatus($("#crawlStatus"), "请先填写主题关键词", "error");
+      return;
+    }
+    if ($("#crawlExpand")) $("#crawlExpand").checked = true;
+    setStatus($("#crawlStatus"), "正在用本地 AI 衍生搜索词…");
     try {
-      const data = await api("/api/crawl", {
+      const data = await api("/api/keywords/expand", {
         method: "POST",
         body: JSON.stringify({ keyword }),
+      });
+      const box = $("#expandPreview");
+      const body = $("#expandPreviewBody");
+      box.hidden = false;
+      body.textContent = JSON.stringify(data, null, 2);
+      setStatus(
+        $("#crawlStatus"),
+        data.success ? `衍生完成（${data.provider || "ai"}），可点「开始抓取」` : data.error || "衍生失败",
+        data.success ? "ok" : "error"
+      );
+    } catch (e) {
+      setStatus($("#crawlStatus"), String(e), "error");
+    }
+  });
+
+  $("#crawlScheduled")?.addEventListener("change", syncTaskUi);
+
+  $("#btnCrawl").addEventListener("click", async () => {
+    const keyword = $("#newsKeyword").value.trim();
+    const scheduled = !!$("#crawlScheduled")?.checked;
+    const expand = !!$("#crawlExpand")?.checked;
+    const platforms = selectedPlatforms();
+    $("#btnCrawl").disabled = true;
+    setStatus($("#crawlStatus"), scheduled ? "已创建周期任务…" : "已提交抓取任务…");
+    try {
+      const payload = {
+        keyword,
+        expand,
+        platforms,
+        scheduled,
+        interval_min: Number($("#crawlInterval")?.value || 30),
+        jitter_min: Number($("#crawlJitter")?.value || 10),
+        run_now: true,
+      };
+      const data = await api("/api/crawl", {
+        method: "POST",
+        body: JSON.stringify(payload),
       });
       if (!data.success) {
         setStatus($("#crawlStatus"), data.error || "启动失败", "error");
         return;
       }
-      await pollJob(data.job_id);
+      await loadTasks();
+      if (data.job_id) {
+        await pollJob(data.job_id);
+      } else if (data.task?.last_job_id) {
+        await pollJob(data.task.last_job_id);
+      } else {
+        setStatus($("#crawlStatus"), "周期任务已启动", "ok");
+      }
     } catch (e) {
       setStatus($("#crawlStatus"), String(e), "error");
     } finally {
@@ -304,11 +432,13 @@ function bind() {
 
 async function boot() {
   bind();
+  syncTaskUi();
   await refreshHealth();
   await loadPublishPlatforms();
   await loadArticles();
   await loadPosts("", "", "history");
   setInterval(refreshHealth, 15000);
+  setInterval(loadTasks, 20000);
 }
 
 boot();
