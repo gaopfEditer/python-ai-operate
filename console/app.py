@@ -18,7 +18,8 @@ import time
 import traceback
 import uuid
 import webbrowser
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATE_PATH = PROJECT_ROOT / "output" / "trendradar_posts_state.json"
 ARTICLES_DIR = PROJECT_ROOT / "output" / "articles"
+
+PLATFORM_DISPLAY = {
+    "x-cdp": "X",
+    "x": "X",
+    "twitter": "X",
+    "reddit": "Reddit",
+    "telegram": "Telegram",
+    "tg": "Telegram",
+}
 
 # 后台任务状态
 _JOBS: Dict[str, Dict[str, Any]] = {}
@@ -56,6 +66,9 @@ def _read_json_body(handler: SimpleHTTPRequestHandler) -> Dict[str, Any]:
         return {}
 
 
+_STATE_LOCK = threading.Lock()
+
+
 def _load_posts_state() -> Dict[str, Any]:
     if not STATE_PATH.exists():
         return {"version": 1, "generated_at": "", "platform_labels": {}, "posts": {}}
@@ -67,6 +80,209 @@ def _load_posts_state() -> Dict[str, Any]:
         return {"error": str(e), "posts": {}}
 
 
+def _save_posts_state(state: Dict[str, Any]) -> None:
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _STATE_LOCK:
+        with open(STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def _normalize_tags(value: Any) -> List[str]:
+    """标签按逗号/分号/竖线分隔；保留空格（支持多词标签）。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = re.split(r"[,，;；|]+", value)
+    elif isinstance(value, list):
+        parts = [str(x) for x in value]
+    else:
+        parts = [str(value)]
+    out: List[str] = []
+    seen = set()
+    for p in parts:
+        tag = re.sub(r"\s+", " ", p).strip()
+        if not tag or len(tag) > 40:
+            continue
+        key = tag.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+    return out[:30]
+
+
+def _normalize_post_key(value: str) -> str:
+    s = (value or "").strip()
+    if not s:
+        return ""
+    # 去掉末尾斜杠与 fragment，提升 href/key 匹配率
+    s = s.split("#", 1)[0].rstrip("/")
+    return s
+
+
+def _find_post_ref(
+    state: Dict[str, Any], platform_id: str = "", key: str = "", href: str = ""
+) -> tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]]:
+    """
+    定位帖子：返回 (platform_id, key, entry)。
+    支持 key / href 互查，以及跨平台兜底扫描。
+    """
+    posts = state.get("posts") if isinstance(state.get("posts"), dict) else {}
+    want_key = _normalize_post_key(key)
+    want_href = _normalize_post_key(href) or want_key
+    candidates = [want_key, want_href]
+    # twitter.com <-> x.com
+    for c in list(candidates):
+        if "://twitter.com/" in c:
+            candidates.append(c.replace("://twitter.com/", "://x.com/", 1))
+        if "://x.com/" in c:
+            candidates.append(c.replace("://x.com/", "://twitter.com/", 1))
+    candidates = [c for c in dict.fromkeys(candidates) if c]
+
+    plat_order: List[str] = []
+    if platform_id and platform_id in posts:
+        plat_order.append(platform_id)
+    for p in posts.keys():
+        if p not in plat_order:
+            plat_order.append(str(p))
+
+    for plat in plat_order:
+        bucket = posts.get(plat)
+        if not isinstance(bucket, dict):
+            continue
+        for cand in candidates:
+            entry = bucket.get(cand)
+            if isinstance(entry, dict):
+                return str(plat), cand, entry
+            # 有时 dict key 与 href 字段不一致
+            for ek, ev in bucket.items():
+                if not isinstance(ev, dict):
+                    continue
+                ek_n = _normalize_post_key(str(ek))
+                href_n = _normalize_post_key(str(ev.get("href") or ""))
+                if cand in (ek_n, href_n):
+                    return str(plat), str(ek), ev
+    return None, None, None
+
+
+def _find_post_entry(
+    state: Dict[str, Any], platform_id: str, key: str
+) -> Optional[Dict[str, Any]]:
+    _, _, entry = _find_post_ref(state, platform_id=platform_id, key=key)
+    return entry
+
+
+def _platform_display_name(platform_id: str, labels: Optional[Dict[str, Any]] = None) -> str:
+    pid = str(platform_id or "").strip()
+    if not pid:
+        return "未知来源"
+    if labels and labels.get(pid):
+        # 旧标签可能是乱码/过长，优先用规范短名
+        mapped = PLATFORM_DISPLAY.get(pid.lower())
+        if mapped:
+            return mapped
+        return str(labels.get(pid))
+    return PLATFORM_DISPLAY.get(pid.lower(), pid)
+
+
+def _interleave_by_platform(rows: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    """按平台轮询混排，避免单一来源占满前 N 条。"""
+    if not rows:
+        return []
+    buckets: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    order: List[str] = []
+    for row in rows:
+        pid = str(row.get("platform_id") or "unknown")
+        if pid not in buckets:
+            order.append(pid)
+        buckets[pid].append(row)
+    if len(order) <= 1:
+        return rows[: max(1, limit)]
+    out: List[Dict[str, Any]] = []
+    idx = {p: 0 for p in order}
+    while len(out) < max(1, limit):
+        progressed = False
+        for p in order:
+            i = idx[p]
+            if i < len(buckets[p]):
+                out.append(buckets[p][i])
+                idx[p] = i + 1
+                progressed = True
+                if len(out) >= max(1, limit):
+                    break
+        if not progressed:
+            break
+    return out
+
+
+def _platform_counts_from_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    posts = state.get("posts") if isinstance(state.get("posts"), dict) else {}
+    labels = state.get("platform_labels") if isinstance(state.get("platform_labels"), dict) else {}
+    out = []
+    for pid, bucket in posts.items():
+        n = len(bucket) if isinstance(bucket, dict) else 0
+        out.append(
+            {
+                "id": str(pid),
+                "name": _platform_display_name(str(pid), labels),
+                "count": n,
+            }
+        )
+    out.sort(key=lambda x: (-int(x["count"]), str(x["name"]).lower()))
+    return out
+
+
+def _collect_post_stats(state: Dict[str, Any]) -> Dict[str, Any]:
+    posts = state.get("posts") if isinstance(state.get("posts"), dict) else {}
+    counts = {"all": 0, "active": 0, "archived": 0, "watch_later": 0, "tagged": 0}
+    tag_map: Dict[str, int] = {}
+    for bucket in posts.values():
+        if not isinstance(bucket, dict):
+            continue
+        for entry in bucket.values():
+            if not isinstance(entry, dict):
+                continue
+            counts["all"] += 1
+            archived = bool(entry.get("archived"))
+            later = bool(entry.get("watch_later"))
+            tags = _normalize_tags(entry.get("tags"))
+            if archived:
+                counts["archived"] += 1
+            else:
+                counts["active"] += 1
+            if later:
+                counts["watch_later"] += 1
+            if tags:
+                counts["tagged"] += 1
+            for t in tags:
+                tag_map[t] = tag_map.get(t, 0) + 1
+    tag_list = [
+        {"name": name, "count": count}
+        for name, count in sorted(tag_map.items(), key=lambda x: (-x[1], x[0].lower()))
+    ]
+    return {
+        "counts": counts,
+        "tags": tag_list,
+        "platforms": _platform_counts_from_state(state),
+    }
+
+
+def _entry_public_meta(
+    platform_id: str, key: str, entry: Dict[str, Any]
+) -> Dict[str, Any]:
+    return {
+        "platform_id": platform_id,
+        "key": key,
+        "href": str(entry.get("href") or key),
+        "title": str(entry.get("title") or ""),
+        "archived": bool(entry.get("archived")),
+        "archived_at": str(entry.get("archived_at") or ""),
+        "watch_later": bool(entry.get("watch_later")),
+        "watch_later_at": str(entry.get("watch_later_at") or ""),
+        "tags": _normalize_tags(entry.get("tags")),
+    }
+
+
 def _persist_crawl_tasks() -> None:
     TASKS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _CRAWL_TASKS_LOCK:
@@ -76,12 +292,18 @@ def _persist_crawl_tasks() -> None:
                 {
                     "id": t.get("id"),
                     "keyword": t.get("keyword"),
+                    "name": t.get("name") or t.get("keyword") or "",
+                    "note": t.get("note") or "",
+                    "schedule_mode": t.get("schedule_mode") or "interval",
                     "interval_min": t.get("interval_min", 30),
                     "jitter_min": t.get("jitter_min", 10),
+                    "daily_hour": t.get("daily_hour", 9),
                     "expand": bool(t.get("expand", True)),
                     "platforms": t.get("platforms") or ["x-cdp", "reddit", "telegram"],
                     "enabled": bool(t.get("enabled", True)),
                     "created_at": t.get("created_at"),
+                    "updated_at": t.get("updated_at") or t.get("created_at"),
+                    "stopped_at": t.get("stopped_at"),
                     "last_run_at": t.get("last_run_at"),
                     "next_run_at": t.get("next_run_at"),
                     "last_status": t.get("last_status"),
@@ -91,7 +313,7 @@ def _persist_crawl_tasks() -> None:
                 }
             )
     with open(TASKS_PATH, "w", encoding="utf-8") as f:
-        json.dump({"tasks": dump}, f, ensure_ascii=False, indent=2)
+        json.dump({"version": 1, "tasks": dump}, f, ensure_ascii=False, indent=2)
 
 
 def _next_interval_seconds(interval_min: int = 30, jitter_min: int = 10) -> int:
@@ -102,16 +324,69 @@ def _next_interval_seconds(interval_min: int = 30, jitter_min: int = 10) -> int:
     return minutes * 60
 
 
+def _seconds_until_daily(daily_hour: int = 9, jitter_min: int = 10) -> int:
+    """距下次每日定点执行的秒数。"""
+    hour = max(0, min(23, int(daily_hour if daily_hour is not None else 9)))
+    now = datetime.now()
+    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target = target + timedelta(days=1)
+    wait = (target - now).total_seconds()
+    jitter = max(0, int(jitter_min or 0))
+    if jitter:
+        wait += random.randint(-jitter, jitter) * 60
+    return max(60, int(wait))
+
+
+def _task_wait_seconds(task: Dict[str, Any]) -> int:
+    mode = str(task.get("schedule_mode") or "interval").strip().lower()
+    if mode == "daily":
+        return _seconds_until_daily(
+            int(task.get("daily_hour") if task.get("daily_hour") is not None else 9),
+            int(task.get("jitter_min") or 0),
+        )
+    return _next_interval_seconds(
+        int(task.get("interval_min") or 30),
+        int(task.get("jitter_min") or 10),
+    )
+
+
+def _schedule_label(task: Dict[str, Any]) -> str:
+    mode = str(task.get("schedule_mode") or "interval").strip().lower()
+    if mode == "daily":
+        hour = int(task.get("daily_hour") if task.get("daily_hour") is not None else 9)
+        return f"每天 {hour:02d}:00"
+    interval = int(task.get("interval_min") or 30)
+    jitter = int(task.get("jitter_min") or 0)
+    if interval >= 1440 and interval % 1440 == 0:
+        days = interval // 1440
+        base = f"每 {days} 天" if days > 1 else "每天(间隔)"
+    elif interval >= 60 and interval % 60 == 0:
+        base = f"每 {interval // 60} 小时"
+    else:
+        base = f"每 {interval} 分钟"
+    if jitter:
+        return f"{base} ±{jitter} 分"
+    return base
+
+
 def _public_task_view(task: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": task.get("id"),
         "keyword": task.get("keyword"),
+        "name": task.get("name") or task.get("keyword") or "",
+        "note": task.get("note") or "",
+        "schedule_mode": task.get("schedule_mode") or "interval",
+        "schedule_label": _schedule_label(task),
         "interval_min": task.get("interval_min", 30),
         "jitter_min": task.get("jitter_min", 10),
+        "daily_hour": task.get("daily_hour", 9),
         "expand": bool(task.get("expand", True)),
         "platforms": task.get("platforms") or [],
         "enabled": bool(task.get("enabled", True)),
         "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at") or task.get("created_at"),
+        "stopped_at": task.get("stopped_at"),
         "last_run_at": task.get("last_run_at"),
         "next_run_at": task.get("next_run_at"),
         "last_status": task.get("last_status"),
@@ -123,11 +398,172 @@ def _public_task_view(task: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _flatten_posts(state: Dict[str, Any], keyword: str = "", platform: str = "") -> List[Dict[str, Any]]:
+def _normalize_task_platforms(platforms: Optional[List[str]]) -> List[str]:
+    if not platforms:
+        return ["x-cdp", "reddit", "telegram"]
+    out = []
+    seen = set()
+    for p in platforms:
+        pid = str(p).strip()
+        if not pid:
+            continue
+        key = pid.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(pid)
+    return out or ["x-cdp"]
+
+
+def _find_reusable_task(keyword: str) -> Optional[Dict[str, Any]]:
+    """按关键词复用历史任务（不区分大小写）。"""
+    kw = (keyword or "").strip().lower()
+    if not kw:
+        return None
+    with _CRAWL_TASKS_LOCK:
+        for t in _CRAWL_TASKS.values():
+            if str(t.get("keyword") or "").strip().lower() == kw:
+                return t
+    return None
+
+
+def _ensure_task_runtime(task: Dict[str, Any]) -> None:
+    if not isinstance(task.get("_stop"), threading.Event):
+        task["_stop"] = threading.Event()
+    task.setdefault("_running", False)
+
+
+def _spawn_schedule_thread(task_id: str) -> None:
+    with _CRAWL_TASKS_LOCK:
+        task = _CRAWL_TASKS.get(task_id)
+        if not task or not task.get("enabled"):
+            return
+        th = task.get("_thread")
+        if isinstance(th, threading.Thread) and th.is_alive():
+            return
+        _ensure_task_runtime(task)
+        stop_event: threading.Event = task["_stop"]
+        stop_event.clear()
+    thread = threading.Thread(target=_schedule_loop, args=(task_id,), daemon=True)
+    thread.start()
+    with _CRAWL_TASKS_LOCK:
+        t = _CRAWL_TASKS.get(task_id)
+        if t:
+            t["_thread"] = thread
+
+
+def _load_crawl_tasks() -> int:
+    """从磁盘恢复历史周期任务；已启用的会自动续跑。"""
+    if not TASKS_PATH.exists():
+        return 0
+    try:
+        with open(TASKS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return 0
+    raw_tasks = data.get("tasks") if isinstance(data, dict) else None
+    if not isinstance(raw_tasks, list):
+        return 0
+    restored = 0
+    enabled_ids: List[str] = []
+    with _CRAWL_TASKS_LOCK:
+        for item in raw_tasks:
+            if not isinstance(item, dict):
+                continue
+            task_id = str(item.get("id") or "").strip() or uuid.uuid4().hex[:10]
+            keyword = str(item.get("keyword") or "").strip()
+            if not keyword:
+                continue
+            mode = str(item.get("schedule_mode") or "interval").strip().lower()
+            if mode not in ("interval", "daily"):
+                mode = "interval"
+            task = {
+                "id": task_id,
+                "keyword": keyword,
+                "name": str(item.get("name") or keyword),
+                "note": str(item.get("note") or ""),
+                "schedule_mode": mode,
+                "interval_min": max(5, int(item.get("interval_min") or 30)),
+                "jitter_min": max(0, int(item.get("jitter_min") or 0)),
+                "daily_hour": max(0, min(23, int(item.get("daily_hour") if item.get("daily_hour") is not None else 9))),
+                "expand": bool(item.get("expand", True)),
+                "platforms": _normalize_task_platforms(item.get("platforms")),
+                "enabled": bool(item.get("enabled", False)),
+                "created_at": item.get("created_at") or datetime.now().isoformat(timespec="seconds"),
+                "updated_at": item.get("updated_at") or item.get("created_at"),
+                "stopped_at": item.get("stopped_at"),
+                "last_run_at": item.get("last_run_at"),
+                "next_run_at": item.get("next_run_at"),
+                "last_status": item.get("last_status") or ("idle" if not item.get("enabled") else "restored"),
+                "last_message": item.get("last_message") or "已从历史恢复",
+                "run_count": int(item.get("run_count") or 0),
+                "expansion": item.get("expansion"),
+                "_stop": threading.Event(),
+                "_running": False,
+            }
+            if not task["enabled"]:
+                task["_stop"].set()
+            _CRAWL_TASKS[task_id] = task
+            restored += 1
+            if task["enabled"]:
+                enabled_ids.append(task_id)
+    for tid in enabled_ids:
+        _spawn_schedule_thread(tid)
+    return restored
+
+
+def _apply_task_fields(task: Dict[str, Any], body: Dict[str, Any]) -> None:
+    if "keyword" in body and str(body.get("keyword") or "").strip():
+        task["keyword"] = str(body.get("keyword")).strip()
+        if not task.get("name") or task.get("name") == task.get("id"):
+            task["name"] = task["keyword"]
+    if "name" in body and str(body.get("name") or "").strip():
+        task["name"] = str(body.get("name")).strip()
+    if "note" in body:
+        task["note"] = str(body.get("note") or "").strip()
+    if "schedule_mode" in body:
+        mode = str(body.get("schedule_mode") or "interval").strip().lower()
+        task["schedule_mode"] = mode if mode in ("interval", "daily") else "interval"
+    if "interval_min" in body:
+        try:
+            task["interval_min"] = max(5, int(body.get("interval_min") or 30))
+        except Exception:
+            pass
+    if "jitter_min" in body:
+        try:
+            task["jitter_min"] = max(0, int(body.get("jitter_min") or 0))
+        except Exception:
+            pass
+    if "daily_hour" in body:
+        try:
+            task["daily_hour"] = max(0, min(23, int(body.get("daily_hour"))))
+        except Exception:
+            pass
+    if "expand" in body:
+        task["expand"] = bool(body.get("expand"))
+    if "platforms" in body:
+        plats = body.get("platforms")
+        if isinstance(plats, str):
+            plats = [p.strip() for p in re.split(r"[,，;；|\s]+", plats) if p.strip()]
+        if isinstance(plats, list):
+            task["platforms"] = _normalize_task_platforms(plats)
+    task["updated_at"] = datetime.now().isoformat(timespec="seconds")
+
+
+
+def _flatten_posts(
+    state: Dict[str, Any],
+    keyword: str = "",
+    platform: str = "",
+    view: str = "all",
+    tag: str = "",
+) -> List[Dict[str, Any]]:
     posts = state.get("posts") or {}
     labels = state.get("platform_labels") or {}
     kw = (keyword or "").strip().lower()
     plat = (platform or "").strip()
+    view_mode = (view or "all").strip().lower()
+    tag_filter = (tag or "").strip().lower()
     rows: List[Dict[str, Any]] = []
 
     for platform_id, bucket in posts.items():
@@ -138,27 +574,51 @@ def _flatten_posts(state: Dict[str, Any], keyword: str = "", platform: str = "")
         for key, entry in bucket.items():
             if not isinstance(entry, dict):
                 continue
+            archived = bool(entry.get("archived"))
+            watch_later = bool(entry.get("watch_later"))
+            tags = _normalize_tags(entry.get("tags"))
+            if view_mode == "active" and archived:
+                continue
+            if view_mode == "archived" and not archived:
+                continue
+            if view_mode in ("watch_later", "later") and not watch_later:
+                continue
+            if tag_filter and tag_filter not in [t.lower() for t in tags]:
+                continue
             title = str(entry.get("title") or "")
             content = str(entry.get("content") or entry.get("raw") or "")
+            summary = str(entry.get("summary") or "").strip()
             href = str(entry.get("href") or key)
-            hay = f"{title} {content} {href}".lower()
+            tags_hay = " ".join(tags)
+            hay = f"{title} {content} {summary} {href} {tags_hay}".lower()
             if kw and kw not in hay:
                 continue
+            display = _platform_display_name(str(platform_id), labels)
+            source = str(entry.get("source") or display)
             rows.append(
                 {
                     "platform_id": str(platform_id),
-                    "platform_name": labels.get(str(platform_id), str(platform_id)),
+                    "platform_name": display,
+                    "source": source,
                     "key": key,
                     "href": href,
                     "title": title,
                     "raw": entry.get("raw") or "",
                     "content": entry.get("content") or "",
+                    "summary": summary,
                     "author": entry.get("author") or "",
                     "fetched_at": entry.get("fetched_at") or "",
                     "first_fetched_at": entry.get("first_fetched_at") or entry.get("fetched_at") or "",
                     "star": entry.get("star", 0),
                     "isUseful": entry.get("isUseful", False),
                     "rank": entry.get("rank"),
+                    "archived": archived,
+                    "archived_at": str(entry.get("archived_at") or ""),
+                    "watch_later": watch_later,
+                    "watch_later_at": str(entry.get("watch_later_at") or ""),
+                    "tags": tags,
+                    "subreddit": str(entry.get("subreddit") or ""),
+                    "chat": str(entry.get("chat") or ""),
                 }
             )
 
@@ -323,20 +783,36 @@ def _run_crawl_job(
         # 列表过滤用主题词，避免衍生长查询匹配不到标题
         filter_kw = keyword
         rows = _flatten_posts(state, keyword=filter_kw)
+        plat_counts = defaultdict(int)
+        for row in rows:
+            plat_counts[str(row.get("platform_id") or "?")] += 1
+        plat_bits = []
+        for pid, n in sorted(plat_counts.items(), key=lambda x: (-x[1], x[0])):
+            plat_bits.append(f"{_platform_display_name(pid)} {n}")
         msg = f"抓取完成，匹配 {len(rows)} 条"
+        if plat_bits:
+            msg += "｜" + " / ".join(plat_bits)
         if extra_summary:
             msg += (
-                f"（Reddit +{extra_summary.get('reddit', 0)} / "
+                f"（本轮 Reddit +{extra_summary.get('reddit', 0)} / "
                 f"Telegram +{extra_summary.get('telegram', 0)}）"
             )
+            errs = extra_summary.get("errors") or []
+            if errs:
+                # 只带首条错误，避免状态栏过长
+                msg += f"；注意：{errs[0]}"
         safe_print("-" * 60)
         safe_print(f" [Crawl] {msg}")
+        if extra_summary and (extra_summary.get("errors") or []):
+            for e in (extra_summary.get("errors") or [])[:5]:
+                safe_print(f"  ! {sanitize_for_console(str(e))}")
         if rows:
             for i, row in enumerate(rows[:5], 1):
                 title = sanitize_for_console((row.get("title") or "")[:80])
-                safe_print(f"  {i}. [{row.get('platform_id')}] {title}")
+                src = row.get("platform_name") or row.get("platform_id")
+                safe_print(f"  {i}. [{src}] {title}")
             if len(rows) > 5:
-                safe_print(f"  ... 另有 {len(rows) - 5} 条，请在页面「历史缓存」查看")
+                safe_print(f"  ... 另有 {len(rows) - 5} 条，请在页面查看")
         safe_print("=" * 60)
         _set_job(
             job_id,
@@ -346,6 +822,14 @@ def _run_crawl_job(
             matched_count=len(rows),
             keyword=keyword,
             extra=extra_summary,
+            matched_platforms=[
+                {
+                    "id": pid,
+                    "name": _platform_display_name(pid),
+                    "count": n,
+                }
+                for pid, n in sorted(plat_counts.items(), key=lambda x: (-x[1], x[0]))
+            ],
         )
         if task_id:
             with _CRAWL_TASKS_LOCK:
@@ -396,13 +880,11 @@ def _schedule_loop(task_id: str) -> None:
             if not task or not task.get("enabled"):
                 return
             stop_event: threading.Event = task["_stop"]
-            interval_min = int(task.get("interval_min") or 30)
-            jitter_min = int(task.get("jitter_min") or 10)
             keyword = str(task.get("keyword") or "")
             expand = bool(task.get("expand", True))
             platforms = list(task.get("platforms") or [])
+            wait_sec = _task_wait_seconds(task)
 
-        wait_sec = _next_interval_seconds(interval_min, jitter_min)
         next_at = datetime.now().timestamp() + wait_sec
         with _CRAWL_TASKS_LOCK:
             t = _CRAWL_TASKS.get(task_id)
@@ -424,6 +906,10 @@ def _schedule_loop(task_id: str) -> None:
         job_id = uuid.uuid4().hex[:12]
         _set_job(job_id, status="queued", message="周期任务触发", keyword=keyword, task_id=task_id)
         try:
+            with _CRAWL_TASKS_LOCK:
+                t = _CRAWL_TASKS.get(task_id)
+                if t:
+                    t["last_job_id"] = job_id
             _run_crawl_job(
                 job_id,
                 keyword=keyword,
@@ -438,6 +924,47 @@ def _schedule_loop(task_id: str) -> None:
                     t["_running"] = False
 
 
+def _run_task_once(task_id: str) -> Optional[str]:
+    """立即执行一次已有任务，返回 job_id。"""
+    with _CRAWL_TASKS_LOCK:
+        task = _CRAWL_TASKS.get(task_id)
+        if not task:
+            return None
+        if task.get("_running"):
+            return str(task.get("last_job_id") or "")
+        keyword = str(task.get("keyword") or "")
+        expand = bool(task.get("expand", True))
+        platforms = list(task.get("platforms") or [])
+        task["_running"] = True
+    job_id = uuid.uuid4().hex[:12]
+    _set_job(job_id, status="queued", message="手动触发执行", keyword=keyword, task_id=task_id)
+
+    def _worker():
+        try:
+            _run_crawl_job(
+                job_id,
+                keyword=keyword,
+                expand=expand,
+                platforms=platforms,
+                task_id=task_id,
+            )
+        finally:
+            with _CRAWL_TASKS_LOCK:
+                t = _CRAWL_TASKS.get(task_id)
+                if t:
+                    t["_running"] = False
+
+    with _CRAWL_TASKS_LOCK:
+        t = _CRAWL_TASKS.get(task_id)
+        if t:
+            t["last_job_id"] = job_id
+            t["last_message"] = "已手动触发"
+            t["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _persist_crawl_tasks()
+    threading.Thread(target=_worker, daemon=True).start()
+    return job_id
+
+
 def _start_crawl_task(
     keyword: str,
     interval_min: int = 30,
@@ -445,19 +972,79 @@ def _start_crawl_task(
     expand: bool = True,
     platforms: Optional[List[str]] = None,
     run_now: bool = True,
+    schedule_mode: str = "interval",
+    daily_hour: int = 9,
+    name: str = "",
+    note: str = "",
+    reuse: bool = True,
 ) -> Dict[str, Any]:
+    keyword = (keyword or "").strip()
+    plats = _normalize_task_platforms(platforms)
+    mode = (schedule_mode or "interval").strip().lower()
+    if mode not in ("interval", "daily"):
+        mode = "interval"
+
+    existing = _find_reusable_task(keyword) if reuse else None
+    if existing:
+        task_id = str(existing.get("id"))
+        with _CRAWL_TASKS_LOCK:
+            task = _CRAWL_TASKS.get(task_id)
+            if task:
+                _apply_task_fields(
+                    task,
+                    {
+                        "keyword": keyword,
+                        "name": name or task.get("name") or keyword,
+                        "note": note if note is not None else task.get("note") or "",
+                        "schedule_mode": mode,
+                        "interval_min": interval_min,
+                        "jitter_min": jitter_min,
+                        "daily_hour": daily_hour,
+                        "expand": expand,
+                        "platforms": plats,
+                    },
+                )
+                task["enabled"] = True
+                task["stopped_at"] = None
+                task["last_status"] = "queued" if run_now else "idle"
+                task["last_message"] = "已复用历史任务并启动"
+                _ensure_task_runtime(task)
+                stop_event: threading.Event = task["_stop"]
+                # 先停旧循环，再清事件并拉起
+                stop_event.set()
+                task["_stop"] = threading.Event()
+                existing = task
+            else:
+                existing = None
+        if existing:
+            _persist_crawl_tasks()
+            time.sleep(0.05)
+            _spawn_schedule_thread(task_id)
+            job_id = _run_task_once(task_id) if run_now else None
+            with _CRAWL_TASKS_LOCK:
+                view = _public_task_view(_CRAWL_TASKS[task_id])
+            if job_id:
+                view["last_job_id"] = job_id
+            return view
+
     task_id = uuid.uuid4().hex[:10]
     stop_event = threading.Event()
-    plats = platforms or ["x-cdp", "reddit", "telegram"]
+    now = datetime.now().isoformat(timespec="seconds")
     task = {
         "id": task_id,
         "keyword": keyword,
+        "name": (name or keyword).strip() or keyword,
+        "note": (note or "").strip(),
+        "schedule_mode": mode,
         "interval_min": max(5, int(interval_min or 30)),
         "jitter_min": max(0, int(jitter_min or 0)),
+        "daily_hour": max(0, min(23, int(daily_hour if daily_hour is not None else 9))),
         "expand": bool(expand),
         "platforms": plats,
         "enabled": True,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": now,
+        "updated_at": now,
+        "stopped_at": None,
         "last_run_at": None,
         "next_run_at": None,
         "last_status": "queued" if run_now else "idle",
@@ -471,37 +1058,16 @@ def _start_crawl_task(
         _CRAWL_TASKS[task_id] = task
     _persist_crawl_tasks()
 
+    job_id = None
     if run_now:
-        job_id = uuid.uuid4().hex[:12]
-        _set_job(job_id, status="queued", message="周期任务首次执行", keyword=keyword, task_id=task_id)
+        job_id = _run_task_once(task_id)
 
-        def _first():
-            with _CRAWL_TASKS_LOCK:
-                t = _CRAWL_TASKS.get(task_id)
-                if t:
-                    t["_running"] = True
-            try:
-                _run_crawl_job(
-                    job_id,
-                    keyword=keyword,
-                    expand=expand,
-                    platforms=plats,
-                    task_id=task_id,
-                )
-            finally:
-                with _CRAWL_TASKS_LOCK:
-                    t = _CRAWL_TASKS.get(task_id)
-                    if t:
-                        t["_running"] = False
-
-        threading.Thread(target=_first, daemon=True).start()
-        task["last_job_id"] = job_id
-
-    th = threading.Thread(target=_schedule_loop, args=(task_id,), daemon=True)
-    th.start()
+    _spawn_schedule_thread(task_id)
     with _CRAWL_TASKS_LOCK:
-        task["_thread"] = th
-    return _public_task_view(task)
+        view = _public_task_view(_CRAWL_TASKS[task_id])
+    if job_id:
+        view["last_job_id"] = job_id
+    return view
 
 
 def _stop_crawl_task(task_id: str) -> bool:
@@ -510,13 +1076,78 @@ def _stop_crawl_task(task_id: str) -> bool:
         if not task:
             return False
         task["enabled"] = False
-        task["last_message"] = "已停止"
+        task["stopped_at"] = datetime.now().isoformat(timespec="seconds")
+        task["updated_at"] = task["stopped_at"]
+        task["last_message"] = "已停止（仍保留在历史任务库）"
+        task["last_status"] = "stopped"
+        task["next_run_at"] = None
         stop_event = task.get("_stop")
         if isinstance(stop_event, threading.Event):
             stop_event.set()
     _persist_crawl_tasks()
     return True
 
+
+def _resume_crawl_task(task_id: str, run_now: bool = False) -> Optional[Dict[str, Any]]:
+    with _CRAWL_TASKS_LOCK:
+        task = _CRAWL_TASKS.get(task_id)
+        if not task:
+            return None
+        task["enabled"] = True
+        task["stopped_at"] = None
+        task["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        task["last_message"] = "已重新启动"
+        task["last_status"] = "idle"
+        _ensure_task_runtime(task)
+        stop_event: threading.Event = task["_stop"]
+        stop_event.clear()
+    _persist_crawl_tasks()
+    _spawn_schedule_thread(task_id)
+    job_id = None
+    if run_now:
+        job_id = _run_task_once(task_id)
+    with _CRAWL_TASKS_LOCK:
+        view = _public_task_view(_CRAWL_TASKS[task_id])
+    if job_id:
+        view["last_job_id"] = job_id
+    return view
+
+
+def _delete_crawl_task(task_id: str) -> bool:
+    """从历史库永久删除。"""
+    with _CRAWL_TASKS_LOCK:
+        task = _CRAWL_TASKS.get(task_id)
+        if not task:
+            return False
+        task["enabled"] = False
+        stop_event = task.get("_stop")
+        if isinstance(stop_event, threading.Event):
+            stop_event.set()
+        del _CRAWL_TASKS[task_id]
+    _persist_crawl_tasks()
+    return True
+
+
+def _update_crawl_task(task_id: str, body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    with _CRAWL_TASKS_LOCK:
+        task = _CRAWL_TASKS.get(task_id)
+        if not task:
+            return None
+        _apply_task_fields(task, body)
+        # 若正在运行，重启调度线程以应用新间隔（通过 stop + respawn）
+        need_respawn = bool(task.get("enabled"))
+        if need_respawn:
+            stop_event = task.get("_stop")
+            if isinstance(stop_event, threading.Event):
+                stop_event.set()
+            task["_stop"] = threading.Event()
+    _persist_crawl_tasks()
+    if need_respawn:
+        # 稍等旧循环退出
+        time.sleep(0.05)
+        _spawn_schedule_thread(task_id)
+    with _CRAWL_TASKS_LOCK:
+        return _public_task_view(_CRAWL_TASKS[task_id])
 
 def _list_articles(limit: int = 50) -> List[Dict[str, Any]]:
     ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
@@ -616,18 +1247,182 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
     if path == "/api/posts" and method == "GET":
         keyword = (query.get("keyword") or [""])[0]
         platform = (query.get("platform") or [""])[0]
+        view = (query.get("view") or ["all"])[0]
+        tag = (query.get("tag") or [""])[0]
         try:
             limit = int((query.get("limit") or ["100"])[0])
         except Exception:
             limit = 100
         state = _load_posts_state()
-        rows = _flatten_posts(state, keyword=keyword, platform=platform)
+        rows = _flatten_posts(
+            state, keyword=keyword, platform=platform, view=view, tag=tag
+        )
+        # 未指定平台时按来源混排，避免全是 X
+        if not (platform or "").strip():
+            items = _interleave_by_platform(rows, max(1, limit))
+        else:
+            items = rows[: max(1, limit)]
+        matched_platform_counts: Dict[str, int] = defaultdict(int)
+        for row in rows:
+            matched_platform_counts[str(row.get("platform_id") or "unknown")] += 1
+        matched_platforms = [
+            {
+                "id": pid,
+                "name": _platform_display_name(pid, state.get("platform_labels") or {}),
+                "count": count,
+            }
+            for pid, count in sorted(
+                matched_platform_counts.items(), key=lambda x: (-x[1], x[0])
+            )
+        ]
+        try:
+            from utils.summary_zh import generate_zh_summary
+
+            dirty = False
+            for row in items:
+                if str(row.get("summary") or "").strip():
+                    continue
+                title = str(row.get("title") or "")
+                raw = str(row.get("raw") or row.get("content") or "")
+                if not (title or raw):
+                    continue
+                summary = generate_zh_summary(title, raw)
+                if not summary:
+                    continue
+                row["summary"] = summary
+                entry = _find_post_entry(
+                    state, str(row.get("platform_id") or ""), str(row.get("key") or "")
+                )
+                if isinstance(entry, dict):
+                    entry["summary"] = summary
+                    dirty = True
+            if dirty:
+                try:
+                    _save_posts_state(state)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         return _json_bytes(
             {
                 "success": True,
                 "generated_at": state.get("generated_at") or "",
                 "total": len(rows),
-                "items": rows[: max(1, limit)],
+                "items": items,
+                "view": view,
+                "tag": tag,
+                "matched_platforms": matched_platforms,
+                "platform": platform,
+                **_collect_post_stats(state),
+            }
+        )
+
+    if path == "/api/posts/stats" and method == "GET":
+        state = _load_posts_state()
+        stats = _collect_post_stats(state)
+        return _json_bytes(
+            {
+                "success": True,
+                "generated_at": state.get("generated_at") or "",
+                **stats,
+            }
+        )
+
+    if path == "/api/posts/meta" and method == "POST":
+        platform_id = str(body.get("platform_id") or "").strip()
+        key = str(body.get("key") or body.get("href") or "").strip()
+        href = str(body.get("href") or "").strip()
+        action = str(body.get("action") or "").strip().lower()
+        if not key and not href:
+            return _json_bytes({"success": False, "error": "缺少 key 或 href"}, 400)
+        if action not in {
+            "archive",
+            "unarchive",
+            "toggle_archive",
+            "watch_later",
+            "unwatch_later",
+            "toggle_watch_later",
+            "set_tags",
+            "add_tags",
+            "remove_tags",
+            "clear_tags",
+        }:
+            return _json_bytes({"success": False, "error": f"不支持的 action: {action}"}, 400)
+
+        state = _load_posts_state()
+        found_plat, found_key, entry = _find_post_ref(
+            state, platform_id=platform_id, key=key, href=href
+        )
+        if not isinstance(entry, dict) or not found_plat or not found_key:
+            return _json_bytes({"success": False, "error": "未找到该帖子"}, 404)
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tags = _normalize_tags(entry.get("tags"))
+
+        if action == "archive":
+            entry["archived"] = True
+            entry["archived_at"] = now
+        elif action == "unarchive":
+            entry["archived"] = False
+            entry.pop("archived_at", None)
+        elif action == "toggle_archive":
+            entry["archived"] = not bool(entry.get("archived"))
+            if entry["archived"]:
+                entry["archived_at"] = now
+            else:
+                entry.pop("archived_at", None)
+        elif action == "watch_later":
+            entry["watch_later"] = True
+            entry["watch_later_at"] = now
+        elif action == "unwatch_later":
+            entry["watch_later"] = False
+            entry.pop("watch_later_at", None)
+        elif action == "toggle_watch_later":
+            entry["watch_later"] = not bool(entry.get("watch_later"))
+            if entry["watch_later"]:
+                entry["watch_later_at"] = now
+            else:
+                entry.pop("watch_later_at", None)
+        elif action == "set_tags":
+            tags = _normalize_tags(body.get("tags"))
+            entry["tags"] = tags
+            entry["tags_updated_at"] = now
+        elif action == "add_tags":
+            extra = _normalize_tags(body.get("tags"))
+            if not extra:
+                return _json_bytes({"success": False, "error": "标签不能为空"}, 400)
+            merged = list(tags)
+            seen = {t.lower() for t in merged}
+            for t in extra:
+                if t.lower() not in seen:
+                    merged.append(t)
+                    seen.add(t.lower())
+            tags = merged[:30]
+            entry["tags"] = tags
+            entry["tags_updated_at"] = now
+        elif action == "remove_tags":
+            remove = {t.lower() for t in _normalize_tags(body.get("tags"))}
+            if not remove:
+                return _json_bytes({"success": False, "error": "未指定要移除的标签"}, 400)
+            tags = [t for t in tags if t.lower() not in remove]
+            entry["tags"] = tags
+            entry["tags_updated_at"] = now
+        elif action == "clear_tags":
+            entry["tags"] = []
+            entry["tags_updated_at"] = now
+
+        try:
+            _save_posts_state(state)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": f"保存失败: {e}"}, 500)
+
+        stats = _collect_post_stats(state)
+        return _json_bytes(
+            {
+                "success": True,
+                "item": _entry_public_meta(found_plat, found_key, entry),
+                "counts": stats["counts"],
+                "tags": stats["tags"],
             }
         )
 
@@ -654,6 +1449,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 jitter_min = int(body.get("jitter_min") or 10)
             except Exception:
                 jitter_min = 10
+            try:
+                daily_hour = int(body.get("daily_hour") if body.get("daily_hour") is not None else 9)
+            except Exception:
+                daily_hour = 9
+            schedule_mode = str(body.get("schedule_mode") or "interval").strip().lower()
             task = _start_crawl_task(
                 keyword=keyword,
                 interval_min=interval_min,
@@ -661,6 +1461,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 expand=expand,
                 platforms=platforms,
                 run_now=bool(body.get("run_now", True)),
+                schedule_mode=schedule_mode,
+                daily_hour=daily_hour,
+                name=str(body.get("name") or ""),
+                note=str(body.get("note") or ""),
+                reuse=bool(body.get("reuse", True)),
             )
             return _json_bytes(
                 {
@@ -697,10 +1502,28 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         return _json_bytes(expand_keyword(keyword))
 
     if path == "/api/crawl/tasks" and method == "GET":
+        status = ((query.get("status") or ["all"])[0] or "all").strip().lower()
         with _CRAWL_TASKS_LOCK:
             items = [_public_task_view(t) for t in _CRAWL_TASKS.values()]
-        items.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
-        return _json_bytes({"success": True, "items": items})
+        if status in ("active", "enabled", "running"):
+            items = [t for t in items if t.get("enabled")]
+        elif status in ("stopped", "disabled", "history"):
+            items = [t for t in items if not t.get("enabled")]
+        items.sort(
+            key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""),
+            reverse=True,
+        )
+        return _json_bytes(
+            {
+                "success": True,
+                "items": items,
+                "counts": {
+                    "all": len(_CRAWL_TASKS),
+                    "active": sum(1 for t in _CRAWL_TASKS.values() if t.get("enabled")),
+                    "stopped": sum(1 for t in _CRAWL_TASKS.values() if not t.get("enabled")),
+                },
+            }
+        )
 
     if path == "/api/crawl/tasks" and method == "POST":
         keyword = str(body.get("keyword") or "").strip()
@@ -717,6 +1540,10 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             jitter_min = int(body.get("jitter_min") or 10)
         except Exception:
             jitter_min = 10
+        try:
+            daily_hour = int(body.get("daily_hour") if body.get("daily_hour") is not None else 9)
+        except Exception:
+            daily_hour = 9
         task = _start_crawl_task(
             keyword=keyword,
             interval_min=interval_min,
@@ -724,21 +1551,52 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             expand=bool(body.get("expand", True)),
             platforms=platforms,
             run_now=bool(body.get("run_now", True)),
+            schedule_mode=str(body.get("schedule_mode") or "interval"),
+            daily_hour=daily_hour,
+            name=str(body.get("name") or ""),
+            note=str(body.get("note") or ""),
+            reuse=bool(body.get("reuse", True)),
         )
-        return _json_bytes({"success": True, "task": task})
+        return _json_bytes({"success": True, "task": task, "job_id": task.get("last_job_id")})
 
     if path.startswith("/api/crawl/tasks/") and method in ("DELETE", "POST"):
-        task_id = path.split("/api/crawl/tasks/", 1)[1].strip("/").split("/")[0]
+        parts = [p for p in path.split("/api/crawl/tasks/", 1)[1].strip("/").split("/") if p]
+        task_id = parts[0] if parts else ""
         action = ""
         if method == "POST":
             action = str(body.get("action") or "").strip().lower()
-            if path.rstrip("/").endswith("/stop"):
-                action = "stop"
-        if method == "DELETE" or action == "stop":
+            if len(parts) > 1:
+                action = parts[1].strip().lower() or action
+        if method == "DELETE" or action in ("stop", "disable"):
             ok = _stop_crawl_task(task_id)
             if not ok:
                 return _json_bytes({"success": False, "error": "任务不存在"}, 404)
-            return _json_bytes({"success": True, "id": task_id, "stopped": True})
+            with _CRAWL_TASKS_LOCK:
+                task = _CRAWL_TASKS.get(task_id)
+                view = _public_task_view(task) if task else {"id": task_id}
+            return _json_bytes({"success": True, "stopped": True, "task": view})
+        if action in ("start", "resume", "enable"):
+            view = _resume_crawl_task(task_id, run_now=bool(body.get("run_now", False)))
+            if not view:
+                return _json_bytes({"success": False, "error": "任务不存在"}, 404)
+            return _json_bytes({"success": True, "task": view, "job_id": view.get("last_job_id")})
+        if action in ("run", "run_now", "trigger"):
+            job_id = _run_task_once(task_id)
+            if job_id is None:
+                return _json_bytes({"success": False, "error": "任务不存在"}, 404)
+            with _CRAWL_TASKS_LOCK:
+                view = _public_task_view(_CRAWL_TASKS[task_id])
+            return _json_bytes({"success": True, "job_id": job_id, "task": view})
+        if action in ("update", "edit", "patch"):
+            view = _update_crawl_task(task_id, body)
+            if not view:
+                return _json_bytes({"success": False, "error": "任务不存在"}, 404)
+            return _json_bytes({"success": True, "task": view})
+        if action in ("delete", "remove", "purge"):
+            ok = _delete_crawl_task(task_id)
+            if not ok:
+                return _json_bytes({"success": False, "error": "任务不存在"}, 404)
+            return _json_bytes({"success": True, "deleted": True, "id": task_id})
         return _json_bytes({"success": False, "error": "未知操作"}, 400)
 
     if path.startswith("/api/jobs/") and method == "GET":
@@ -955,6 +1813,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
     ensure_utf8_stdio()
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
+    restored = _load_crawl_tasks()
     _free_port(port, log=safe_print)
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"
@@ -964,6 +1823,9 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
     safe_print(f" 地址: {url}")
     safe_print(" 功能: 资讯获取 / 历史缓存 / Prompt 创作 / CDP 发布")
     safe_print(" 抓取日志: 页面点「开始抓取」后，本窗口会打印 [Crawl] 进度")
+    if restored:
+        active = sum(1 for t in _CRAWL_TASKS.values() if t.get("enabled"))
+        safe_print(f" 周期任务库: 已恢复 {restored} 条（运行中 {active}）")
     safe_print(" 按 Ctrl+C 停止")
     safe_print("=" * 60)
     if open_browser:

@@ -1767,11 +1767,23 @@ def _merge_post_state_entries(prev: Optional[Dict], new: Dict) -> Dict:
     new_fa = (new.get("fetched_at") or "").strip()
     first = (prev.get("first_fetched_at") or prev.get("fetched_at") or "").strip()
 
-    skip_from_new = {"first_fetched_at", "fetched_at_history"}
+    # 用户侧标记：抓取合并时不覆盖
+    user_meta_keys = {
+        "archived",
+        "archived_at",
+        "watch_later",
+        "watch_later_at",
+        "tags",
+        "tags_updated_at",
+    }
+    skip_from_new = {"first_fetched_at", "fetched_at_history"} | user_meta_keys
     for k, v in new.items():
         if k in skip_from_new:
             continue
         if k == "fetched_at" and not (str(v).strip() if v is not None else ""):
+            continue
+        if k == "summary" and not (str(v).strip() if v is not None else ""):
+            # 保留旧摘要，避免空值覆盖
             continue
         out[k] = v
 
@@ -1888,8 +1900,9 @@ def _build_post_state_entry(
     )
     published_iso = pick("published_iso", "publishedIso", "isoDate")
     time_label = pick("time_label", "timeLabel", "relativeTime", "timeAgo")
-    raw = pick("raw", "text", "content", "summary")
+    raw = pick("raw", "text", "body")
     if not raw:
+        # 注意：不要把 make_money 的 content/summary 当成原文
         raw = title
     author = pick("author", "user", "username", "name")
 
@@ -1923,6 +1936,21 @@ def _build_post_state_entry(
         time_label = tag_label
     enrich = _fetch_article_enrichment_for_make_money(cleaned_title or title)
 
+    # 中文内容摘要（英文原文也会生成中文摘要）
+    existing_summary = ""
+    if isinstance(info.get("summary"), str):
+        existing_summary = info.get("summary") or ""
+    try:
+        from utils.summary_zh import generate_zh_summary
+
+        summary = existing_summary.strip() or generate_zh_summary(
+            cleaned_title or title, raw if isinstance(raw, str) else str(raw)
+        )
+    except Exception:
+        summary = existing_summary.strip() or (
+            str(raw)[:120] if raw else (cleaned_title or title)[:120]
+        )
+
     entry: Dict = {
         "href": href,
         "fetched_at": fetched_at,
@@ -1936,7 +1964,10 @@ def _build_post_state_entry(
         "rank": rank,
         "isUseful": bool(enrich.get("isUseful", False)),
         "content": str(enrich.get("content", "") or ""),
+        "summary": summary,
         "star": int(float(enrich.get("star", 0) or 0)),
+        "source": "X",
+        "platform": "x-cdp",
     }
     if mobile_url and mobile_url != url:
         entry["mobile_href"] = mobile_url
@@ -1961,6 +1992,10 @@ def _build_post_state_entry(
         "author",
         "mobile_href",
         "rank",
+        "summary",
+        "isUseful",
+        "content",
+        "star",
     }
     for k, v in info.items():
         if k in internal or k.startswith("_"):
