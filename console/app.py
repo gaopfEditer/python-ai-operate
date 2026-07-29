@@ -799,13 +799,27 @@ def _run_crawl_job(
             )
             errs = extra_summary.get("errors") or []
             if errs:
-                # 只带首条错误，避免状态栏过长
-                msg += f"；注意：{errs[0]}"
+                # 把关键原因带进状态栏（截断避免过长）
+                tip = str(errs[0])
+                if len(tip) > 160:
+                    tip = tip[:157] + "..."
+                msg += f"；注意：{tip}"
         safe_print("-" * 60)
         safe_print(f" [Crawl] {msg}")
         if extra_summary and (extra_summary.get("errors") or []):
+            safe_print(" 额外源说明:")
             for e in (extra_summary.get("errors") or [])[:5]:
                 safe_print(f"  ! {sanitize_for_console(str(e))}")
+            if int(extra_summary.get("telegram") or 0) == 0 and any(
+                "Telegram" in str(e) for e in (extra_summary.get("errors") or [])
+            ):
+                safe_print(
+                    "  提示: Telegram 需先运行 python messages/telegram_listener.py 登录生成会话"
+                )
+            if int(extra_summary.get("reddit") or 0) == 0:
+                safe_print(
+                    "  提示: Reddit 官方常 403；已尝试 Arctic Shift 兜底，请确认 HTTPS_PROXY 可用"
+                )
         if rows:
             for i, row in enumerate(rows[:5], 1):
                 title = sanitize_for_console((row.get("title") or "")[:80])

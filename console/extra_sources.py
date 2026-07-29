@@ -236,11 +236,12 @@ def _http_get_json(
         "User-Agent": _BROWSER_UA,
         "Accept": "application/json,text/plain,*/*",
     }
-    # 先试代理，再直连
+    # 有代理时只走代理，避免直连长时间卡住
     proxy_modes: List[Optional[Dict[str, str]]] = []
     if proxies:
         proxy_modes.append(proxies)
-    proxy_modes.append(None)
+    else:
+        proxy_modes.append(None)
     last_err = ""
     for px in proxy_modes:
         try:
@@ -355,6 +356,7 @@ def search_reddit(
                 "raw_json": 1,
             },
             proxies=proxies,
+            timeout=10,
         )
         if data is not None:
             batch = _parse_reddit_listing(data, q, seen)
@@ -371,6 +373,7 @@ def search_reddit(
                 "https://api.pullpush.io/reddit/search/submission/",
                 params={"q": q, "size": max(5, min(25, limit_per_query))},
                 proxies=proxies,
+                timeout=10,
             )
             if data2 is not None:
                 batch = _parse_pullpush(data2, q, seen)
@@ -383,10 +386,12 @@ def search_reddit(
 
         # 3) Arctic Shift：按版块关键词搜索（当前最稳的免费兜底）
         if got < limit_per_query:
-            per_sub = max(2, min(8, limit_per_query // 3 or 3))
+            per_sub = max(2, min(5, limit_per_query // 2 or 3))
             arctic_got = 0
-            for sub in _subs_for_query(q):
-                if got + arctic_got >= limit_per_query * 2:
+            # 官方已被墙时优先走兜底，版块不宜过多以免拖慢整次抓取
+            subs = _subs_for_query(q)[:8]
+            for sub in subs:
+                if got + arctic_got >= limit_per_query:
                     break
                 data3, err3 = _http_get_json(
                     _ARCTIC_SHIFT,
@@ -396,7 +401,7 @@ def search_reddit(
                         "limit": per_sub,
                     },
                     proxies=proxies,
-                    timeout=30,
+                    timeout=12,
                 )
                 if data3 is None:
                     if err3 and not last_err:

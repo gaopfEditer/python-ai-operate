@@ -585,7 +585,14 @@ async function pollJob(jobId) {
       }
     }
     if (job.status === "done") {
-      setStatus($("#crawlStatus"), job.message || "完成", "ok");
+      let doneMsg = job.message || "完成";
+      const extra = job.extra || {};
+      const errs = extra.errors || [];
+      if (errs.length) {
+        doneMsg += `｜${String(errs[0]).slice(0, 120)}`;
+      }
+      setStatus($("#crawlStatus"), doneMsg, errs.length ? "error" : "ok");
+      if (errs.length) toast(String(errs[0]).slice(0, 180), "error");
       await loadPosts(
         $("#newsKeyword").value.trim(),
         state.newsPlatform || "",
