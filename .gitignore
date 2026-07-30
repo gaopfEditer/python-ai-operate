@@ -181,7 +181,6 @@ $RECYCLE.BIN/
 # Project Specific
 # ====================
 # Output files (generated content)
-output/
 *.html
 !console/static/index.html
 *.txt
