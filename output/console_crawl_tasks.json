@@ -20,11 +20,11 @@
       "created_at": "2026-07-29T13:31:44",
       "updated_at": "2026-07-29T13:31:44",
       "stopped_at": null,
-      "last_run_at": "2026-07-30T16:43:23",
-      "next_run_at": "2026-07-30T17:03:23",
+      "last_run_at": "2026-07-30T17:36:17",
+      "next_run_at": "2026-07-30T18:01:17",
       "last_status": "done",
-      "last_message": "抓取完成，匹配 525 条｜X 277 / Reddit 248（本轮 Reddit +64 / Telegram +0）；注意：Telegram 跳过：未登录。请在项目根目录执行 `python messages/telegram_listener.py`，按提示输入手机号与验证码，生成 messages/telegram_session.session 后再抓取",
-      "run_count": 26,
+      "last_message": "抓取完成，匹配 581 条｜Reddit 296 / X 285（本轮 Reddit +74 / Telegram +0）；注意：Telegram 跳过：未登录。请在项目根目录执行 `python messages/telegram_listener.py`，按提示输入手机号与验证码，生成 messages/telegram_session.session 后再抓取",
+      "run_count": 28,
       "expansion": {
         "success": true,
         "keyword": "github",
@@ -55,17 +55,17 @@
           "github news"
         ],
         "telegram_queries": [
-          "github",
-          "git repository",
-          "open source project",
+          "github projects",
+          "github code",
+          "github repositories",
           "github tutorial",
-          "code sharing"
+          "github development"
         ],
         "questions": [
           "What is GitHub?",
           "How to use GitHub?",
           "What are GitHub repositories?",
-          "How to contribute to GitHub projects?"
+          "Why use GitHub?"
         ],
         "provider": "qwen",
         "model": ""
