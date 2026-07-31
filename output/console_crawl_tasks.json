@@ -7,10 +7,10 @@
       "name": "github",
       "note": "",
       "schedule_mode": "interval",
-      "interval_min": 20,
+      "interval_min": 30,
       "jitter_min": 10,
       "daily_hour": 9,
-      "expand": true,
+      "expand": false,
       "platforms": [
         "x-cdp",
         "reddit",
@@ -18,58 +18,14 @@
       ],
       "enabled": true,
       "created_at": "2026-07-29T13:31:44",
-      "updated_at": "2026-07-29T13:31:44",
+      "updated_at": "2026-07-31T14:47:07",
       "stopped_at": null,
-      "last_run_at": "2026-07-30T17:36:17",
-      "next_run_at": "2026-07-30T18:01:17",
+      "last_run_at": "2026-07-31T17:58:56",
+      "next_run_at": "2026-07-31T18:33:56",
       "last_status": "done",
-      "last_message": "抓取完成，匹配 581 条｜Reddit 296 / X 285（本轮 Reddit +74 / Telegram +0）；注意：Telegram 跳过：未登录。请在项目根目录执行 `python messages/telegram_listener.py`，按提示输入手机号与验证码，生成 messages/telegram_session.session 后再抓取",
-      "run_count": 28,
-      "expansion": {
-        "success": true,
-        "keyword": "github",
-        "seeds": [
-          "github",
-          "git",
-          "code",
-          "repository",
-          "developer",
-          "open source",
-          "software",
-          "project",
-          "version control",
-          "programming"
-        ],
-        "twitter_queries": [
-          "github site:twitter.com OR site:reddit.com OR site:telegram.me",
-          "github OR git OR code OR repository OR developer",
-          "github site:twitter.com -filter:retweets",
-          "github OR open source OR software",
-          "github site:twitter.com lang:en"
-        ],
-        "reddit_queries": [
-          "github discussion",
-          "github projects",
-          "github tips",
-          "github tutorials",
-          "github news"
-        ],
-        "telegram_queries": [
-          "github projects",
-          "github code",
-          "github repositories",
-          "github tutorial",
-          "github development"
-        ],
-        "questions": [
-          "What is GitHub?",
-          "How to use GitHub?",
-          "What are GitHub repositories?",
-          "Why use GitHub?"
-        ],
-        "provider": "qwen",
-        "model": ""
-      }
+      "last_message": "抓取完成，匹配 643 条｜Reddit 324 / X 319（本轮 Reddit +15 / Telegram +0）；注意：Telegram 跳过：未登录。请在项目根目录执行 `python messages/telegram_listener.py`，按提示输入手机号与验证码，生成 messages/telegram_session.session 后再抓取",
+      "run_count": 38,
+      "expansion": null
     }
   ]
 }
