@@ -1,0 +1,68 @@
+{
+  "items": [
+    {
+      "platform": "twitter",
+      "title": "high",
+      "url": "https://x.com/h",
+      "author": "",
+      "summary": "",
+      "content": "",
+      "likes": 200,
+      "comments": 40,
+      "collects": 0,
+      "shares": 0,
+      "views": 0,
+      "score": 280.0,
+      "fetched_at": "2026-08-02 22:56:25",
+      "raw": {},
+      "post_id": "740db887944bfa2d",
+      "in_candidates": true,
+      "gate_reason": "已入候选"
+    },
+    {
+      "platform": "twitter",
+      "title": "mid",
+      "url": "https://x.com/m",
+      "author": "",
+      "summary": "",
+      "content": "",
+      "likes": 60,
+      "comments": 8,
+      "collects": 0,
+      "shares": 0,
+      "views": 0,
+      "score": 76.0,
+      "fetched_at": "2026-08-02 22:56:25",
+      "raw": {},
+      "post_id": "c408e0bb15104159",
+      "in_candidates": true,
+      "gate_reason": "已入候选"
+    },
+    {
+      "platform": "twitter",
+      "title": "low",
+      "url": "https://x.com/l",
+      "author": "",
+      "summary": "",
+      "content": "",
+      "likes": 3,
+      "comments": 0,
+      "collects": 0,
+      "shares": 0,
+      "views": 0,
+      "score": 3.0,
+      "fetched_at": "2026-08-02 22:56:25",
+      "raw": {},
+      "post_id": "818125695464d3b6",
+      "in_candidates": false,
+      "gate_reason": "赞≥50✗, 评≥5✗"
+    }
+  ],
+  "count": 3,
+  "meta": {
+    "archived": 2,
+    "candidates": 2,
+    "rejected": 1,
+    "total_fetched": 3
+  }
+}

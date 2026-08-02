@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AllNews Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <p class="eyebrow">ALLNEWS</p>
+      <h1 class="brand">Monitor</h1>
+      <p class="sub">CDP 抓取 · 热度入候选 · 中位数归档</p>
+      <nav class="tabs">
+        <button class="tab active" data-tab="crawl" type="button">抓取结果</button>
+        <button class="tab" data-tab="candidates" type="button">候选池</button>
+        <button class="tab" data-tab="archive" type="button">素材归档</button>
+        <button class="tab" data-tab="settings" type="button">平台配置</button>
+      </nav>
+      <div class="foot">
+        <span id="healthDot" class="dot"></span>
+        <span id="healthText">检测中…</span>
+      </div>
+    </aside>
+    <main class="stage">
+      <section id="panel-crawl" class="panel active">
+        <div class="head">
+          <h2>抓取结果</h2>
+          <p>抓取后以卡片展示；仅达到热度门槛的进入候选池，再按中位数自动归档。</p>
+        </div>
+        <div id="platBox" class="plats"></div>
+        <div class="toolbar">
+          <button id="btnCrawl" class="btn primary" type="button">开始 CDP 抓取</button>
+          <button id="btnLoadBatch" class="btn ghost" type="button">刷新本批</button>
+          <label class="inline">
+            <input id="onlyCand" type="checkbox" />
+            <span>只看已入候选</span>
+          </label>
+        </div>
+        <p id="crawlStatus" class="status"></p>
+        <div class="filter-bar">
+          <button class="chip active" type="button" data-filter="">全部</button>
+          <span id="filterChips"></span>
+        </div>
+        <p id="batchMeta" class="status"></p>
+        <div id="batchList" class="cards"></div>
+      </section>
+
+      <section id="panel-candidates" class="panel" hidden>
+        <div class="head">
+          <h2>候选池</h2>
+          <p>已过热度门槛的帖子。可手动归档为创作素材。</p>
+        </div>
+        <div class="toolbar">
+          <select id="candPlatform"></select>
+          <button id="btnLoadCand" class="btn primary" type="button">加载</button>
+        </div>
+        <div id="candList" class="cards"></div>
+      </section>
+
+      <section id="panel-archive" class="panel" hidden>
+        <div class="head">
+          <h2>素材归档</h2>
+          <p>自动（中位数以上）+ 手动精选。</p>
+        </div>
+        <div class="toolbar">
+          <select id="archType">
+            <option value="">全部类型</option>
+            <option value="auto">自动</option>
+            <option value="manual">手动</option>
+          </select>
+          <select id="archPlatform"></select>
+          <button id="btnLoadArch" class="btn primary" type="button">加载</button>
+        </div>
+        <div id="archList" class="cards"></div>
+      </section>
+
+      <section id="panel-settings" class="panel" hidden>
+        <div class="head">
+          <h2>平台配置</h2>
+          <p>默认频率与热度门槛对所有平台生效；各平台可单独覆盖。</p>
+        </div>
+        <div class="settings-block">
+          <h3>全局默认</h3>
+          <div class="form-row">
+            <label>抓取间隔（分钟）<input id="defInterval" type="number" min="5" value="60" /></label>
+            <label>候选最低赞<input id="defLikes" type="number" min="0" value="50" /></label>
+            <label>候选最低评<input id="defComments" type="number" min="0" value="5" /></label>
+            <label>候选最低分<input id="defScore" type="number" min="0" value="0" /></label>
+            <label>门槛逻辑
+              <select id="defRequire">
+                <option value="all">全部满足</option>
+                <option value="any">任一满足</option>
+              </select>
+            </label>
+            <button id="btnSaveDefaults" class="btn primary" type="button">保存默认</button>
+          </div>
+        </div>
+        <div id="platSettings" class="plat-settings"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

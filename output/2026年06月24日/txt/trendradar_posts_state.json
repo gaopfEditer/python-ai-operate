@@ -1,0 +1,746 @@
+{
+  "version": 1,
+  "generated_at": "2026-06-24 21:19:54 北京时间",
+  "platform_labels": {
+    "x-cdp": "X.com(CDP)"
+  },
+  "posts": {
+    "x-cdp": {
+      "https://x.com/elonmusk/status/2069665946286043260": {
+        "href": "https://x.com/elonmusk/status/2069665946286043260",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Elon Musk @elonmusk · 7h From SMX 7K 10K 129K 14M",
+        "raw": "Elon Musk @elonmusk · 7h From SMX 7K 10K 129K 14M",
+        "author": "@elonmusk",
+        "rank": 1,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/bozhou_ai/status/2069250352168493142": {
+        "href": "https://x.com/bozhou_ai/status/2069250352168493142",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "市面上 Codex 的教程太散了。 官方文档一块、视频一块、各路博主又一块，新手想系统上手，光把这些东西拼到一起很花时间。 所以我和小伙伴花了十天，自己整理出一本《Codex 橙皮书》。今天免费开源，直接拿走。 一份 PDF 206页，从零到能用 Codex 跑通真实项目，挨个章节啃下来就够： 一. 先搞懂",
+        "raw": "市面上 Codex 的教程太散了。\n\n官方文档一块、视频一块、各路博主又一块，新手想系统上手，光把这些东西拼到一起很花时间。\n\n所以我和小伙伴花了十天，自己整理出一本《Codex 橙皮书》。今天免费开源，直接拿走。\n\n一份 PDF 206页，从零到能用 Codex 跑通真实项目，挨个章节啃下来就够：\n\n一. 先搞懂",
+        "author": "@bozhou_ai",
+        "rank": 2,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/libapi_/status/2069686535902146566": {
+        "href": "https://x.com/libapi_/status/2069686535902146566",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "怎么办三分钟卖一台 ，我已经回复不过来了",
+        "raw": "怎么办三分钟卖一台 ，我已经回复不过来了",
+        "author": "@libapi_",
+        "rank": 3,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/elonmusk/status/2069497797993451848": {
+        "href": "https://x.com/elonmusk/status/2069497797993451848",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Elon Musk @elonmusk · 18h 4.9K 31K 96K 11M",
+        "raw": "Elon Musk @elonmusk · 18h 4.9K 31K 96K 11M",
+        "author": "@elonmusk",
+        "rank": 4,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/longlongsongs/status/2069385420337803664": {
+        "href": "https://x.com/longlongsongs/status/2069385420337803664",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "宋宋 @longlongsongs · Jun 23 Article 靠小红书月入十几万：一个人，干成了一家公司 不敢相信！一个几乎不写代码的人，盯着小红书评论区里那些 求方法,求工具的留言，做了个小东西去把它们填上。从 0 到 100 个用户花了一个月，半年后，月营收从六千做到了一百多万。... 54 255 1.3K 959K",
+        "raw": "宋宋 @longlongsongs · Jun 23 Article 靠小红书月入十几万：一个人，干成了一家公司 不敢相信！一个几乎不写代码的人，盯着小红书评论区里那些 求方法,求工具的留言，做了个小东西去把它们填上。从 0 到 100 个用户花了一个月，半年后，月营收从六千做到了一百多万。... 54 255 1.3K 959K",
+        "author": "@longlongsongs",
+        "rank": 5,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/DAZN_JPN/status/2068342067185733777/analytics": {
+        "href": "https://x.com/DAZN_JPN/status/2068342067185733777/analytics",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "The current video is not subtitled, try requesting AI subtitles.",
+        "raw": "The current video is not subtitled, try requesting AI subtitles.",
+        "author": "",
+        "rank": 6,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/0xJoveXu/status/2069623847012516284": {
+        "href": "https://x.com/0xJoveXu/status/2069623847012516284",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "求解：闲鱼上倒卖什么最猛",
+        "raw": "求解：闲鱼上倒卖什么最猛",
+        "author": "@0xJoveXu",
+        "rank": 7,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/hexiecs/status/2069599062412964242": {
+        "href": "https://x.com/hexiecs/status/2069599062412964242",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "抄了腾讯，微信和企业微信拥有大量的个人数据，如果做AI agent，腾讯可能是最强的。而且现在市盈率只有14，还能跌到哪里去呢，AI再牛逼，打游戏消费的需求不会减少。",
+        "raw": "抄了腾讯，微信和企业微信拥有大量的个人数据，如果做AI agent，腾讯可能是最强的。而且现在市盈率只有14，还能跌到哪里去呢，AI再牛逼，打游戏消费的需求不会减少。",
+        "author": "@hexiecs",
+        "rank": 8,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/nini_incrypto_/status/2069366895023980840": {
+        "href": "https://x.com/nini_incrypto_/status/2069366895023980840",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "孙宇晨：低于50万的投资，对你毫无意义 孙宇晨曾在公开演讲中说：“低于50万的投资，对人生毫无意义。” 他认为，如果每天只能拿几万块在股市、基金里杀进杀出，盯着几百块涨跌心惊肉跳，这种行为应该马上停止。",
+        "raw": "孙宇晨：低于50万的投资，对你毫无意义\n\n孙宇晨曾在公开演讲中说：“低于50万的投资，对人生毫无意义。”\n\n他认为，如果每天只能拿几万块在股市、基金里杀进杀出，盯着几百块涨跌心惊肉跳，这种行为应该马上停止。",
+        "author": "@nini_incrypto_",
+        "rank": 9,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/aronhouyu/status/2069289881260712417": {
+        "href": "https://x.com/aronhouyu/status/2069289881260712417",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "你们觉得 youtube 小红书 x 公众号 哪个会更难呢？ 我自己觉得小红书太鬼扯了，确实做不起来",
+        "raw": "你们觉得 youtube 小红书  x 公众号\n\n哪个会更难呢？ \n\n我自己觉得小红书太鬼扯了，确实做不起来",
+        "author": "@aronhouyu",
+        "rank": 10,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/McGrady8898/status/2069261448468218226": {
+        "href": "https://x.com/McGrady8898/status/2069261448468218226",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "35岁，手上有15万人民币，有什么办法能到澳洲或者加拿大去打工，安定下来再接老婆孩子过去？",
+        "raw": "35岁，手上有15万人民币，有什么办法能到澳洲或者加拿大去打工，安定下来再接老婆孩子过去？",
+        "author": "@McGrady8898",
+        "rank": 11,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/ZShipZuck/status/2069394703699865982": {
+        "href": "https://x.com/ZShipZuck/status/2069394703699865982",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "听说分享个人真实收入案例会爆火，我也来分享我单个网站月3w刀的案例 这个词热度已经过了，复盘一下整个过程 截图是两个月前营业额，这个网站分了2个store 加起来的 怎么做起来的？",
+        "raw": "听说分享个人真实收入案例会爆火，我也来分享我单个网站月3w刀的案例\n\n这个词热度已经过了，复盘一下整个过程\n截图是两个月前营业额，这个网站分了2个store 加起来的\n\n怎么做起来的？",
+        "author": "@ZShipZuck",
+        "rank": 12,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/dengdry/status/2069401333967257914": {
+        "href": "https://x.com/dengdry/status/2069401333967257914",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "在Github上发现了一个好玩的库 中国人投资美股指南 有兴趣的朋友可以去看一下",
+        "raw": "在Github上发现了一个好玩的库\n\n中国人投资美股指南\n\n有兴趣的朋友可以去看一下",
+        "author": "@dengdry",
+        "rank": 13,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/Suu766/status/2069325100592361516": {
+        "href": "https://x.com/Suu766/status/2069325100592361516",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "以前做小红书：要露脸、要拍摄、要剪辑 现在做小红书：AI 写、AI 画、AI 配、AI 做 很多人还在纠结要不要开始 而有的人，已经用 AI 做出了几十万播放的账号 盈夏姐姐的这个视频讲的更清楚，她拆解 了4 种不露脸 AI 玩法 普通人也能上手 因为未来比拼的，可能不再是谁会拍视频",
+        "raw": "以前做小红书：要露脸、要拍摄、要剪辑\n\n现在做小红书：AI 写、AI 画、AI 配、AI 做\n\n很多人还在纠结要不要开始\n\n而有的人，已经用 AI 做出了几十万播放的账号\n\n盈夏姐姐的这个视频讲的更清楚，她拆解 了4 种不露脸 AI 玩法\n\n普通人也能上手\n\n因为未来比拼的，可能不再是谁会拍视频",
+        "author": "@Suu766",
+        "rank": 14,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/xiaoyemeizit/status/2069679135597949426": {
+        "href": "https://x.com/xiaoyemeizit/status/2069679135597949426",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "手上有20w闲置资金，怎么能在一年内通过投资变成100w？ 谁知道？",
+        "raw": "手上有20w闲置资金，怎么能在一年内通过投资变成100w？\n\n谁知道？",
+        "author": "@xiaoyemeizit",
+        "rank": 15,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/0427SMtieshou/status/2069571204495659338": {
+        "href": "https://x.com/0427SMtieshou/status/2069571204495659338",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "昨天到账了7000港币 累计撸了马斯克3万多人民币了。",
+        "raw": "昨天到账了7000港币\n\n累计撸了马斯克3万多人民币了。",
+        "author": "@0427SMtieshou",
+        "rank": 16,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/9yearfish/status/2069701766103638127": {
+        "href": "https://x.com/9yearfish/status/2069701766103638127",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "身边已经两个朋友今年在缅A 翻倍了。 一个本金 30万，赚了 30万。 一个本金 80万，现在已经 160万了。 这是我身边第一次听到 A 股赚钱的。",
+        "raw": "身边已经两个朋友今年在缅A 翻倍了。\n\n一个本金 30万，赚了  30万。\n\n一个本金 80万，现在已经 160万了。\n\n这是我身边第一次听到 A 股赚钱的。",
+        "author": "@9yearfish",
+        "rank": 17,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/qtdevlop/status/2069428289178099902": {
+        "href": "https://x.com/qtdevlop/status/2069428289178099902",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "广发全球精选股票（QDII）F 主动基金 限购 500 万 每日 最新持仓一览： - ASML 5.21%（新增） - 北京智谱华章 5.10%（新增） - Google、NVIDIA、Apple、亚马逊 - 泛林集团、美光科技 满仓全球顶尖半导体设备、AI芯片、算力巨头和硬科技公司，信息技术和通讯业务占比极高！",
+        "raw": "广发全球精选股票（QDII）F 主动基金\n\n限购 500 万 每日\n\n最新持仓一览：\n\n- ASML 5.21%（新增）\n- 北京智谱华章 5.10%（新增）\n- Google、NVIDIA、Apple、亚马逊\n- 泛林集团、美光科技\n\n满仓全球顶尖半导体设备、AI芯片、算力巨头和硬科技公司，信息技术和通讯业务占比极高！",
+        "author": "@qtdevlop",
+        "rank": 18,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/dashen9999/status/2069107648729923807": {
+        "href": "https://x.com/dashen9999/status/2069107648729923807",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "你最满意的 PC 软件是什么？ 1、7-zip，大道至简，别说它界面丑，他就是Windows原生的样子，原生的样子就是美。 2、Oracle VM VirtualBox，支持快照、高级网络配置、跨平台，支持后台运行，VMware买不起，Windows又不是高级的，只能用这个维持一下生活。",
+        "raw": "你最满意的 PC 软件是什么？\n\n1、7-zip，大道至简，别说它界面丑，他就是Windows原生的样子，原生的样子就是美。\n\n2、Oracle VM VirtualBox，支持快照、高级网络配置、跨平台，支持后台运行，VMware买不起，Windows又不是高级的，只能用这个维持一下生活。",
+        "author": "@dashen9999",
+        "rank": 19,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/NFTCPS/status/2069732378441118113": {
+        "href": "https://x.com/NFTCPS/status/2069732378441118113",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "终于知道网上批发的Gmail小号是从哪来的了，都是用这个批量注册的！ 一个GMAIL就能卖几元到几十元！ 有人开源了个自动批量注册 Gmail 的工具，号称能防检测、绕过手机验证，一键造号。 github.com/ShadowHackrs/g … 闲鱼搬运党听好了，一键转卖一键上架，手动复制粘贴的苦总算到头了。懒人神器，效率拉满，剩下的就看你能不能跑量了。 ： pan.quark.cn/s/fe17ac281713",
+        "raw": "终于知道网上批发的Gmail小号是从哪来的了，都是用这个批量注册的！\n\n一个GMAIL就能卖几元到几十元！\n\n有人开源了个自动批量注册 Gmail 的工具，号称能防检测、绕过手机验证，一键造号。\n\n \ngithub.com/ShadowHackrs/g\n… 闲鱼搬运党听好了，一键转卖一键上架，手动复制粘贴的苦总算到头了。懒人神器，效率拉满，剩下的就看你能不能跑量了。\n\n：\npan.quark.cn/s/fe17ac281713",
+        "author": "@NFTCPS",
+        "rank": 20,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "following",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/elonmusk/status/2069535601892987275": {
+        "href": "https://x.com/elonmusk/status/2069535601892987275",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Starlink coming to @AmericanAir next year! BREAKING: American Airlines has just confirmed it will begin rolling out Starlink across more than 500 narrowbody aircraft starting early next year.",
+        "raw": "Starlink coming to \n@AmericanAir\n next year! BREAKING: American Airlines has just confirmed it will begin rolling out Starlink across more than 500 narrowbody aircraft starting early next year.",
+        "author": "@elonmusk",
+        "rank": 21,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/2038277897Zheng/status/2069617285724348633": {
+        "href": "https://x.com/2038277897Zheng/status/2069617285724348633",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "年轻人手里有两万块，如何规划？ 1. 买港版iPhone 2. 买 MacBook 3.买国外的手机号 4. 买稳定的梯子 5.订阅 Codex Plus 6. 订阅 X Premium 7. 其余的投资美股、比特币 要是这些你都能做到，你离财富自由不远了",
+        "raw": "年轻人手里有两万块，如何规划？\n\n1. 买港版iPhone \n2. 买 MacBook \n3.买国外的手机号\n4. 买稳定的梯子\n5.订阅 Codex Plus \n6. 订阅 X Premium \n7. 其余的投资美股、比特币  \n\n要是这些你都能做到，你离财富自由不远了",
+        "author": "@2038277897Zheng",
+        "rank": 22,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/NoraX2026/status/2069696165222760871": {
+        "href": "https://x.com/NoraX2026/status/2069696165222760871",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "我认识一个大学生，靠平台搬运内容，一个星期就赚了20多万 就靠这三招 第一招：主动获取第一手信息 他每天固定时间刷 Reddit、Product Hunt、Medium、Substack 等海外平台。这些国外最新的趋势、产品、观点和玩法，国内大多数人根本刷不到。 第二招：深度加工，本地化重构",
+        "raw": "我认识一个大学生，靠平台搬运内容，一个星期就赚了20多万\n\n就靠这三招\n\n第一招：主动获取第一手信息\n他每天固定时间刷 Reddit、Product Hunt、Medium、Substack 等海外平台。这些国外最新的趋势、产品、观点和玩法，国内大多数人根本刷不到。\n\n第二招：深度加工，本地化重构",
+        "author": "@NoraX2026",
+        "rank": 23,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/Greta0086/status/2069706295121485992": {
+        "href": "https://x.com/Greta0086/status/2069706295121485992",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "最开始只是用codex写脚本 后来做网站、做小程序、做游戏 结果现在做视频、做ppt、做自己家的整体装修设计、工作的大小材料 质量都很高，codex已经完全融入了我的工作、生活、副业，这是2026年度我的最佳帮手了",
+        "raw": "最开始只是用codex写脚本\n\n后来做网站、做小程序、做游戏\n\n结果现在做视频、做ppt、做自己家的整体装修设计、工作的大小材料\n\n质量都很高，codex已经完全融入了我的工作、生活、副业，这是2026年度我的最佳帮手了",
+        "author": "@Greta0086",
+        "rank": 24,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/elonmusk/status/2069477887598886973": {
+        "href": "https://x.com/elonmusk/status/2069477887598886973",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Elon Musk @elonmusk · 19h 6.4K 15K 91K 14M",
+        "raw": "Elon Musk @elonmusk · 19h 6.4K 15K 91K 14M",
+        "author": "@elonmusk",
+        "rank": 25,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/elonmusk/status/2069460797953081422": {
+        "href": "https://x.com/elonmusk/status/2069460797953081422",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Elon Musk @elonmusk · 20h 5.3K 23K 129K 11M",
+        "raw": "Elon Musk @elonmusk · 20h 5.3K 23K 129K 11M",
+        "author": "@elonmusk",
+        "rank": 26,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/wadezone/status/2069390764342448190": {
+        "href": "https://x.com/wadezone/status/2069390764342448190",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "论变现能力，小红书排第一，应该没有人反驳吧？",
+        "raw": "论变现能力，小红书排第一，应该没有人反驳吧？",
+        "author": "@wadezone",
+        "rank": 27,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/48Kchunbaidanao/status/2069679959959126497": {
+        "href": "https://x.com/48Kchunbaidanao/status/2069679959959126497",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "最近 X 上都是在讨论怎么定投标普 500 和纳指 我一直没想明白 这个事儿为什么这么复杂？又限额又这又那的， 我分享一个巨巨巨简单的办法，去办个招行的储蓄卡，然后手机下载招商证券 注册开户后，搜索 513500 就是标普 500 513100 就是纳指 随便投啊",
+        "raw": "最近 X 上都是在讨论怎么定投标普 500 和纳指 我一直没想明白 这个事儿为什么这么复杂？又限额又这又那的，\n我分享一个巨巨巨简单的办法，去办个招行的储蓄卡，然后手机下载招商证券 注册开户后，搜索 513500 就是标普 500 513100 就是纳指 \n随便投啊",
+        "author": "@48Kchunbaidanao",
+        "rank": 28,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/weiyux2021/status/2069214547982848340": {
+        "href": "https://x.com/weiyux2021/status/2069214547982848340",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "普通人怎么能拥有千万资产？",
+        "raw": "普通人怎么能拥有千万资产？",
+        "author": "@weiyux2021",
+        "rank": 29,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/Gracevbl/status/2069651270101831695": {
+        "href": "https://x.com/Gracevbl/status/2069651270101831695",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "坐标普通二三线，手里满打满算能凑个20万人民币。不想让娃在国内继续卷学历了，打算在孩子上小学前带全家换个环境，去东南亚或者欧洲低成本的小国都行。 有没有过来人指条明路，这点钱怎么走最稳妥、花销最少？真诚求教。",
+        "raw": "坐标普通二三线，手里满打满算能凑个20万人民币。不想让娃在国内继续卷学历了，打算在孩子上小学前带全家换个环境，去东南亚或者欧洲低成本的小国都行。\n有没有过来人指条明路，这点钱怎么走最稳妥、花销最少？真诚求教。",
+        "author": "@Gracevbl",
+        "rank": 30,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/ssovoovo/status/2069753073418031331": {
+        "href": "https://x.com/ssovoovo/status/2069753073418031331",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "之前一直觉得AI做页面就是套模板，没想到 @dappOS_com 的 xBubble Coding 是真能跑通的",
+        "raw": "之前一直觉得AI做页面就是套模板，没想到 \n@dappOS_com\n 的 xBubble Coding 是真能跑通的",
+        "author": "@ssovoovo",
+        "rank": 31,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/chengfeng240928/status/2069114893425414201": {
+        "href": "https://x.com/chengfeng240928/status/2069114893425414201",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "这个视频，就是用这个skills 做的",
+        "raw": "这个视频，就是用这个skills 做的",
+        "author": "@chengfeng240928",
+        "rank": 32,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/laobaishare/status/2069208829494165944": {
+        "href": "https://x.com/laobaishare/status/2069208829494165944",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "太颠了，小米最年轻的总监之一，裸辞搞 AI 算命。 吴尚，28 岁，在小米管过投影、电视 OS。 去年离职，花了快一年找方向，最后做出个「万象有灵」 ——阴阳五行加十神人格，AI 算命。 近 50 万用户，日活快 4 万，月入 30 多万。 AI 塔罗准备上北美，月费 9.9-15.9 美元，预约 3 万多人了；",
+        "raw": "太颠了，小米最年轻的总监之一，裸辞搞 AI 算命。\n\n吴尚，28 岁，在小米管过投影、电视 OS。\n\n去年离职，花了快一年找方向，最后做出个「万象有灵」\n——阴阳五行加十神人格，AI 算命。\n\n近 50 万用户，日活快 4 万，月入 30 多万。\n\nAI 塔罗准备上北美，月费 9.9-15.9 美元，预约 3 万多人了；",
+        "author": "@laobaishare",
+        "rank": 33,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/Benjieming1Q84/status/2069617682006282588": {
+        "href": "https://x.com/Benjieming1Q84/status/2069617682006282588",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "我用上英国神卡giffgaff了，成本是： - 拼多多20元买的小白卡。 - 自己用安卓手机免费申请eSIM版本的giffgaff。 - 激活费大概77元，可以一直用。 - 再用安卓手机将eSIM写入小白卡。 我用儿子的小米手机写好之后，再插到我的苹果手机中，立即收到短信了。",
+        "raw": "我用上英国神卡giffgaff了，成本是：\n- 拼多多20元买的小白卡。\n- 自己用安卓手机免费申请eSIM版本的giffgaff。\n- 激活费大概77元，可以一直用。\n- 再用安卓手机将eSIM写入小白卡。\n我用儿子的小米手机写好之后，再插到我的苹果手机中，立即收到短信了。",
+        "author": "@Benjieming1Q84",
+        "rank": 34,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      },
+      "https://x.com/FLMdongtianfudi/status/2069571726862881063": {
+        "href": "https://x.com/FLMdongtianfudi/status/2069571726862881063",
+        "fetched_at": "2026-06-24 21:19:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "飞书文档\"禁止复制\"？这个插件一键破解",
+        "raw": "飞书文档\"禁止复制\"？这个插件一键破解",
+        "author": "@FLMdongtianfudi",
+        "rank": 35,
+        "isUseful": false,
+        "content": "",
+        "star": 0,
+        "category": "for_you",
+        "first_fetched_at": "2026-06-24 21:19:53 北京时间",
+        "fetched_at_history": [
+          "2026-06-24 21:19:53 北京时间",
+          "2026-06-24 21:19:54 北京时间"
+        ]
+      }
+    }
+  }
+}
