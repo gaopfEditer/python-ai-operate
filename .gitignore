@@ -184,9 +184,14 @@ $RECYCLE.BIN/
 output/
 *.html
 !console/static/index.html
+!allnews_mornitor/static/index.html
 *.txt
 !README*.txt
 !requirements.txt
+!allnews_mornitor/DESIGN.md
+!allnews_mornitor/**/*.txt
+!**/global_prompt.txt
+!**/main_prompt.txt
 
 # Logs
 logs/

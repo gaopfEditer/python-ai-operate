@@ -1,0 +1,114 @@
+# AllNews Monitor 配置（独立于主站 config/config.yaml）
+
+server:
+  host: "127.0.0.1"
+  port: 8790
+
+cdp:
+  debugger_url: "127.0.0.1:9222"
+  wait_ms: 2500
+  scroll_rounds: 8
+  scroll_step: 900
+  silent: true
+
+# 全局默认（各平台未单独配置时继承）
+defaults:
+  # 抓取频率（分钟）；各平台可覆盖
+  crawl_interval_min: 60
+  # 进入候选池的热度门槛（须同时满足已配置项；0 表示不限制该项）
+  candidate:
+    min_likes: 50
+    min_comments: 5
+    min_score: 0          # 综合分门槛，0=不限制
+    # any=任一指标过线即可；all=已设门槛的指标都要过线
+    require: all
+
+# 头部流量判定（自动归档，在候选池之上）
+archive:
+  mode: both
+  rolling_window: 200
+  weights:
+    likes: 1.0
+    comments: 2.0
+    collects: 1.5
+    shares: 1.2
+    views: 0.01
+  min_likes_for_stats: 1
+  min_comments_for_stats: 0
+
+platforms:
+  xiaohongshu:
+    enabled: true
+    name: "小红书"
+    crawl_interval_min: null    # null = 用 defaults
+    candidate:
+      min_likes: 100
+      min_comments: 10
+    entry_urls:
+      - "https://www.xiaohongshu.com/explore"
+    metrics: [likes, comments, collects]
+  twitter:
+    enabled: true
+    name: "X / Twitter"
+    crawl_interval_min: null
+    candidate:
+      min_likes: 50
+      min_comments: 5
+    entry_urls:
+      - "https://x.com/explore"
+      - "https://x.com/search?q=min_faves%3A100&src=typed_query&f=top"
+    metrics: [likes, comments, shares, views]
+  zhihu:
+    enabled: true
+    name: "知乎"
+    crawl_interval_min: null
+    candidate:
+      min_likes: 80
+      min_comments: 10
+    entry_urls:
+      - "https://www.zhihu.com/hot"
+      - "https://www.zhihu.com/billboard"
+    metrics: [likes, comments]
+  sspai:
+    enabled: true
+    name: "少数派"
+    crawl_interval_min: null
+    candidate:
+      min_likes: 30
+      min_comments: 3
+    entry_urls:
+      - "https://sspai.com/"
+      - "https://sspai.com/tag/%E7%83%AD%E9%97%A8"
+    metrics: [likes, comments, collects]
+  huxiu:
+    enabled: true
+    name: "虎嗅网"
+    crawl_interval_min: null
+    candidate:
+      min_likes: 20
+      min_comments: 3
+    entry_urls:
+      - "https://www.huxiu.com/"
+      - "https://www.huxiu.com/moment"
+    metrics: [likes, comments]
+  kr36:
+    enabled: true
+    name: "36氪"
+    crawl_interval_min: null
+    candidate:
+      min_likes: 20
+      min_comments: 2
+    entry_urls:
+      - "https://36kr.com/"
+      - "https://36kr.com/hot-list/catalog"
+    metrics: [likes, comments, views]
+
+creation:
+  use_project_ai: true
+  factor_fields:
+    - hook
+    - emotion
+    - structure
+    - proof
+    - cta
+    - keywords
