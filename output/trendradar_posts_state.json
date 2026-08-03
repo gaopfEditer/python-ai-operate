@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-03T18:28:22",
+  "generated_at": "2026-08-03 18:38:54 北京时间",
   "platform_labels": {
     "x-cdp": "X.com(CDP)",
     "reddit": "Reddit"
@@ -121469,7 +121469,7 @@
       },
       "https://x.com/nini_incrypto_/status/2083573745872941374": {
         "href": "https://x.com/nini_incrypto_/status/2083573745872941374",
-        "fetched_at": "2026-08-02 19:02:25 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121477,23 +121477,25 @@
         "title": "分享中文区必看的AI领域优质创作者！ 我相信不管你同样是内容创作者或者AI爱好者，都会对你很有帮助 1. @Saccc_c 探索AI时代财富自由之路，分享AI相关成长、财富积累与个人实践经验。 x.com/saccc_c 2. @BTCqzy1",
         "raw": "分享中文区必看的AI领域优质创作者！\n\n我相信不管你同样是内容创作者或者AI爱好者，都会对你很有帮助\n\n1. \n@Saccc_c\n    探索AI时代财富自由之路，分享AI相关成长、财富积累与个人实践经验。\n    \nx.com/saccc_c\n\n2. \n@BTCqzy1",
         "author": "@nini_incrypto_",
-        "rank": 8,
+        "rank": 2,
         "isUseful": false,
         "content": "",
-        "summary": "分享中文区值得关注的AI领域优质创作者，涵盖AI成长、财富积累与实践经验，适合内容创作者和AI爱好者。",
+        "summary": "分享中文区值得关注的AI领域优质创作者，涵盖AI成长、财富积累与实践经验，对内容创作者和AI爱好者均有帮助。",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-02 19:02:12 北京时间",
         "fetched_at_history": [
           "2026-08-02 19:02:12 北京时间",
-          "2026-08-02 19:02:25 北京时间"
+          "2026-08-02 19:02:25 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/sunmer575399/status/2083562309184877020": {
         "href": "https://x.com/sunmer575399/status/2083562309184877020",
-        "fetched_at": "2026-08-02 19:02:25 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121501,23 +121503,25 @@
         "title": "做语音的兄弟一定要看voice-pro，11.5k star的狠货 零样本声音克隆，录30秒参考音频就能让AI用那个声音说话，E2、F5-TTS、CosyVoice都内置。我把老同事的声音克隆出来做了个有声ppt，他本人都没分清哪个是合成的，效果属实惊人。",
         "raw": "做语音的兄弟一定要看voice-pro，11.5k star的狠货\n 零样本声音克隆，录30秒参考音频就能让AI用那个声音说话，E2、F5-TTS、CosyVoice都内置。我把老同事的声音克隆出来做了个有声ppt，他本人都没分清哪个是合成的，效果属实惊人。",
         "author": "@sunmer575399",
-        "rank": 9,
+        "rank": 3,
         "isUseful": false,
         "content": "",
-        "summary": "Voice-Pro是一款拥有11.5k星标的语音工具，支持零样本声音克隆，仅需30秒音频即可让AI模仿特定声音，内置多种模型，效果逼真。",
+        "summary": "Voice-Pro支持零样本声音克隆，仅需30秒音频即可生成逼真语音，内置多种模型，效果逼真难辨真假。",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-02 19:02:12 北京时间",
         "fetched_at_history": [
           "2026-08-02 19:02:12 北京时间",
-          "2026-08-02 19:02:25 北京时间"
+          "2026-08-02 19:02:25 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/imwsl90/status/2083531510280581174": {
         "href": "https://x.com/imwsl90/status/2083531510280581174",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121525,7 +121529,7 @@
         "title": "我每天都用不完tokens 你们到底是怎么用的？ 真有那么多软件要开发嘛",
         "raw": "我每天都用不完tokens \n\n你们到底是怎么用的？\n\n真有那么多软件要开发嘛",
         "author": "@imwsl90",
-        "rank": 1,
+        "rank": 4,
         "isUseful": false,
         "content": "",
         "summary": "我每天用不完tokens，疑惑他人如何使用，是否真有那么多软件需要开发。",
@@ -121538,12 +121542,14 @@
           "2026-08-02 19:02:12 北京时间",
           "2026-08-02 19:02:25 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/JamesAI/status/2083528027267617201": {
         "href": "https://x.com/JamesAI/status/2083528027267617201",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121551,7 +121557,7 @@
         "title": "做独立开发，出海，副业的程序员，3万的月薪嗤之以鼻，5000美金的MRR捧做案例，钱不是一样的吗？月薪换个说法MRR就好接受。 一个人靠 AI 把 MRR 做到5000美金，和找一个 AI 相关的3万月薪的工作，现在真不好说哪个更难。 我看到程序员一边唱衰 SaaS 和软件生态，一边有不断的用 AI 去创作更多的 SaaS Marc lou的收入是1 million左右，Levels的收入是几个millions。以他们的影响力，他们完全可以赚到比现在更多的钱。 但是他们本质上是在保持work life balance，遵从自己兴趣，和保持时间的完全",
         "raw": "做独立开发，出海，副业的程序员，3万的月薪嗤之以鼻，5000美金的MRR捧做案例，钱不是一样的吗？月薪换个说法MRR就好接受。\n\n一个人靠 AI 把 MRR 做到5000美金，和找一个 AI 相关的3万月薪的工作，现在真不好说哪个更难。\n\n我看到程序员一边唱衰 SaaS 和软件生态，一边有不断的用 AI 去创作更多的 SaaS Marc lou的收入是1 million左右，Levels的收入是几个millions。以他们的影响力，他们完全可以赚到比现在更多的钱。\n\n但是他们本质上是在保持work life balance，遵从自己兴趣，和保持时间的完全",
         "author": "@JamesAI",
-        "rank": 2,
+        "rank": 5,
         "isUseful": false,
         "content": "",
         "summary": "程序员更看重MRR而非月薪，认为通过AI实现5000美元月收入与3万月薪工作难分高下，部分人选择兼顾兴趣与生活平衡。",
@@ -121564,12 +121570,14 @@
           "2026-08-02 19:02:12 北京时间",
           "2026-08-02 19:02:25 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/jinchenma_ai/status/2083518700771225951": {
         "href": "https://x.com/jinchenma_ai/status/2083518700771225951",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121577,7 +121585,7 @@
         "title": "给人很多启发，现在AI创业不见得一定要从0到打造一个庞大的软件。 可以依附于已经成熟的软件去做插件开发。解决大厂现阶段没精力解决的一些一项使用体验的痛点问题。 哪怕后续大厂跟进了，因为开发足够轻也不会损失太多。",
         "raw": "给人很多启发，现在AI创业不见得一定要从0到打造一个庞大的软件。\n\n可以依附于已经成熟的软件去做插件开发。解决大厂现阶段没精力解决的一些一项使用体验的痛点问题。\n\n哪怕后续大厂跟进了，因为开发足够轻也不会损失太多。",
         "author": "@jinchenma_ai",
-        "rank": 3,
+        "rank": 6,
         "isUseful": false,
         "content": "",
         "summary": "AI创业可选择依附成熟软件开发插件，解决大厂未关注的体验痛点，即使被跟进，因开发成本低也损失不大。",
@@ -121594,23 +121602,25 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/0xcherry/status/2083511579992309892": {
         "href": "https://x.com/0xcherry/status/2083511579992309892",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "车厘子 @0xcherry · Aug 1 Article Auto Quant V2 教程 | 让 Codex/Kimi/DeepSeek 做量化 大语言模型已经很会写代码了。但“会写代码”和“会做量化研究”并不是同一件事。 Claude Code 收到“帮我研究一下 NVDA... 6 5 30 9.7K",
-        "raw": "车厘子 @0xcherry · Aug 1 Article Auto Quant V2 教程 | 让 Codex/Kimi/DeepSeek 做量化 大语言模型已经很会写代码了。但“会写代码”和“会做量化研究”并不是同一件事。 Claude Code 收到“帮我研究一下 NVDA... 6 5 30 9.7K",
+        "title": "车厘子 @0xcherry · Aug 1 Article Auto Quant V2 教程 | 让 Codex/Kimi/DeepSeek 做量化 大语言模型已经很会写代码了。但“会写代码”和“会做量化研究”并不是同一件事。 Claude Code 收到“帮我研究一下 NVDA... 6 5 30 9.8K",
+        "raw": "车厘子 @0xcherry · Aug 1 Article Auto Quant V2 教程 | 让 Codex/Kimi/DeepSeek 做量化 大语言模型已经很会写代码了。但“会写代码”和“会做量化研究”并不是同一件事。 Claude Code 收到“帮我研究一下 NVDA... 6 5 30 9.8K",
         "author": "@0xcherry",
-        "rank": 4,
+        "rank": 7,
         "isUseful": false,
         "content": "",
-        "summary": "教程介绍如何利用Codex、Kimi、DeepSeek等大语言模型进行量化研究，提升代码编写与量化分析能力。",
+        "summary": "文章介绍如何利用Codex、Kimi、DeepSeek等大语言模型进行量化研究，强调“会写代码”不等于“会做量化分析”。",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
@@ -121624,12 +121634,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/SassaFlow/status/2083510127953653918": {
         "href": "https://x.com/SassaFlow/status/2083510127953653918",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121637,7 +121649,7 @@
         "title": "IP-110 真正值得警惕的，不是打击垃圾信息，而是把主观偏好写进共识。 比特币的共识，应该验证的是交易是否符合协议规则，而不是判断用户为什么使用某个数据字段。 一旦开始让协议去审查「用途」而不是验证「有效性」，无许可（Permissionless）的精神就会被逐步侵蚀。 正如 @adam3us 所说： The real problem with BIP-110 isn’t fighting spam. It’s turning subjective preference into consensus law. Once Bitcoin st",
         "raw": "IP-110 真正值得警惕的，不是打击垃圾信息，而是把主观偏好写进共识。\n\n比特币的共识，应该验证的是交易是否符合协议规则，而不是判断用户为什么使用某个数据字段。\n\n一旦开始让协议去审查「用途」而不是验证「有效性」，无许可（Permissionless）的精神就会被逐步侵蚀。\n\n正如 \n@adam3us\n 所说： The real problem with BIP-110 isn’t fighting spam.\nIt’s turning subjective preference into consensus law.\n\nOnce Bitcoin st",
         "author": "@SassaFlow",
-        "rank": 5,
+        "rank": 8,
         "isUseful": false,
         "content": "",
         "summary": "BIP-110引发担忧，核心问题不在于打击垃圾信息，而在于将主观偏好写入共识，可能侵蚀比特币的无许可精神。",
@@ -121654,12 +121666,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/xiaomustock/status/2083481209561141749": {
         "href": "https://x.com/xiaomustock/status/2083481209561141749",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121667,7 +121681,7 @@
         "title": "刚进入8月还有一件大事，AI界的卷王DeepSeek正式更新V4 Flash ，ds flash已经逼近GLM-5.2，价格只有十五分之一。 ds 的Coding Agent和软件工程能力大幅提升，在终端操作、代码仓库修改和复杂开发任务上的表现明显增强； ds的AI Agent和工具调用能力明显增强，更适合连续执行多步骤任务； 刚进8月来了个鬼故事， 长鑫存储的lpddr6研发几乎完成，下半年就开始量产。 长鑫可以侵蚀掉dram份额， 不过三巨头的核心是hbm4，以及未来存算一体三位堆叠光电融合的共封装，这部分是 涉及到英伟达算力的hbm不可能撼动。美国",
         "raw": "刚进入8月还有一件大事，AI界的卷王DeepSeek正式更新V4 Flash ，ds flash已经逼近GLM-5.2，价格只有十五分之一。\nds 的Coding Agent和软件工程能力大幅提升，在终端操作、代码仓库修改和复杂开发任务上的表现明显增强；\nds的AI Agent和工具调用能力明显增强，更适合连续执行多步骤任务； 刚进8月来了个鬼故事，\n长鑫存储的lpddr6研发几乎完成，下半年就开始量产。\n长鑫可以侵蚀掉dram份额，\n不过三巨头的核心是hbm4，以及未来存算一体三位堆叠光电融合的共封装，这部分是\n涉及到英伟达算力的hbm不可能撼动。美国",
         "author": "@xiaomustock",
-        "rank": 6,
+        "rank": 9,
         "isUseful": false,
         "content": "",
         "summary": "DeepSeek发布V4 Flash，性能接近GLM-5.2且价格仅为其十五分之一，AI能力显著提升；长鑫存储LPDDR6研发接近完成，将于下半年量产，但难以撼动英伟达HBM技术主导地位。",
@@ -121684,12 +121698,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/A_taozhu/status/2083460010789441724": {
         "href": "https://x.com/A_taozhu/status/2083460010789441724",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121697,7 +121713,7 @@
         "title": "陶朱 @A_taozhu · Aug 1 Article AI 正在让每个人都成为开发者，那交易员呢？ 这两年Ai给我最大的感觉是什么？ 不是说替人工作，而是把普通人的想法，直接变成现实。 今天要写的项目 @fxyzai 是最近刚出的也是我刚发现的，和 @PolynomialFi 是同一个团队的新产品，目前刚上线。... 41 41 15K",
         "raw": "陶朱 @A_taozhu · Aug 1 Article AI 正在让每个人都成为开发者，那交易员呢？ 这两年Ai给我最大的感觉是什么？ 不是说替人工作，而是把普通人的想法，直接变成现实。 今天要写的项目 @fxyzai 是最近刚出的也是我刚发现的，和 @PolynomialFi 是同一个团队的新产品，目前刚上线。... 41 41 15K",
         "author": "@A_taozhu",
-        "rank": 7,
+        "rank": 10,
         "isUseful": false,
         "content": "",
         "summary": "AI正让普通人将想法变为现实，交易员也面临变革，新项目@fxyzai由@PolynomialFi团队推出，刚上线。",
@@ -121714,12 +121730,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/thaddeusjiangzh/status/2083459062637957130": {
         "href": "https://x.com/thaddeusjiangzh/status/2083459062637957130",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121727,7 +121745,7 @@
         "title": "软件开发已经进入火影忍者的中后期了，只会普通忍术和影分身已经无法参与战斗了。 拥有尾兽级别的 tokens 的开发者才是主角。",
         "raw": "软件开发已经进入火影忍者的中后期了，只会普通忍术和影分身已经无法参与战斗了。\n\n拥有尾兽级别的 tokens 的开发者才是主角。",
         "author": "@thaddeusjiangzh",
-        "rank": 8,
+        "rank": 11,
         "isUseful": false,
         "content": "",
         "summary": "软件开发已进入“火影忍者”中后期，仅掌握基础技能的开发者难以参与竞争，具备顶级能力（尾兽级别）的开发者才是主角。",
@@ -121744,12 +121762,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/0xCheshire/status/2083451731829281051": {
         "href": "https://x.com/0xCheshire/status/2083451731829281051",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121757,7 +121777,7 @@
         "title": "一个 Web3 AI 项目，旗下产品从 4 月上线至今，已经有 10275 名付费 OPC 客户，累计订阅收入超过 680 万美元。 这个项目就是 DAPPOS（ @dappOS_com ），旗舰 AI 产品是 xBubble。 现在，它的代币经济学也正式公布了。 简单来说：xBubble = Web3 版 Codex + WorkBuddy。 Codex 让有 IT",
         "raw": "一个 Web3 AI 项目，旗下产品从 4 月上线至今，已经有 10275 名付费 OPC 客户，累计订阅收入超过 680 万美元。\n\n这个项目就是 DAPPOS（\n@dappOS_com\n），旗舰 AI 产品是 xBubble。\n\n现在，它的代币经济学也正式公布了。\n\n简单来说：xBubble = Web3 版 Codex + WorkBuddy。\n\nCodex 让有 IT",
         "author": "@0xCheshire",
-        "rank": 9,
+        "rank": 12,
         "isUseful": false,
         "content": "",
         "summary": "DAPPOS 旗下 AI 产品 xBubble 自4月上线以来，已拥有10275名付费用户，订阅收入超680万美元，其代币经济模型正式公布，xBubble 被定位为 Web3 版 Codex + WorkBuddy。",
@@ -121776,12 +121796,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/BigbirdflyChan/status/2083425496755294424": {
         "href": "https://x.com/BigbirdflyChan/status/2083425496755294424",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -121789,7 +121811,7 @@
         "title": "7月31日，WSJ发表了一篇文章，详细分析了OpenAI为何从AI行业的绝对领先者，逐渐变成了追赶Anthropic的一方。过去一年AI竞争格局发生了根本性的变化。",
         "raw": "7月31日，WSJ发表了一篇文章，详细分析了OpenAI为何从AI行业的绝对领先者，逐渐变成了追赶Anthropic的一方。过去一年AI竞争格局发生了根本性的变化。",
         "author": "@BigbirdflyChan",
-        "rank": 10,
+        "rank": 13,
         "isUseful": false,
         "content": "",
         "summary": "《华尔街日报》7月31日分析称，OpenAI在过去一年中从AI行业领先者变为追赶者，AI竞争格局已发生根本性变化。",
@@ -121814,7 +121836,9 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/ZKhvg5475/status/2083397016517021723": {
@@ -122425,7 +122449,7 @@
       },
       "https://x.com/GitTrend0x/status/2083371096569786650": {
         "href": "https://x.com/GitTrend0x/status/2083371096569786650",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -122433,7 +122457,7 @@
         "title": "今天 GitHub 被 Agent 技能层彻底屠榜了！ 5 个星标暴增最狠的项目，专业拆解下！ 1. obra/superpowers Agentic Skills 框架 + 完整软件开发方法论，真正能跑起来的技能标准。 直达： github.com/obra/superpowe … 今天 GitHub 被 Agent 技能层彻底掀翻了！ 5 个星标暴增最狠的项目，专业拆解下: 1. virgiliojr94/book-to-skill 把任意技术书、文档文件夹、资料堆一键压成统一 Agent Skill，token 节省 24–51",
         "raw": "今天 GitHub 被 Agent 技能层彻底屠榜了！\n\n5 个星标暴增最狠的项目，专业拆解下！\n\n1.  obra/superpowers Agentic Skills 框架 + 完整软件开发方法论，真正能跑起来的技能标准。\n  直达：\ngithub.com/obra/superpowe\n… 今天 GitHub 被 Agent 技能层彻底掀翻了！\n\n5 个星标暴增最狠的项目，专业拆解下:\n\n1.  virgiliojr94/book-to-skill\n 把任意技术书、文档文件夹、资料堆一键压成统一 Agent Skill，token 节省 24–51 ",
         "author": "@GitTrend0x",
-        "rank": 12,
+        "rank": 14,
         "isUseful": false,
         "content": "",
         "summary": "GitHub 上多个 Agent 技能项目星标暴增，其中 obra/superpowers 提出可运行的技能标准，virgiliojr94/book-to-skill 可将技术资料转化为统一 Agent Skill，节省大量 token。",
@@ -122456,12 +122480,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/snowboat84/status/2083346249663844656": {
         "href": "https://x.com/snowboat84/status/2083346249663844656",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -122469,7 +122495,7 @@
         "title": "snowboat @snowboat84 · Aug 1 Article 大数据概念兴衰史 2014年3月底，英特尔往一家叫做Cloudera的公司投资了7.4亿美元。那笔钱买下Cloudera大约18%的股份，把这家Hadoop公司推到约41亿美元估值。... 1 9 23 12K",
         "raw": "snowboat @snowboat84 · Aug 1 Article 大数据概念兴衰史 2014年3月底，英特尔往一家叫做Cloudera的公司投资了7.4亿美元。那笔钱买下Cloudera大约18%的股份，把这家Hadoop公司推到约41亿美元估值。... 1 9 23 12K",
         "author": "@snowboat84",
-        "rank": 13,
+        "rank": 15,
         "isUseful": false,
         "content": "",
         "summary": "2014年3月，英特尔投资7.4亿美元获得Cloudera约18%股份，使其估值达到41亿美元。",
@@ -122490,12 +122516,14 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/yibie/status/2083205420953502192": {
         "href": "https://x.com/yibie/status/2083205420953502192",
-        "fetched_at": "2026-08-03 16:16:56 北京时间",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -122503,7 +122531,7 @@
         "title": "为什么求导数很容易，求积分却那么难？因为微分是局部的，积分是全局的——而全局的东西永远比局部难。 Airbnb SRE Lorin Hochstein 把这个数学原理一路延伸到 incident response、微服务架构和 agent 协调。 Lorin Hochstein（Airbnb SRE，《Chaos Engineering》作者）7 月 30",
         "raw": "为什么求导数很容易，求积分却那么难？因为微分是局部的，积分是全局的——而全局的东西永远比局部难。\n\nAirbnb SRE Lorin Hochstein 把这个数学原理一路延伸到 incident response、微服务架构和 agent 协调。\n\nLorin Hochstein（Airbnb SRE，《Chaos Engineering》作者）7 月 30",
         "author": "@yibie",
-        "rank": 14,
+        "rank": 16,
         "isUseful": false,
         "content": "",
         "summary": "微分是局部的，积分是全局的，因此求积分更难。Airbnb SRE Lorin Hochstein 将这一数学原理延伸至事故响应、微服务架构和代理协调等领域。",
@@ -122524,7 +122552,9 @@
           "2026-08-03 15:51:16 北京时间",
           "2026-08-03 15:51:27 北京时间",
           "2026-08-03 16:16:48 北京时间",
-          "2026-08-03 16:16:56 北京时间"
+          "2026-08-03 16:16:56 北京时间",
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       },
       "https://x.com/YuChen/status/2083181912802361713": {
@@ -126919,6 +126949,30 @@
         "fetched_at_history": [
           "2026-08-03 18:28:06 北京时间",
           "2026-08-03 18:28:10 北京时间"
+        ]
+      },
+      "https://x.com/uniswap12/status/2084185056596181411": {
+        "href": "https://x.com/uniswap12/status/2084185056596181411",
+        "fetched_at": "2026-08-03 18:38:54 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "GOAT Network七月份的更新信息量确实不小。从BitVM3的技术推进到开发者生态的落地，再到跨链支付基础设施的扩张，未来路线图越来越清晰。 BitVM3：把理论时间缩短了五年以上 BitVM3是这次最值得关注的技术进展。之前的BitVM设计一直卡在一个核心矛盾上——如果发生争议，Bitcoin",
+        "raw": "GOAT Network七月份的更新信息量确实不小。从BitVM3的技术推进到开发者生态的落地，再到跨链支付基础设施的扩张，未来路线图越来越清晰。\n\nBitVM3：把理论时间缩短了五年以上\n\nBitVM3是这次最值得关注的技术进展。之前的BitVM设计一直卡在一个核心矛盾上——如果发生争议，Bitcoin",
+        "author": "@uniswap12",
+        "rank": 1,
+        "isUseful": false,
+        "content": "",
+        "summary": "GOAT Network七月更新展示出清晰的未来路线图，其中BitVM3技术将理论时间缩短五年以上，解决核心矛盾并推动开发者生态与跨链支付发展。",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:软件开发",
+        "first_fetched_at": "2026-08-03 18:38:47 北京时间",
+        "fetched_at_history": [
+          "2026-08-03 18:38:47 北京时间",
+          "2026-08-03 18:38:54 北京时间"
         ]
       }
     },
