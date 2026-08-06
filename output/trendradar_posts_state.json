@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generated_at": "2026-08-06 18:29:53 北京时间",
+  "generated_at": "2026-08-06 21:44:47 北京时间",
   "platform_labels": {
-    "x-cdp": "X 热门推荐",
+    "x-cdp": "X.com(CDP)",
     "reddit": "Reddit"
   },
   "posts": {
@@ -127387,7 +127387,7 @@
       },
       "https://x.com/MacroMatrix1/status/2084859360187208159": {
         "href": "https://x.com/MacroMatrix1/status/2084859360187208159",
-        "fetched_at": "2026-08-06 15:34:00 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127395,23 +127395,25 @@
         "title": "Many in twitter might be saying DMK Udhay Nidhi getting sympathy. But my sentiment analysis shows other way. Damage is huge for Udhay speech even in sun news. Sentiment is worsen. Just read below fully you will understand current people sentiment. I have done analysis on",
         "raw": "Many in twitter might be saying DMK Udhay Nidhi getting sympathy. \n\nBut my sentiment analysis shows other way.  Damage is huge for Udhay speech even in sun news. Sentiment is worsen. \n\nJust read below fully you will understand current people sentiment. \n\nI have done analysis on",
         "author": "@MacroMatrix1",
-        "rank": 18,
+        "rank": 1,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Many in twitter might be saying DMK Udhay Nidhi getting sympathy. But my sentiment analysis shows other way. Damage is h…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:twitter analysis",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:33:33 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:33:33 北京时间",
-          "2026-08-06 15:34:00 北京时间"
+          "2026-08-06 15:34:00 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/FieldGulls/status/2084822240718368877": {
         "href": "https://x.com/FieldGulls/status/2084822240718368877",
-        "fetched_at": "2026-08-06 15:34:00 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127419,23 +127421,25 @@
         "title": "‘Hard Knocks’: Seattle Seahawks, Episode 1 running recap commentary and highlights",
         "raw": "‘Hard Knocks’: Seattle Seahawks, Episode 1 running recap commentary and highlights",
         "author": "@FieldGulls",
-        "rank": 19,
+        "rank": 2,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）‘Hard Knocks’: Seattle Seahawks, Episode 1 running recap commentary and highlights",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:twitter analysis",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:33:33 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:33:33 北京时间",
-          "2026-08-06 15:34:00 北京时间"
+          "2026-08-06 15:34:00 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/NBCNews/status/2084806741141713156": {
         "href": "https://x.com/NBCNews/status/2084806741141713156",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127443,7 +127447,7 @@
         "title": "Federal government job cuts affected thousands of employees, including those in red states or states with large rural populations alongside their capital-based counterparts, according to an NBC News analysis of recent federal data.",
         "raw": "Federal government job cuts affected thousands of employees, including those in red states or states with large rural populations alongside their capital-based counterparts, according to an NBC News analysis of recent federal data.",
         "author": "@NBCNews",
-        "rank": 2,
+        "rank": 3,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Federal government job cuts affected thousands of employees, including those in red states or states with large rural po…",
@@ -127456,7 +127460,9 @@
           "2026-08-06 15:33:33 北京时间",
           "2026-08-06 15:34:00 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/0_fighter_taka/status/2085249982861578397": {
@@ -127799,7 +127805,7 @@
       },
       "https://x.com/Shahzaib0x/status/2084990799956091354": {
         "href": "https://x.com/Shahzaib0x/status/2084990799956091354",
-        "fetched_at": "2026-08-06 15:38:12 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127807,23 +127813,25 @@
         "title": "Most people evaluate privacy projects by looking at the products they can actually use. > A private messenger. > A browser. > A VPN. Those are the parts everyone notices. What deserves just as much attention is the invisible infrastructure powering all of them. After spending",
         "raw": "Most people evaluate privacy projects by looking at the products they can actually use.\n\n> A private messenger.\n> A browser.\n> A VPN.\n\nThose are the parts everyone notices.\n\nWhat deserves just as much attention is the invisible infrastructure powering all of them.\n\nAfter spending",
         "author": "@Shahzaib0x",
-        "rank": 15,
+        "rank": 5,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Most people evaluate privacy projects by looking at the products they can actually use. > A private messenger. > A brows…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:twitter growth",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:37:44 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:37:44 北京时间",
-          "2026-08-06 15:38:12 北京时间"
+          "2026-08-06 15:38:12 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/business/status/2084977767041438077": {
         "href": "https://x.com/business/status/2084977767041438077",
-        "fetched_at": "2026-08-06 15:38:12 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127831,23 +127839,25 @@
         "title": "Barclays and HSBC say concern the Federal Reserve is dragging its feet on inflation is giving investors another reason to buy bonds that offer protection from accelerating price growth",
         "raw": "Barclays and HSBC say concern the Federal Reserve is dragging its feet on inflation is giving investors another reason to buy bonds that offer protection from accelerating price growth",
         "author": "@business",
-        "rank": 16,
+        "rank": 6,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Barclays and HSBC say concern the Federal Reserve is dragging its feet on inflation is giving investors another reason t…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:twitter growth",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:37:44 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:37:44 北京时间",
-          "2026-08-06 15:38:12 北京时间"
+          "2026-08-06 15:38:12 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/TechOperator/status/2084973815449223564": {
         "href": "https://x.com/TechOperator/status/2084973815449223564",
-        "fetched_at": "2026-08-06 15:38:12 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127855,47 +127865,51 @@
         "title": "It's true. They are a day or two behind on the news, believe new technology is harmful, and only know half the story of anything, if that. Sadly, there are camps in both political parties that believe former Twitter (to conservatives) or X (to liberals) is a trash heap of When I",
         "raw": "It's true. They are a day or two behind on the news, believe new technology is harmful, and only know half the story of anything, if that.\n\nSadly, there are camps in both political parties that believe former Twitter (to conservatives) or X (to liberals) is a trash heap of When I",
         "author": "@TechOperator",
-        "rank": 17,
+        "rank": 7,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）It's true. They are a day or two behind on the news, believe new technology is harmful, and only know half the story of …",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:twitter growth",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:37:44 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:37:44 北京时间",
-          "2026-08-06 15:38:12 北京时间"
+          "2026-08-06 15:38:12 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/eventreefur/status/2084965226072395795": {
         "href": "https://x.com/eventreefur/status/2084965226072395795",
-        "fetched_at": "2026-08-06 15:38:12 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "lashe @eventreefur · 20h Article Balls On The Table. Billion. Dollar. Cate. A 9 day old memecoin that positions itself as the feline sister to Dogecoin. It launched on pump.fun after Atsuko Sato (Kabosu’s owner, the original Doge dog) posted a rescued kitten... 3 7 10 176",
-        "raw": "lashe @eventreefur · 20h Article Balls On The Table. Billion. Dollar. Cate. A 9 day old memecoin that positions itself as the feline sister to Dogecoin. It launched on pump.fun after Atsuko Sato (Kabosu’s owner, the original Doge dog) posted a rescued kitten... 3 7 10 176",
+        "title": "lashe @eventreefur · Aug 5 Article Balls On The Table. Billion. Dollar. Cate. A 9 day old memecoin that positions itself as the feline sister to Dogecoin. It launched on pump.fun after Atsuko Sato (Kabosu’s owner, the original Doge dog) posted a rescued kitten... 3 7 10 199",
+        "raw": "lashe @eventreefur · Aug 5 Article Balls On The Table. Billion. Dollar. Cate. A 9 day old memecoin that positions itself as the feline sister to Dogecoin. It launched on pump.fun after Atsuko Sato (Kabosu’s owner, the original Doge dog) posted a rescued kitten... 3 7 10 199",
         "author": "@eventreefur",
-        "rank": 18,
+        "rank": 8,
         "isUseful": false,
         "content": "",
-        "summary": "（英文原文摘录）lashe @eventreefur · 20h Article Balls On The Table. Billion. Dollar. Cate. A 9 day old memecoin that positions itself a…",
+        "summary": "（英文原文摘录）lashe @eventreefur · Aug 5 Article Balls On The Table. Billion. Dollar. Cate. A 9 day old memecoin that positions itself…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:twitter growth",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:37:44 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:37:44 北京时间",
-          "2026-08-06 15:38:12 北京时间"
+          "2026-08-06 15:38:12 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/axios/status/2084941284737785926": {
         "href": "https://x.com/axios/status/2084941284737785926",
-        "fetched_at": "2026-08-06 16:39:53 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127903,7 +127917,7 @@
         "title": "Trump's golden age reality check",
         "raw": "Trump's golden age reality check",
         "author": "@axios",
-        "rank": 2,
+        "rank": 9,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Trump's golden age reality check",
@@ -127916,23 +127930,25 @@
           "2026-08-06 15:37:44 北京时间",
           "2026-08-06 15:38:12 北京时间",
           "2026-08-06 16:39:52 北京时间",
-          "2026-08-06 16:39:53 北京时间"
+          "2026-08-06 16:39:53 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/whotfiszackk/status/2084941217864077644": {
         "href": "https://x.com/whotfiszackk/status/2084941217864077644",
-        "fetched_at": "2026-08-06 17:43:07 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "zack @whotfiszackk · 23h Article 7 months ago i created a twitter account with a random username. no face behind it. no name attached to it. no personal brand to leverage. no existing audience to launch to. today that account generates over $50,000 a month. here's exactly how i b",
-        "raw": "zack @whotfiszackk · 23h Article 7 months ago i created a twitter account with a random username. no face behind it. no name attached to it. no personal brand to leverage. no existing audience to launch to. today that account generates over $50,000 a month. here's exactly how i b",
+        "title": "zack @whotfiszackk · Aug 5 Article 7 months ago i created a twitter account with a random username. no face behind it. no name attached to it. no personal brand to leverage. no existing audience to launch to. today that account generates over $50,000 a month. here's exactly how i",
+        "raw": "zack @whotfiszackk · Aug 5 Article 7 months ago i created a twitter account with a random username. no face behind it. no name attached to it. no personal brand to leverage. no existing audience to launch to. today that account generates over $50,000 a month. here's exactly how i",
         "author": "@whotfiszackk",
-        "rank": 4,
+        "rank": 10,
         "isUseful": false,
         "content": "",
-        "summary": "（英文原文摘录）zack @whotfiszackk · 23h Article 7 months ago i created a twitter account with a random username. no face behind it. no …",
+        "summary": "（英文原文摘录）zack @whotfiszackk · Aug 5 Article 7 months ago i created a twitter account with a random username. no face behind it. n…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
@@ -127946,12 +127962,14 @@
           "2026-08-06 16:39:52 北京时间",
           "2026-08-06 16:39:53 北京时间",
           "2026-08-06 17:43:03 北京时间",
-          "2026-08-06 17:43:07 北京时间"
+          "2026-08-06 17:43:07 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/uteddy10/status/2085267216467960018": {
         "href": "https://x.com/uteddy10/status/2085267216467960018",
-        "fetched_at": "2026-08-06 16:55:30 北京时间",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -127959,7 +127977,7 @@
         "title": "Having zero followers and a non-monetised X account feels like a massive disadvantage when looking at big creators. It’s actually your greatest hidden superpower. You can test ideas, make raw mistakes, and experiment completely out of the spotlight. A short write up on using",
         "raw": "Having zero followers and a non-monetised X account feels like a massive disadvantage when looking at big creators. \nIt’s actually your greatest hidden superpower. You can test ideas, make raw mistakes, and experiment completely out of the spotlight.\n\nA short write up on using",
         "author": "@uteddy10",
-        "rank": 3,
+        "rank": 16,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Having zero followers and a non-monetised X account feels like a massive disadvantage when looking at big creators. It’s…",
@@ -127972,7 +127990,9 @@
           "2026-08-06 15:44:20 北京时间",
           "2026-08-06 15:44:47 北京时间",
           "2026-08-06 16:55:24 北京时间",
-          "2026-08-06 16:55:30 北京时间"
+          "2026-08-06 16:55:30 北京时间",
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
         ]
       },
       "https://x.com/fednmad/status/2085257481333395751": {
@@ -128477,7 +128497,7 @@
       },
       "https://x.com/Piglei/status/2085218455532544408": {
         "href": "https://x.com/Piglei/status/2085218455532544408",
-        "fetched_at": "2026-08-06 15:45:48 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128485,23 +128505,25 @@
         "title": "《关于“慢下来”的一些想法》 编程 Agent 出现后，软件开发效率上升了一个数量级，原来需数天开发的功能，现在 Agent 一小时内就可以写完。然而，这一切真的没有任何代价吗？ Mario Zechner 的这篇文章反思了行业现状：当编码过程被疯狂加速后，软件质量开始急速下滑，代码库在极短时间内膨胀为……",
         "raw": "《关于“慢下来”的一些想法》\n\n编程 Agent 出现后，软件开发效率上升了一个数量级，原来需数天开发的功能，现在 Agent 一小时内就可以写完。然而，这一切真的没有任何代价吗？\n\nMario Zechner 的这篇文章反思了行业现状：当编码过程被疯狂加速后，软件质量开始急速下滑，代码库在极短时间内膨胀为……",
         "author": "@Piglei",
-        "rank": 1,
+        "rank": 4,
         "isUseful": false,
         "content": "",
         "summary": "《关于“慢下来”的一些想法》 编程 Agent 出现后，软件开发效率上升了一个数量级，原来需数天开发的功能，现在 Agent 一小时内就可以写完。然而，这一切真的没有任何代价吗？ Mario Zechner 的这篇文章反思了行业现状：当编码…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:45:21 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
-          "2026-08-06 15:45:48 北京时间"
+          "2026-08-06 15:45:48 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/ArivenDar/status/2085214559741313272": {
         "href": "https://x.com/ArivenDar/status/2085214559741313272",
-        "fetched_at": "2026-08-06 15:45:48 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128509,23 +128531,25 @@
         "title": "避雷一下那个叫相机的软件，一点进去先是黑屏，然后出来一个很惊悚的猪脸，我直接被吓得抑郁症躯体化了，我手一直在那抖，我真的很难受，不知道为啥要开发出这个软件。",
         "raw": "避雷一下那个叫相机的软件，一点进去先是黑屏，然后出来一个很惊悚的猪脸，我直接被吓得抑郁症躯体化了，我手一直在那抖，我真的很难受，不知道为啥要开发出这个软件。",
         "author": "@ArivenDar",
-        "rank": 2,
+        "rank": 5,
         "isUseful": false,
         "content": "",
         "summary": "避雷一下那个叫相机的软件，一点进去先是黑屏，然后出来一个很惊悚的猪脸，我直接被吓得抑郁症躯体化了，我手一直在那抖，我真的很难受，不知道为啥要开发出这个软件。",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:45:21 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
-          "2026-08-06 15:45:48 北京时间"
+          "2026-08-06 15:45:48 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/aigclink/status/2085170301969850727": {
         "href": "https://x.com/aigclink/status/2085170301969850727",
-        "fetched_at": "2026-08-06 15:45:48 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128533,23 +128557,25 @@
         "title": "Cloudflare 今天开源了 Cloudflare OS，正式改变了saas的范式，宣告saas死刑：实现了每个人都可运行团队其他成员的应用代码副本，每个人就可以自由修改复制的saas副本。 这正式改变了saas范式：想给软件加个功能？不用给开发者提需求排期了，直接让 agent 改。这在 SaaS",
         "raw": "Cloudflare 今天开源了 Cloudflare OS，正式改变了saas的范式，宣告saas死刑：实现了每个人都可运行团队其他成员的应用代码副本，每个人就可以自由修改复制的saas副本。\n\n这正式改变了saas范式：想给软件加个功能？不用给开发者提需求排期了，直接让 agent 改。这在 SaaS",
         "author": "@aigclink",
-        "rank": 3,
+        "rank": 7,
         "isUseful": false,
         "content": "",
         "summary": "Cloudflare 今天开源了 Cloudflare OS，正式改变了saas的范式，宣告saas死刑：实现了每个人都可运行团队其他成员的应用代码副本，每个人就可以自由修改复制的saas副本。 这正式改变了saas范式：想给软件加个功能？…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:45:21 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
-          "2026-08-06 15:45:48 北京时间"
+          "2026-08-06 15:45:48 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/zaobaosg/status/2085164796790350166": {
         "href": "https://x.com/zaobaosg/status/2085164796790350166",
-        "fetched_at": "2026-08-06 18:08:00 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128557,7 +128583,7 @@
         "title": "一家网络安全公司的最新研究显示，一款由中国开发的数码间谍软件工具，已发展成一种功能更全面的监控平台，目前已在13个以上国家投入使用。 zaobao.com.sg/news/china/sto …",
         "raw": "一家网络安全公司的最新研究显示，一款由中国开发的数码间谍软件工具，已发展成一种功能更全面的监控平台，目前已在13个以上国家投入使用。 \nzaobao.com.sg/news/china/sto\n…",
         "author": "@zaobaosg",
-        "rank": 2,
+        "rank": 8,
         "isUseful": false,
         "content": "",
         "summary": "一家网络安全公司的最新研究显示，一款由中国开发的数码间谍软件工具，已发展成一种功能更全面的监控平台，目前已在13个以上国家投入使用。 zaobao.com.sg/news/china/sto …",
@@ -128569,12 +128595,14 @@
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
-          "2026-08-06 18:08:00 北京时间"
+          "2026-08-06 18:08:00 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/vivilinsv/status/2085113540030132367": {
         "href": "https://x.com/vivilinsv/status/2085113540030132367",
-        "fetched_at": "2026-08-06 18:08:00 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128582,7 +128610,7 @@
         "title": "Google有很多明星高管, 但在工程师的世界里，真正被写成“神话”的人，是 @JeffDean Jeff Dean! 硅谷曾经流传着一整套关于他的段子： “Jeff Dean的简历上，只需要列出他没有做过的事 - 因为那一页比较短。” “Jeff Dean写代码之前，代码会先自行优化，以免让他失望。” 这些当然是模仿Chuck",
         "raw": "Google有很多明星高管, 但在工程师的世界里，真正被写成“神话”的人，是 \n@JeffDean\n  Jeff Dean! \n\n硅谷曾经流传着一整套关于他的段子：\n\n“Jeff Dean的简历上，只需要列出他没有做过的事 - 因为那一页比较短。”\n\n“Jeff Dean写代码之前，代码会先自行优化，以免让他失望。”\n\n这些当然是模仿Chuck",
         "author": "@vivilinsv",
-        "rank": 3,
+        "rank": 9,
         "isUseful": false,
         "content": "",
         "summary": "Google有很多明星高管, 但在工程师的世界里，真正被写成“神话”的人，是 @JeffDean Jeff Dean! 硅谷曾经流传着一整套关于他的段子： “Jeff Dean的简历上，只需要列出他没有做过的事 - 因为那一页比较短。” “…",
@@ -128594,12 +128622,14 @@
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
-          "2026-08-06 18:08:00 北京时间"
+          "2026-08-06 18:08:00 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/KingCola88/status/2085010728793358799": {
         "href": "https://x.com/KingCola88/status/2085010728793358799",
-        "fetched_at": "2026-08-06 18:08:00 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128607,7 +128637,7 @@
         "title": "说实话，AI给我最深的感受不是它多聪明，而是它把很多不会搞变成了可以试试。以前想学个新东西，先得自己到处找资料、筛课程，光判断哪些靠谱就得花不少时间。复杂点的技能还得报班、买课，几千块就出去了。现在有了AI，不少事情不用非得找人教，先拿AI试试。 最明显的就是学英语。 AI圈这两个话题放在一起 突然有点赛博黑色幽默 尤其是Misa现在也成为了AI的老板 有一些心得体会 一边是老板们疯狂拥抱AI 觉得AI真香，能降本增效 还能替代一部分人力 于是乎开掉了很大一批程序员 降本增效的同时 misa发现了很多乐子 没有TOKEN，AI立刻停工 如果是",
         "raw": "说实话，AI给我最深的感受不是它多聪明，而是它把很多不会搞变成了可以试试。以前想学个新东西，先得自己到处找资料、筛课程，光判断哪些靠谱就得花不少时间。复杂点的技能还得报班、买课，几千块就出去了。现在有了AI，不少事情不用非得找人教，先拿AI试试。\n\n最明显的就是学英语。 AI圈这两个话题放在一起\n突然有点赛博黑色幽默\n尤其是Misa现在也成为了AI的老板\n有一些心得体会\n\n一边是老板们疯狂拥抱AI\n\n觉得AI真香，能降本增效\n还能替代一部分人力\n于是乎开掉了很大一批程序员 \n\n降本增效的同时\nmisa发现了很多乐子\n\n没有TOKEN，AI立刻停工\n如果是",
         "author": "@KingCola88",
-        "rank": 4,
+        "rank": 10,
         "isUseful": false,
         "content": "",
         "summary": "说实话，AI给我最深的感受不是它多聪明，而是它把很多不会搞变成了可以试试。以前想学个新东西，先得自己到处找资料、筛课程，光判断哪些靠谱就得花不少时间。复杂点的技能还得报班、买课，几千块就出去了。现在有了AI，不少事情不用非得找人教，先拿AI…",
@@ -128619,12 +128649,14 @@
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
-          "2026-08-06 18:08:00 北京时间"
+          "2026-08-06 18:08:00 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/songsong/status/2084966880616566843": {
         "href": "https://x.com/songsong/status/2084966880616566843",
-        "fetched_at": "2026-08-06 18:08:00 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128632,7 +128664,7 @@
         "title": "你还记得你装了哪些Skill么？",
         "raw": "你还记得你装了哪些Skill么？",
         "author": "@songsong",
-        "rank": 5,
+        "rank": 11,
         "isUseful": false,
         "content": "",
         "summary": "你还记得你装了哪些Skill么？",
@@ -128644,36 +128676,40 @@
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
-          "2026-08-06 18:08:00 北京时间"
+          "2026-08-06 18:08:00 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/canghe/status/2084949218314105068": {
         "href": "https://x.com/canghe/status/2084949218314105068",
-        "fetched_at": "2026-08-06 15:45:48 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "苍何 @canghe · 21h Article 几千人催我的 Codex +Obsidian 公众号创作工作流，开源了！ 几天前，我发了一篇纯文，简单介绍了下我基于 Obsidian 的创作工作流。不少读者表示很感兴趣。 有点尴尬的是，上一篇还没说完就超字数了，真有点脱裤子放屁的感觉了。... 19 104 540 62K",
-        "raw": "苍何 @canghe · 21h Article 几千人催我的 Codex +Obsidian 公众号创作工作流，开源了！ 几天前，我发了一篇纯文，简单介绍了下我基于 Obsidian 的创作工作流。不少读者表示很感兴趣。 有点尴尬的是，上一篇还没说完就超字数了，真有点脱裤子放屁的感觉了。... 19 104 540 62K",
+        "title": "苍何 @canghe · Aug 5 Article 几千人催我的 Codex +Obsidian 公众号创作工作流，开源了！ 几天前，我发了一篇纯文，简单介绍了下我基于 Obsidian 的创作工作流。不少读者表示很感兴趣。 有点尴尬的是，上一篇还没说完就超字数了，真有点脱裤子放屁的感觉了。... 20 118 638 79K",
+        "raw": "苍何 @canghe · Aug 5 Article 几千人催我的 Codex +Obsidian 公众号创作工作流，开源了！ 几天前，我发了一篇纯文，简单介绍了下我基于 Obsidian 的创作工作流。不少读者表示很感兴趣。 有点尴尬的是，上一篇还没说完就超字数了，真有点脱裤子放屁的感觉了。... 20 118 638 79K",
         "author": "@canghe",
-        "rank": 8,
+        "rank": 12,
         "isUseful": false,
         "content": "",
-        "summary": "苍何 @canghe · 21h Article 几千人催我的 Codex +Obsidian 公众号创作工作流，开源了！ 几天前，我发了一篇纯文，简单介绍了下我基于 Obsidian 的创作工作流。不少读者表示很感兴趣。 有点尴尬的是，上…",
+        "summary": "苍何 @canghe · Aug 5 Article 几千人催我的 Codex +Obsidian 公众号创作工作流，开源了！ 几天前，我发了一篇纯文，简单介绍了下我基于 Obsidian 的创作工作流。不少读者表示很感兴趣。 有点尴尬的是…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:45:21 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
-          "2026-08-06 15:45:48 北京时间"
+          "2026-08-06 15:45:48 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/YinsenW_/status/2084947009790947514": {
         "href": "https://x.com/YinsenW_/status/2084947009790947514",
-        "fetched_at": "2026-08-06 17:15:15 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128681,7 +128717,7 @@
         "title": "Cherry Studio 2.0 发布：一次“边开飞机边换发动机”的底层重构",
         "raw": "Cherry Studio 2.0 发布：一次“边开飞机边换发动机”的底层重构",
         "author": "@YinsenW_",
-        "rank": 3,
+        "rank": 13,
         "isUseful": false,
         "content": "",
         "summary": "Cherry Studio 2.0 发布：一次“边开飞机边换发动机”的底层重构",
@@ -128694,12 +128730,16 @@
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
           "2026-08-06 17:15:08 北京时间",
-          "2026-08-06 17:15:15 北京时间"
+          "2026-08-06 17:15:15 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/GitHub_Daily/status/2084904755474898999": {
         "href": "https://x.com/GitHub_Daily/status/2084904755474898999",
-        "fetched_at": "2026-08-06 15:45:48 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128707,23 +128747,25 @@
         "title": "当面对 APK 逆向该用 jadx 还是 apktool？二进制分析该上 IDA 还是 Ghidra？ 这些是逆向开发工程师，在面对不同目标时，需做出选择的分析工具，选错就白费功夫。 reverse-skill 把这些选择交给了 AI Agent，在 GitHub 上已经斩获 16000+ Star。 给 Agent",
         "raw": "当面对 APK 逆向该用 jadx 还是 apktool？二进制分析该上 IDA 还是 Ghidra？\n\n这些是逆向开发工程师，在面对不同目标时，需做出选择的分析工具，选错就白费功夫。\n\nreverse-skill 把这些选择交给了 AI Agent，在 GitHub 上已经斩获 16000+ Star。\n\n给 Agent",
         "author": "@GitHub_Daily",
-        "rank": 10,
+        "rank": 14,
         "isUseful": false,
         "content": "",
         "summary": "当面对 APK 逆向该用 jadx 还是 apktool？二进制分析该上 IDA 还是 Ghidra？ 这些是逆向开发工程师，在面对不同目标时，需做出选择的分析工具，选错就白费功夫。 reverse-skill 把这些选择交给了 AI Ag…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:45:21 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
-          "2026-08-06 15:45:48 北京时间"
+          "2026-08-06 15:45:48 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/PANewsCN/status/2084863162088821245": {
         "href": "https://x.com/PANewsCN/status/2084863162088821245",
-        "fetched_at": "2026-08-06 15:45:48 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128731,42 +128773,46 @@
         "title": "Coldcard 漏洞导致1.3 亿美元被盗新进展！ 导致私钥可被推算的可疑代码，被指与 Coinkite 内部人员存在关联，且相关漏洞早在几个月前就被开发者发现并通报，但官方未处理！ 开发者 James O'Beirne 表示，他在 2025 年 5 月审计 Coldcard I haven't told the full story yet, but I came to the same conclusion back in May 2025 when I started doing an audit of `coldcard/firmware`",
         "raw": "Coldcard 漏洞导致1.3 亿美元被盗新进展！\n\n导致私钥可被推算的可疑代码，被指与 Coinkite 内部人员存在关联，且相关漏洞早在几个月前就被开发者发现并通报，但官方未处理！\n\n开发者 James O'Beirne 表示，他在 2025 年 5 月审计 Coldcard I haven't told the full story yet, but I came to the same conclusion back in May 2025 when I started doing an audit of `coldcard/firmware`",
         "author": "@PANewsCN",
-        "rank": 11,
+        "rank": 15,
         "isUseful": false,
         "content": "",
         "summary": "Coldcard 漏洞导致1.3 亿美元被盗新进展！ 导致私钥可被推算的可疑代码，被指与 Coinkite 内部人员存在关联，且相关漏洞早在几个月前就被开发者发现并通报，但官方未处理！ 开发者 James O'Beirne 表示，他在 20…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:45:21 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
-          "2026-08-06 15:45:48 北京时间"
+          "2026-08-06 15:45:48 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/okxchinese/status/2084857042611941804": {
         "href": "https://x.com/okxchinese/status/2084857042611941804",
-        "fetched_at": "2026-08-06 15:45:48 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "OKX中文 @okxchinese · Aug 5 Article 美股观察站 | 营收暴增 92%，SpaceX 的太空与 AI 投入开始兑现了吗？ 注：本文基于 SpaceX 于 2026 年 8 月 4 日发布的 Q2 2026 财报材料、提交给 SEC 的 Form 8-K 与完整 Form 10-Q 整理。所有信息来源于官方文件，不构成任何投资建议。... 10 37 20K",
-        "raw": "OKX中文 @okxchinese · Aug 5 Article 美股观察站 | 营收暴增 92%，SpaceX 的太空与 AI 投入开始兑现了吗？ 注：本文基于 SpaceX 于 2026 年 8 月 4 日发布的 Q2 2026 财报材料、提交给 SEC 的 Form 8-K 与完整 Form 10-Q 整理。所有信息来源于官方文件，不构成任何投资建议。... 10 37 20K",
+        "title": "OKX中文 @okxchinese · Aug 5 Article 美股观察站 | 营收暴增 92%，SpaceX 的太空与 AI 投入开始兑现了吗？ 注：本文基于 SpaceX 于 2026 年 8 月 4 日发布的 Q2 2026 财报材料、提交给 SEC 的 Form 8-K 与完整 Form 10-Q 整理。所有信息来源于官方文件，不构成任何投资建议。... 11 37 20K",
+        "raw": "OKX中文 @okxchinese · Aug 5 Article 美股观察站 | 营收暴增 92%，SpaceX 的太空与 AI 投入开始兑现了吗？ 注：本文基于 SpaceX 于 2026 年 8 月 4 日发布的 Q2 2026 财报材料、提交给 SEC 的 Form 8-K 与完整 Form 10-Q 整理。所有信息来源于官方文件，不构成任何投资建议。... 11 37 20K",
         "author": "@okxchinese",
-        "rank": 12,
+        "rank": 16,
         "isUseful": false,
         "content": "",
         "summary": "OKX中文 @okxchinese · Aug 5 Article 美股观察站 | 营收暴增 92%，SpaceX 的太空与 AI 投入开始兑现了吗？ 注：本文基于 SpaceX 于 2026 年 8 月 4 日发布的 Q2 2026 财报…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 15:45:21 北京时间",
         "fetched_at_history": [
           "2026-08-06 15:45:21 北京时间",
-          "2026-08-06 15:45:48 北京时间"
+          "2026-08-06 15:45:48 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/Shenmeili1213/status/2084857018356297898": {
@@ -128867,7 +128913,7 @@
       },
       "https://x.com/dafangbigfang/status/2084685476355838299": {
         "href": "https://x.com/dafangbigfang/status/2084685476355838299",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128875,7 +128921,7 @@
         "title": "Coldcard硬件钱包的随机数漏洞是如何被发现的？ 一台硬件钱包第一次创建钱包时，需要生成一组足够随机的数据。 这组随机数据经过算法处理，最终变成我们看到的12个、18个或者24个助记词。之后生成的私钥、地址以及所有比特币账户，都建立在这组随机数之上。",
         "raw": "Coldcard硬件钱包的随机数漏洞是如何被发现的？\n\n一台硬件钱包第一次创建钱包时，需要生成一组足够随机的数据。\n这组随机数据经过算法处理，最终变成我们看到的12个、18个或者24个助记词。之后生成的私钥、地址以及所有比特币账户，都建立在这组随机数之上。",
         "author": "@dafangbigfang",
-        "rank": 2,
+        "rank": 3,
         "isUseful": false,
         "content": "",
         "summary": "Coldcard硬件钱包的随机数漏洞是如何被发现的？ 一台硬件钱包第一次创建钱包时，需要生成一组足够随机的数据。 这组随机数据经过算法处理，最终变成我们看到的12个、18个或者24个助记词。之后生成的私钥、地址以及所有比特币账户，都建立在这…",
@@ -128888,12 +128934,16 @@
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/AYi_AInotes/status/2084665398092267999": {
         "href": "https://x.com/AYi_AInotes/status/2084665398092267999",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128901,7 +128951,7 @@
         "title": "这条必须卧槽一下了，太炸了， @OpenAI 管 Codex+ChatGPT 的总负责人Tibo 这条推信息量真的很大，我看已经把开发者圈都炸了， 喵的看完我真的有点后背发凉， 因为使用AI的整个范式都要变了啊，damn！！！ 他说基于最近看到的一些结果， 现在的 Codex 确实是个不错的 harness， Given some of the results I'm seeing recently, it's pretty clear Codex is a good harness. But it will seem primitive in",
         "raw": "这条必须卧槽一下了，太炸了，\n@OpenAI\n  管 Codex+ChatGPT 的总负责人Tibo 这条推信息量真的很大，我看已经把开发者圈都炸了，\n喵的看完我真的有点后背发凉，\n因为使用AI的整个范式都要变了啊，damn！！！\n\n他说基于最近看到的一些结果，\n现在的 Codex 确实是个不错的 harness， Given some of the results I'm seeing recently, it's pretty clear Codex is a good harness.\n\nBut it will seem primitive in ",
         "author": "@AYi_AInotes",
-        "rank": 3,
+        "rank": 4,
         "isUseful": false,
         "content": "",
         "summary": "这条必须卧槽一下了，太炸了， @OpenAI 管 Codex+ChatGPT 的总负责人Tibo 这条推信息量真的很大，我看已经把开发者圈都炸了， 喵的看完我真的有点后背发凉， 因为使用AI的整个范式都要变了啊，damn！！！ 他说基于最近…",
@@ -128914,12 +128964,16 @@
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/rtk17025/status/2084595235372532078": {
         "href": "https://x.com/rtk17025/status/2084595235372532078",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128927,7 +128981,7 @@
         "title": "聊聊 @dappOS_com 一、熊市筛掉了流量，留下了现金流 过去几年，Web3 早上也在 3.277的位子建仓了 @dappOS_com 晚上会分享看多跟看好的原因 另外聊到 @aspecta_intern 还是不免俗的提醒一下 如果在TG永远永远都要小心诈骗 我上次做CTR时 由于交割的问题就有开工单 结果就遇到骗子仿冒工作人员 幸好我点进去网页去扫的时候发现后台的木马才没有点进去",
         "raw": "聊聊  \n@dappOS_com\n \n\n一、熊市筛掉了流量，留下了现金流\n\n过去几年，Web3 早上也在 3.277的位子建仓了 @dappOS_com \n\n晚上会分享看多跟看好的原因\n\n另外聊到 @aspecta_intern 还是不免俗的提醒一下\n\n如果在TG永远永远都要小心诈骗\n\n我上次做CTR时\n\n由于交割的问题就有开工单\n\n结果就遇到骗子仿冒工作人员\n\n幸好我点进去网页去扫的时候发现后台的木马才没有点进去",
         "author": "@rtk17025",
-        "rank": 4,
+        "rank": 5,
         "isUseful": false,
         "content": "",
         "summary": "聊聊 @dappOS_com 一、熊市筛掉了流量，留下了现金流 过去几年，Web3 早上也在 3.277的位子建仓了 @dappOS_com 晚上会分享看多跟看好的原因 另外聊到 @aspecta_intern 还是不免俗的提醒一下 如果在…",
@@ -128942,12 +128996,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/CMhOeNnExY/status/2084593005844205576": {
         "href": "https://x.com/CMhOeNnExY/status/2084593005844205576",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128955,7 +129013,7 @@
         "title": "昨天跟朋友聊起 AI 副业。聊完以后，我把网上能找到的变现路子仔细扒了一遍。 小到帮人安装 Codex、卖教程、做 Token 中转和充值卡，大到做 C 端产品、接企业项目，看起来遍地都是机会？ 这些机会为什么会出现，普通人又能从哪里下手？我们来拆开看看。 剥掉 AI",
         "raw": "昨天跟朋友聊起 AI 副业。聊完以后，我把网上能找到的变现路子仔细扒了一遍。\n\n小到帮人安装 Codex、卖教程、做 Token 中转和充值卡，大到做 C 端产品、接企业项目，看起来遍地都是机会？\n\n这些机会为什么会出现，普通人又能从哪里下手？我们来拆开看看。\n\n剥掉 AI",
         "author": "@CMhOeNnExY",
-        "rank": 5,
+        "rank": 6,
         "isUseful": false,
         "content": "",
         "summary": "昨天跟朋友聊起 AI 副业。聊完以后，我把网上能找到的变现路子仔细扒了一遍。 小到帮人安装 Codex、卖教程、做 Token 中转和充值卡，大到做 C 端产品、接企业项目，看起来遍地都是机会？ 这些机会为什么会出现，普通人又能从哪里下手？…",
@@ -128968,12 +129026,16 @@
           "2026-08-06 15:45:21 北京时间",
           "2026-08-06 15:45:48 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/Reil76/status/2084784064507113951": {
         "href": "https://x.com/Reil76/status/2084784064507113951",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -128981,7 +129043,7 @@
         "title": "Twitter is turning into Facebook and nobody wants to admit it. Open the app and it’s wall to wall memes, AI, and recycled jokes. Actual analysis, real reporting, people saying something with substance? Buried. You have to dig for it now. Engagement farming won. Quality lost.",
         "raw": "Twitter is turning into Facebook and nobody wants to admit it.\n\nOpen the app and it’s wall to wall memes, AI, and recycled jokes. Actual analysis, real reporting, people saying something with substance? Buried. You have to dig for it now.\n\nEngagement farming won. Quality lost.",
         "author": "@Reil76",
-        "rank": 3,
+        "rank": 4,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Twitter is turning into Facebook and nobody wants to admit it. Open the app and it’s wall to wall memes, AI, and recycle…",
@@ -128999,12 +129061,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/haaretzcom/status/2084780199644741841": {
         "href": "https://x.com/haaretzcom/status/2084780199644741841",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129012,7 +129076,7 @@
         "title": "Analysis • Netanyahu convinced Trump's Board of Peace to rewrite its Gaza deal with Hamas",
         "raw": "Analysis • Netanyahu convinced Trump's Board of Peace to rewrite its Gaza deal with Hamas",
         "author": "@haaretzcom",
-        "rank": 4,
+        "rank": 5,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Analysis • Netanyahu convinced Trump's Board of Peace to rewrite its Gaza deal with Hamas",
@@ -129030,12 +129094,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/propublica/status/2084761359254696302": {
         "href": "https://x.com/propublica/status/2084761359254696302",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129043,7 +129109,7 @@
         "title": "One Omaha mother believes lead in her yard is partially responsible for the lead in her daughter’s blood. The EPA remediated her property in 2012, but we found that contamination levels are even higher now than they were before.",
         "raw": "One Omaha mother believes lead in her yard is partially responsible for the lead in her daughter’s blood.\n\nThe EPA remediated her property in 2012, but we found that contamination levels are even higher now than they were before.",
         "author": "@propublica",
-        "rank": 5,
+        "rank": 6,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）One Omaha mother believes lead in her yard is partially responsible for the lead in her daughter’s blood. The EPA remedi…",
@@ -129061,12 +129127,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/stitchdegen/status/2084760739685044505": {
         "href": "https://x.com/stitchdegen/status/2084760739685044505",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129074,7 +129142,7 @@
         "title": "Another Solana memecoin that caught my attention and I wanted to share with you all is $ONLYMARMS It just printed a massive god candle, so I wouldn't recommend chasing it here. I'd rather wait patiently for a healthy pullback In the meantime, check out my analysis to see why I",
         "raw": "Another Solana memecoin that caught my attention and I wanted to share with you all is $ONLYMARMS\n\nIt just printed a massive god candle, so I wouldn't recommend chasing it here. I'd rather wait patiently for a healthy pullback\n\nIn the meantime, check out my analysis to see why I ",
         "author": "@stitchdegen",
-        "rank": 6,
+        "rank": 7,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Another Solana memecoin that caught my attention and I wanted to share with you all is $ONLYMARMS It just printed a mass…",
@@ -129092,12 +129160,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/TheEconomist/status/2084759059148779744": {
         "href": "https://x.com/TheEconomist/status/2084759059148779744",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129105,7 +129175,7 @@
         "title": "New listings often “pop” on their first day of trading: in 2025 their average first-day return was around 30%. Our data analysis shows the fizz tends to go flat after that",
         "raw": "New listings often “pop” on their first day of trading: in 2025 their average first-day return was around 30%. Our data analysis shows the fizz tends to go flat after that",
         "author": "@TheEconomist",
-        "rank": 7,
+        "rank": 8,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）New listings often “pop” on their first day of trading: in 2025 their average first-day return was around 30%. Our data …",
@@ -129121,20 +129191,22 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/juvenilelad/status/2084727309949706587": {
         "href": "https://x.com/juvenilelad/status/2084727309949706587",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "persie @juvenilelad · Aug 5 Article what if your wallet could speak up ? a thesis for the correction of the constant dilemma (you always forget) that is \"Risk Analysis\" in the art of cryptocurrency. Last week, the crypto world was taken by storm. What many considered to... 12 19",
-        "raw": "persie @juvenilelad · Aug 5 Article what if your wallet could speak up ? a thesis for the correction of the constant dilemma (you always forget) that is \"Risk Analysis\" in the art of cryptocurrency. Last week, the crypto world was taken by storm. What many considered to... 12 19 ",
+        "title": "persie @juvenilelad · Aug 5 Article what if your wallet could speak up ? a thesis for the correction of the constant dilemma (you always forget) that is \"Risk Analysis\" in the art of cryptocurrency. Last week, the crypto world was taken by storm. What many considered to... 13 19",
+        "raw": "persie @juvenilelad · Aug 5 Article what if your wallet could speak up ? a thesis for the correction of the constant dilemma (you always forget) that is \"Risk Analysis\" in the art of cryptocurrency. Last week, the crypto world was taken by storm. What many considered to... 13 19 ",
         "author": "@juvenilelad",
-        "rank": 8,
+        "rank": 9,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）persie @juvenilelad · Aug 5 Article what if your wallet could speak up ? a thesis for the correction of the constant dil…",
@@ -129152,12 +129224,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/humfhuang/status/2084725307861610992": {
         "href": "https://x.com/humfhuang/status/2084725307861610992",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129165,7 +129239,7 @@
         "title": "Humphrey Huang @humfhuang · Aug 5 Article How I Went From 46 to 2,188 Followers in 57 days 2 months ago, I was posting daily and getting no results. I was stuck at 46 followers for the longest time. Now my account has over 2,200 followers. I didn't pay for promotion, buy bots, ac",
         "raw": "Humphrey Huang @humfhuang · Aug 5 Article How I Went From 46 to 2,188 Followers in 57 days 2 months ago, I was posting daily and getting no results. I was stuck at 46 followers for the longest time. Now my account has over 2,200 followers. I didn't pay for promotion, buy bots, ac",
         "author": "@humfhuang",
-        "rank": 9,
+        "rank": 10,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Humphrey Huang @humfhuang · Aug 5 Article How I Went From 46 to 2,188 Followers in 57 days 2 months ago, I was posting d…",
@@ -129181,12 +129255,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/NavyTimes/status/2084718747223257202": {
         "href": "https://x.com/NavyTimes/status/2084718747223257202",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129194,7 +129270,7 @@
         "title": "Air Force, Coast Guard and Navy veterans had the highest rates of ALS diagnosis in an analysis of more than 14,400 cases.",
         "raw": "Air Force, Coast Guard and Navy veterans had the highest rates of ALS diagnosis in an analysis of more than 14,400 cases.",
         "author": "@NavyTimes",
-        "rank": 10,
+        "rank": 11,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Air Force, Coast Guard and Navy veterans had the highest rates of ALS diagnosis in an analysis of more than 14,400 cases…",
@@ -129210,12 +129286,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/NBCNews/status/2084710990776553650": {
         "href": "https://x.com/NBCNews/status/2084710990776553650",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129223,7 +129301,7 @@
         "title": "Federal government job cuts affected thousands of employees, including those in red states or states with large rural populations alongside their capital-based counterparts, according to an NBC News analysis of recent federal data. [#553650]",
         "raw": "Federal government job cuts affected thousands of employees, including those in red states or states with large rural populations alongside their capital-based counterparts, according to an NBC News analysis of recent federal data. [#553650]",
         "author": "@NBCNews",
-        "rank": 11,
+        "rank": 12,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Federal government job cuts affected thousands of employees, including those in red states or states with large rural po…",
@@ -129239,12 +129317,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/FDD/status/2084708955410907370": {
         "href": "https://x.com/FDD/status/2084708955410907370",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129252,7 +129332,7 @@
         "title": "Turkey-Based Global Director of Sham Charity Arrested for Conspiring To Help Hamas New FDD Policy Brief by @NatalieEcanow and @SinanCiddi :",
         "raw": "Turkey-Based Global Director of Sham Charity Arrested for Conspiring To Help Hamas\n\nNew FDD Policy Brief by \n@NatalieEcanow\n and \n@SinanCiddi\n:",
         "author": "@FDD",
-        "rank": 12,
+        "rank": 13,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Turkey-Based Global Director of Sham Charity Arrested for Conspiring To Help Hamas New FDD Policy Brief by @NatalieEcano…",
@@ -129268,12 +129348,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/PrideOfDetroit/status/2084706164403802621": {
         "href": "https://x.com/PrideOfDetroit/status/2084706164403802621",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129281,7 +129363,7 @@
         "title": "6 standouts from Day 6 of Detroit Lions training camp",
         "raw": "6 standouts from Day 6 of Detroit Lions training camp",
         "author": "@PrideOfDetroit",
-        "rank": 13,
+        "rank": 14,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）6 standouts from Day 6 of Detroit Lions training camp",
@@ -129297,12 +129379,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/bmj_latest/status/2084693605457723598": {
         "href": "https://x.com/bmj_latest/status/2084693605457723598",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129310,7 +129394,7 @@
         "title": "Recent legislation prioritises UK graduates for specialty training. Without transparent progression routes, continued reliance on international medical graduates for service delivery risks skill underuse and prolonged career uncertainty, argues Analysis",
         "raw": "Recent legislation prioritises UK graduates for specialty training.\n\nWithout transparent progression routes, continued reliance on international medical graduates for service delivery risks skill underuse and prolonged career uncertainty, argues Analysis",
         "author": "@bmj_latest",
-        "rank": 14,
+        "rank": 15,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Recent legislation prioritises UK graduates for specialty training. Without transparent progression routes, continued re…",
@@ -129326,12 +129410,14 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/GVRCALLS/status/2084688508254609918": {
         "href": "https://x.com/GVRCALLS/status/2084688508254609918",
-        "fetched_at": "2026-08-06 17:48:47 北京时间",
+        "fetched_at": "2026-08-06 21:34:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129339,7 +129425,7 @@
         "title": "My Twitter(X) Subscription Benefits * 60+ spot/ future Analysis in a month * #Altcoins & $BTC official chart Analysis * DYOR Always before getting subscriptio",
         "raw": "My Twitter(X) Subscription Benefits \n\n* 60+ spot/ future Analysis in a month \n\n* #Altcoins & \n$BTC\n official chart Analysis \n\n* DYOR Always before getting subscriptio",
         "author": "@GVRCALLS",
-        "rank": 15,
+        "rank": 16,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）My Twitter(X) Subscription Benefits * 60+ spot/ future Analysis in a month * #Altcoins & $BTC official chart Analysis * …",
@@ -129355,7 +129441,9 @@
           "2026-08-06 17:05:24 北京时间",
           "2026-08-06 17:05:25 北京时间",
           "2026-08-06 17:48:44 北京时间",
-          "2026-08-06 17:48:47 北京时间"
+          "2026-08-06 17:48:47 北京时间",
+          "2026-08-06 21:34:53 北京时间",
+          "2026-08-06 21:34:56 北京时间"
         ]
       },
       "https://x.com/FDD/status/2084676743042933027": {
@@ -129469,7 +129557,7 @@
       },
       "https://x.com/_rumaisah/status/2084938308149297648": {
         "href": "https://x.com/_rumaisah/status/2084938308149297648",
-        "fetched_at": "2026-08-06 17:43:07 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129477,7 +129565,7 @@
         "title": "Understanding USDZ: The Stablecoin That Powers @StabilizerFi Most people think a stablecoin is just another digital dollar. USDZ is different. USDZ is the native stablecoin of the Stabilizer ecosystem. It isn't trying to compete with other stablecoins by promising high yields",
         "raw": "Understanding USDZ: The Stablecoin That Powers \n@StabilizerFi\nMost people think a stablecoin is just another digital dollar. USDZ is different.\n\nUSDZ is the native stablecoin of the Stabilizer ecosystem. It isn't trying to compete with other stablecoins by promising high yields",
         "author": "@_rumaisah",
-        "rank": 5,
+        "rank": 11,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Understanding USDZ: The Stablecoin That Powers @StabilizerFi Most people think a stablecoin is just another digital doll…",
@@ -129492,12 +129580,14 @@
           "2026-08-06 16:39:52 北京时间",
           "2026-08-06 16:39:53 北京时间",
           "2026-08-06 17:43:03 北京时间",
-          "2026-08-06 17:43:07 北京时间"
+          "2026-08-06 17:43:07 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/eastkhid/status/2084914676870095080": {
         "href": "https://x.com/eastkhid/status/2084914676870095080",
-        "fetched_at": "2026-08-06 17:43:07 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129505,7 +129595,7 @@
         "title": "I think in this twitter trading space kuna evolving u happen. Unafikanga point you no longer feel the need to post screenshots, kama jana I made $600 on my funded lakini I didn't feel the urge to post the mt5 screenshot like prime me in 2025. This what growth looks like??",
         "raw": "I think in this twitter  trading space kuna evolving u happen. Unafikanga point you no longer feel the need to post screenshots, kama jana I made $600 on my funded lakini I didn't feel the urge to post the mt5 screenshot like prime me in 2025. \n\nThis what growth looks like??",
         "author": "@eastkhid",
-        "rank": 6,
+        "rank": 12,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）I think in this twitter trading space kuna evolving u happen. Unafikanga point you no longer feel the need to post scree…",
@@ -129520,12 +129610,14 @@
           "2026-08-06 16:39:52 北京时间",
           "2026-08-06 16:39:53 北京时间",
           "2026-08-06 17:43:03 北京时间",
-          "2026-08-06 17:43:07 北京时间"
+          "2026-08-06 17:43:07 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/ForeignAffairs/status/2084910531471610109": {
         "href": "https://x.com/ForeignAffairs/status/2084910531471610109",
-        "fetched_at": "2026-08-06 17:43:07 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129533,7 +129625,7 @@
         "title": "“In the current strategic balance, many analysts fail to appreciate the fact that Beijing’s policy tools for generating economic growth are fundamentally broken,” writes Logan Wright.",
         "raw": "“In the current strategic balance, many analysts fail to appreciate the fact that Beijing’s policy tools for generating economic growth are fundamentally broken,” writes Logan Wright.",
         "author": "@ForeignAffairs",
-        "rank": 7,
+        "rank": 13,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）“In the current strategic balance, many analysts fail to appreciate the fact that Beijing’s policy tools for generating …",
@@ -129548,12 +129640,14 @@
           "2026-08-06 16:39:52 北京时间",
           "2026-08-06 16:39:53 北京时间",
           "2026-08-06 17:43:03 北京时间",
-          "2026-08-06 17:43:07 北京时间"
+          "2026-08-06 17:43:07 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/ivmynameisnana/status/2084909489912692982": {
         "href": "https://x.com/ivmynameisnana/status/2084909489912692982",
-        "fetched_at": "2026-08-06 17:43:07 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129561,7 +129655,7 @@
         "title": "To @GMMTV Management, With all due respect, I would like to express my sincere concern regarding the management and development of some of your artists. I believe GMMTV is aware of the discussions happening on X (formerly Twitter) and other social media platforms. Many fans ส",
         "raw": "To \n@GMMTV\n Management,\n\nWith all due respect, I would like to express my sincere concern regarding the management and development of some of your artists.\n\nI believe GMMTV is aware of the discussions happening on X (formerly Twitter) and other social media platforms. Many fans ส",
         "author": "@ivmynameisnana",
-        "rank": 9,
+        "rank": 14,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）To @GMMTV Management, With all due respect, I would like to express my sincere concern regarding the management and deve…",
@@ -129576,12 +129670,14 @@
           "2026-08-06 16:39:52 北京时间",
           "2026-08-06 16:39:53 北京时间",
           "2026-08-06 17:43:03 北京时间",
-          "2026-08-06 17:43:07 北京时间"
+          "2026-08-06 17:43:07 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/Kryp_Toon/status/2084876802775003333": {
         "href": "https://x.com/Kryp_Toon/status/2084876802775003333",
-        "fetched_at": "2026-08-06 17:43:07 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129589,7 +129685,7 @@
         "title": "Strategic Partnership Announcement We are delighted to inform you of our newly formed partnership with @TheCookieChain . To stay abreast of regular updates, kindly follow our social media platforms. Platform Overview: Cookie Chain stands out by combining the speed of",
         "raw": "Strategic Partnership Announcement\n\nWe are delighted to inform you of our newly formed partnership with \n@TheCookieChain\n. To stay abreast of regular updates, kindly follow our social media platforms.\n\n Platform Overview:\n\nCookie Chain stands out by combining the speed of",
         "author": "@Kryp_Toon",
-        "rank": 10,
+        "rank": 15,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Strategic Partnership Announcement We are delighted to inform you of our newly formed partnership with @TheCookieChain .…",
@@ -129604,12 +129700,14 @@
           "2026-08-06 16:39:52 北京时间",
           "2026-08-06 16:39:53 北京时间",
           "2026-08-06 17:43:03 北京时间",
-          "2026-08-06 17:43:07 北京时间"
+          "2026-08-06 17:43:07 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/Balancing_Actor/status/2084871798407975091": {
         "href": "https://x.com/Balancing_Actor/status/2084871798407975091",
-        "fetched_at": "2026-08-06 17:43:07 北京时间",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -129617,7 +129715,7 @@
         "title": "RW twitter feed. Freight corridor, build toilets, credit growth at 15% or higher, vehicle sales. E20 ethanol giri. LW twitter feed, Modi says Fraaands, Bal Narendra, BJP is a party of rapists, Hindu Gau mutra jibes. Some E20 and ethanolgiri Which one has scientific temper ?",
         "raw": "RW twitter feed. Freight corridor, build toilets, credit growth at 15% or higher, vehicle sales. E20 ethanol giri.\n\nLW twitter feed, Modi says Fraaands, Bal Narendra, BJP is a party of rapists, Hindu Gau mutra jibes. Some E20 and ethanolgiri\n\nWhich one has scientific temper ?",
         "author": "@Balancing_Actor",
-        "rank": 11,
+        "rank": 16,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）RW twitter feed. Freight corridor, build toilets, credit growth at 15% or higher, vehicle sales. E20 ethanol giri. LW tw…",
@@ -129632,7 +129730,9 @@
           "2026-08-06 16:39:52 北京时间",
           "2026-08-06 16:39:53 北京时间",
           "2026-08-06 17:43:03 北京时间",
-          "2026-08-06 17:43:07 北京时间"
+          "2026-08-06 17:43:07 北京时间",
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
         ]
       },
       "https://x.com/TheEconomist/status/2084861994713104680": {
@@ -130160,7 +130260,7 @@
       },
       "https://x.com/ai_Goge/status/2084580440875078041": {
         "href": "https://x.com/ai_Goge/status/2084580440875078041",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130168,7 +130268,7 @@
         "title": "Kelvin @ai_Goge · Aug 4 Article 从0到1搭建 AI 体系：不是买工具，而是先改工作方式 AI 进公司，不是多一个聊天框，是重做一条工作流 很多企业都在谈 AI，但真正开始落地时，往往会出现两种情况。 第一种是，公司给员工购买了几个 AI 工具，组织了几场培训，然后就认为自己完成了 AI... 10 10 42 4.4K",
         "raw": "Kelvin @ai_Goge · Aug 4 Article 从0到1搭建 AI 体系：不是买工具，而是先改工作方式 AI 进公司，不是多一个聊天框，是重做一条工作流 很多企业都在谈 AI，但真正开始落地时，往往会出现两种情况。 第一种是，公司给员工购买了几个 AI 工具，组织了几场培训，然后就认为自己完成了 AI... 10 10 42 4.4K",
         "author": "@ai_Goge",
-        "rank": 6,
+        "rank": 7,
         "isUseful": false,
         "content": "",
         "summary": "Kelvin @ai_Goge · Aug 4 Article 从0到1搭建 AI 体系：不是买工具，而是先改工作方式 AI 进公司，不是多一个聊天框，是重做一条工作流 很多企业都在谈 AI，但真正开始落地时，往往会出现两种情况。 第一种是…",
@@ -130183,12 +130283,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/QT9277/status/2084569279324963316": {
         "href": "https://x.com/QT9277/status/2084569279324963316",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130196,7 +130300,7 @@
         "title": "每天来回切十几个APP刷热榜找资讯，实在太折腾了。 发现一个聚合网站直接把微博、知乎、GitHub、Product Hunt、抖音等平台实时榜单全部整合在一起，打开单页面就能刷完全网当下所有热点，不用来回切换软件。 真心推荐这四类人收藏备用：",
         "raw": "每天来回切十几个APP刷热榜找资讯，实在太折腾了。 \n\n发现一个聚合网站直接把微博、知乎、GitHub、Product Hunt、抖音等平台实时榜单全部整合在一起，打开单页面就能刷完全网当下所有热点，不用来回切换软件。  \n\n真心推荐这四类人收藏备用：",
         "author": "@QT9277",
-        "rank": 7,
+        "rank": 8,
         "isUseful": false,
         "content": "",
         "summary": "每天来回切十几个APP刷热榜找资讯，实在太折腾了。 发现一个聚合网站直接把微博、知乎、GitHub、Product Hunt、抖音等平台实时榜单全部整合在一起，打开单页面就能刷完全网当下所有热点，不用来回切换软件。 真心推荐这四类人收藏备用…",
@@ -130211,12 +130315,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/landiantech/status/2084543434338308395": {
         "href": "https://x.com/landiantech/status/2084543434338308395",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130224,7 +130332,7 @@
         "title": "#软件资讯 苹果收到举报称 Telegram 存在儿童性虐内容因此将其下架，在删除内容后苹果重新上架该应用。 苹果发布声明称，其审核团队发现该应用存在违反儿童性虐内容准则的内容，因此将其下架。在开发者迅速删除内容并封禁对应用户后，该应用可以重新上架。 #已恢复上架 苹果将 #Telegram 从 AppStore 下架，现在已经恢复上架，尚不清楚发生了什么。 现在用户可以重新从 AppStore 下载或更新 Telegram。 查看全文：",
         "raw": "#软件资讯 苹果收到举报称 Telegram 存在儿童性虐内容因此将其下架，在删除内容后苹果重新上架该应用。\n\n苹果发布声明称，其审核团队发现该应用存在违反儿童性虐内容准则的内容，因此将其下架。在开发者迅速删除内容并封禁对应用户后，该应用可以重新上架。 #已恢复上架 苹果将 #Telegram 从 AppStore 下架，现在已经恢复上架，尚不清楚发生了什么。\n\n现在用户可以重新从 AppStore 下载或更新 Telegram。\n\n查看全文：",
         "author": "@landiantech",
-        "rank": 8,
+        "rank": 9,
         "isUseful": false,
         "content": "",
         "summary": "#软件资讯 苹果收到举报称 Telegram 存在儿童性虐内容因此将其下架，在删除内容后苹果重新上架该应用。 苹果发布声明称，其审核团队发现该应用存在违反儿童性虐内容准则的内容，因此将其下架。在开发者迅速删除内容并封禁对应用户后，该应用可以…",
@@ -130239,12 +130347,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/MSX_CN/status/2084483375566594440": {
         "href": "https://x.com/MSX_CN/status/2084483375566594440",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130252,7 +130364,7 @@
         "title": "麦通MSX @MSX_CN · Aug 4 Article 2026.08.03—08.07｜美股重点资产观察 AMD、SNDK、ANET 与 ALAB 接棒 AI 定价，存储、光通信和数据中心集中验证 上周大型科技公司的云业务与 AI 投入指引，暂时缓解了市场对资本开支回报的担忧。但半导体板块在 7... 71 27 88 4K",
         "raw": "麦通MSX @MSX_CN · Aug 4 Article 2026.08.03—08.07｜美股重点资产观察 AMD、SNDK、ANET 与 ALAB 接棒 AI 定价，存储、光通信和数据中心集中验证 上周大型科技公司的云业务与 AI 投入指引，暂时缓解了市场对资本开支回报的担忧。但半导体板块在 7... 71 27 88 4K",
         "author": "@MSX_CN",
-        "rank": 9,
+        "rank": 10,
         "isUseful": false,
         "content": "",
         "summary": "麦通MSX @MSX_CN · Aug 4 Article 2026.08.03—08.07｜美股重点资产观察 AMD、SNDK、ANET 与 ALAB 接棒 AI 定价，存储、光通信和数据中心集中验证 上周大型科技公司的云业务与 AI 投…",
@@ -130267,20 +130379,24 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/berryxia/status/2084479289882194402": {
         "href": "https://x.com/berryxia/status/2084479289882194402",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "Berryxia.AI @berryxia · Aug 4 Article 我把自己的 Agent 接进-开源「AI记忆大总管」，像给 AI 打通了任督六脉 ！ 这里说一个事儿，前几天电脑重启之后，我以为把项目都丢了。 打开 Warp，结果屁都没有了，我心想，每次在CLI重启的这种我的进度都看不到，项目啥样的都木了。... 41 37 102 23K",
-        "raw": "Berryxia.AI @berryxia · Aug 4 Article 我把自己的 Agent 接进-开源「AI记忆大总管」，像给 AI 打通了任督六脉 ！ 这里说一个事儿，前几天电脑重启之后，我以为把项目都丢了。 打开 Warp，结果屁都没有了，我心想，每次在CLI重启的这种我的进度都看不到，项目啥样的都木了。... 41 37 102 23K",
+        "title": "Berryxia.AI @berryxia · Aug 4 Article 我把自己的 Agent 接进-开源「AI记忆大总管」，像给 AI 打通了任督六脉 ！ 这里说一个事儿，前几天电脑重启之后，我以为把项目都丢了。 打开 Warp，结果屁都没有了，我心想，每次在CLI重启的这种我的进度都看不到，项目啥样的都木了。... 41 37 104 26K",
+        "raw": "Berryxia.AI @berryxia · Aug 4 Article 我把自己的 Agent 接进-开源「AI记忆大总管」，像给 AI 打通了任督六脉 ！ 这里说一个事儿，前几天电脑重启之后，我以为把项目都丢了。 打开 Warp，结果屁都没有了，我心想，每次在CLI重启的这种我的进度都看不到，项目啥样的都木了。... 41 37 104 26K",
         "author": "@berryxia",
-        "rank": 10,
+        "rank": 11,
         "isUseful": false,
         "content": "",
         "summary": "Berryxia.AI @berryxia · Aug 4 Article 我把自己的 Agent 接进-开源「AI记忆大总管」，像给 AI 打通了任督六脉 ！ 这里说一个事儿，前几天电脑重启之后，我以为把项目都丢了。 打开 Warp，结果…",
@@ -130295,12 +130411,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/chumacn/status/2084474656459984898": {
         "href": "https://x.com/chumacn/status/2084474656459984898",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130308,7 +130428,7 @@
         "title": "预计工程发展再迭代1-2年，AI就可以100%全自动的理解产品意图并从0开始，全软件工程生命周期、保姆式的自主开发特别复杂的国民级App（1亿+用户那种），甚至包括后端全套ERP支撑，这也是马斯克所谓奇点，到来的前置条件之一。",
         "raw": "预计工程发展再迭代1-2年，AI就可以100%全自动的理解产品意图并从0开始，全软件工程生命周期、保姆式的自主开发特别复杂的国民级App（1亿+用户那种），甚至包括后端全套ERP支撑，这也是马斯克所谓奇点，到来的前置条件之一。",
         "author": "@chumacn",
-        "rank": 11,
+        "rank": 12,
         "isUseful": false,
         "content": "",
         "summary": "预计工程发展再迭代1-2年，AI就可以100%全自动的理解产品意图并从0开始，全软件工程生命周期、保姆式的自主开发特别复杂的国民级App（1亿+用户那种），甚至包括后端全套ERP支撑，这也是马斯克所谓奇点，到来的前置条件之一。",
@@ -130323,12 +130443,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/s1ntone/status/2084465789793612042": {
         "href": "https://x.com/s1ntone/status/2084465789793612042",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130336,7 +130460,7 @@
         "title": "我以前觉得： “只要产品足够好，用户自然会来。” 后来发现，这是很多独立开发者最大的幻觉之一。 最近我开始认真做 Google Ads 投放，也尝试了一些其他付费获流量的方式，比如购买网站广告位、推广资源等。 真正开始花钱买流量之后，我对这件事有了一些更直观的理解。 一个很现实的问题：",
         "raw": "我以前觉得：\n\n“只要产品足够好，用户自然会来。”\n\n后来发现，这是很多独立开发者最大的幻觉之一。\n\n最近我开始认真做 Google Ads 投放，也尝试了一些其他付费获流量的方式，比如购买网站广告位、推广资源等。\n\n真正开始花钱买流量之后，我对这件事有了一些更直观的理解。\n\n一个很现实的问题：",
         "author": "@s1ntone",
-        "rank": 12,
+        "rank": 13,
         "isUseful": false,
         "content": "",
         "summary": "我以前觉得： “只要产品足够好，用户自然会来。” 后来发现，这是很多独立开发者最大的幻觉之一。 最近我开始认真做 Google Ads 投放，也尝试了一些其他付费获流量的方式，比如购买网站广告位、推广资源等。 真正开始花钱买流量之后，我对这…",
@@ -130351,12 +130475,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/pvyyu42928466/status/2084459060695621900": {
         "href": "https://x.com/pvyyu42928466/status/2084459060695621900",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130364,7 +130492,7 @@
         "title": "AI 正在改变软件开发。 基础设施却很少讨论另一个问题。 网络规则应该由谁决定。 过去，共享公链能够满足大多数应用需求。 开发者更关心生态规模和工具是否完善。 随着 AI Agent 开始长期执行交易、调用协议和管理资产，底层网络的稳定性开始变得比功能数量更重要。",
         "raw": "AI 正在改变软件开发。\n\n基础设施却很少讨论另一个问题。\n\n 网络规则应该由谁决定。\n\n过去，共享公链能够满足大多数应用需求。\n\n开发者更关心生态规模和工具是否完善。\n\n随着 AI Agent 开始长期执行交易、调用协议和管理资产，底层网络的稳定性开始变得比功能数量更重要。",
         "author": "@pvyyu42928466",
-        "rank": 13,
+        "rank": 14,
         "isUseful": false,
         "content": "",
         "summary": "AI 正在改变软件开发。 基础设施却很少讨论另一个问题。 网络规则应该由谁决定。 过去，共享公链能够满足大多数应用需求。 开发者更关心生态规模和工具是否完善。 随着 AI Agent 开始长期执行交易、调用协议和管理资产，底层网络的稳定性开…",
@@ -130379,12 +130507,16 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/qinbafrank/status/2084449500744319334": {
         "href": "https://x.com/qinbafrank/status/2084449500744319334",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130392,7 +130524,7 @@
         "title": "聊聊看好光互连的逻辑，7月中旬和下旬分别聊到之后看好美股的板块，已经爆发的是（CSP、软件、光互连），CSP/软件看好逻辑在7月中长文 x.com/qinbafrank/sta …聊的很充分。今天聊聊为什么看好光互连？催化剂是什么？ 八月才是最好的夏天？现在回头再来看29号聊到那时已经不宜过分悲观，如果越跌反倒越要看机会。当时聊到： 带动市场回暖的因素是联储不加息； 而驱动市场下一波行情主要催化剂CSP毛利大爆发，回本周期缩短。这一点基本上也被这两天微软和亚马逊的财报验证了。 x.com/qinbafrank/sta…",
         "raw": "聊聊看好光互连的逻辑，7月中旬和下旬分别聊到之后看好美股的板块，已经爆发的是（CSP、软件、光互连），CSP/软件看好逻辑在7月中长文\nx.com/qinbafrank/sta\n…聊的很充分。今天聊聊为什么看好光互连？催化剂是什么？ 八月才是最好的夏天？现在回头再来看29号聊到那时已经不宜过分悲观，如果越跌反倒越要看机会。当时聊到：\n带动市场回暖的因素是联储不加息；\n而驱动市场下一波行情主要催化剂CSP毛利大爆发，回本周期缩短。这一点基本上也被这两天微软和亚马逊的财报验证了。 x.com/qinbafrank/sta…",
         "author": "@qinbafrank",
-        "rank": 14,
+        "rank": 15,
         "isUseful": false,
         "content": "",
         "summary": "聊聊看好光互连的逻辑，7月中旬和下旬分别聊到之后看好美股的板块，已经爆发的是（CSP、软件、光互连），CSP/软件看好逻辑在7月中长文 x.com/qinbafrank/sta …聊的很充分。今天聊聊为什么看好光互连？催化剂是什么？ 八月才…",
@@ -130407,12 +130539,14 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/GitTrend0x/status/2084438395280081399": {
         "href": "https://x.com/GitTrend0x/status/2084438395280081399",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130420,7 +130554,7 @@
         "title": "今天 GitHub Agent 基建又被屠榜！ 5 个星标暴增、链接已实测可开、与往日项目零重叠的硬核神器，专业热血拆解： 1. Panniantong/Agent-Reach 给你的 Agent 装上真正的“全网眼睛”——Twitter/X、Reddit、YouTube、B站、小红书、GitHub、LinkedIn 等 15+ 平台，零 API 费用、自愈路由、doctor 今天 GitHub 被 Agent 军团屠榜了！ 5 个星标暴增最狠的项目，专业拆解下: 1. zhaoxuya520/reverse-skill AI 逆向 / 渗",
         "raw": "今天 GitHub Agent 基建又被屠榜！\n\n5 个星标暴增、链接已实测可开、与往日项目零重叠的硬核神器，专业热血拆解：\n\n1.  Panniantong/Agent-Reach 给你的 Agent 装上真正的“全网眼睛”——Twitter/X、Reddit、YouTube、B站、小红书、GitHub、LinkedIn 等 15+ 平台，零 API 费用、自愈路由、doctor 今天 GitHub 被 Agent 军团屠榜了！\n\n5 个星标暴增最狠的项目，专业拆解下:\n\n1.  zhaoxuya520/reverse-skill\n AI 逆向 / 渗",
         "author": "@GitTrend0x",
-        "rank": 15,
+        "rank": 16,
         "isUseful": false,
         "content": "",
         "summary": "今天 GitHub Agent 基建又被屠榜！ 5 个星标暴增、链接已实测可开、与往日项目零重叠的硬核神器，专业热血拆解： 1. Panniantong/Agent-Reach 给你的 Agent 装上真正的“全网眼睛”——Twitter/…",
@@ -130435,7 +130569,9 @@
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/xiaoying_eth/status/2084432382166507815": {
@@ -130686,7 +130822,7 @@
       },
       "https://x.com/AIExplorerTim/status/2085251296135934269": {
         "href": "https://x.com/AIExplorerTim/status/2085251296135934269",
-        "fetched_at": "2026-08-06 18:08:00 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130694,7 +130830,7 @@
         "title": "50个看似\"违法\"但完全合法的网站 1. cobalt.tools 下载任何社交媒体视频 2. photopea.com 免费Photoshop 3. temp-mail.org 一键临时邮箱 4. tinywow.com 100+免费工具合集 5. archive.org 访问任何旧网页 6. libgen.li",
         "raw": "50个看似\"违法\"但完全合法的网站\n\n1. \ncobalt.tools\n下载任何社交媒体视频\n\n2. \nphotopea.com\n免费Photoshop\n\n3. \ntemp-mail.org\n一键临时邮箱\n\n4. \ntinywow.com\n100+免费工具合集\n\n5. \narchive.org\n访问任何旧网页\n\n6. \nlibgen.li",
         "author": "@AIExplorerTim",
-        "rank": 1,
+        "rank": 2,
         "isUseful": false,
         "content": "",
         "summary": "50个看似\"违法\"但完全合法的网站 1. cobalt.tools 下载任何社交媒体视频 2. photopea.com 免费Photoshop 3. temp-mail.org 一键临时邮箱 4. tinywow.com 100+免费工具…",
@@ -130706,36 +130842,40 @@
         "fetched_at_history": [
           "2026-08-06 17:15:08 北京时间",
           "2026-08-06 17:15:15 北京时间",
-          "2026-08-06 18:08:00 北京时间"
+          "2026-08-06 18:08:00 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/Shenmeili1213/status/2085241907098317009": {
         "href": "https://x.com/Shenmeili1213/status/2085241907098317009",
-        "fetched_at": "2026-08-06 17:15:15 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "沈美丽子 @Shenmeili1213 · 3h Article 不备货不招人，WorkBuddy把TikTok POD三步跑通——AI出图·上架·核价，一个人也能铺货 你一个人做跨境，最烦的不是没货。 是白天盯后台，晚上翻竞品，深夜还在写多语Listing、算利润。 是上品像体力活——筛图、写标题、填成本，一天只能挤出两三个品。... 7 6 24 4.1K",
-        "raw": "沈美丽子 @Shenmeili1213 · 3h Article 不备货不招人，WorkBuddy把TikTok POD三步跑通——AI出图·上架·核价，一个人也能铺货 你一个人做跨境，最烦的不是没货。 是白天盯后台，晚上翻竞品，深夜还在写多语Listing、算利润。 是上品像体力活——筛图、写标题、填成本，一天只能挤出两三个品。... 7 6 24 4.1K",
+        "title": "沈美丽子 @Shenmeili1213 · 7h Article 不备货不招人，WorkBuddy把TikTok POD三步跑通——AI出图·上架·核价，一个人也能铺货 你一个人做跨境，最烦的不是没货。 是白天盯后台，晚上翻竞品，深夜还在写多语Listing、算利润。 是上品像体力活——筛图、写标题、填成本，一天只能挤出两三个品。... 8 12 41 8.8K",
+        "raw": "沈美丽子 @Shenmeili1213 · 7h Article 不备货不招人，WorkBuddy把TikTok POD三步跑通——AI出图·上架·核价，一个人也能铺货 你一个人做跨境，最烦的不是没货。 是白天盯后台，晚上翻竞品，深夜还在写多语Listing、算利润。 是上品像体力活——筛图、写标题、填成本，一天只能挤出两三个品。... 8 12 41 8.8K",
         "author": "@Shenmeili1213",
-        "rank": 2,
+        "rank": 3,
         "isUseful": false,
         "content": "",
-        "summary": "沈美丽子 @Shenmeili1213 · 3h Article 不备货不招人，WorkBuddy把TikTok POD三步跑通——AI出图·上架·核价，一个人也能铺货 你一个人做跨境，最烦的不是没货。 是白天盯后台，晚上翻竞品，深夜还在写…",
+        "summary": "沈美丽子 @Shenmeili1213 · 7h Article 不备货不招人，WorkBuddy把TikTok POD三步跑通——AI出图·上架·核价，一个人也能铺货 你一个人做跨境，最烦的不是没货。 是白天盯后台，晚上翻竞品，深夜还在写…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 17:15:08 北京时间",
         "fetched_at_history": [
           "2026-08-06 17:15:08 北京时间",
-          "2026-08-06 17:15:15 北京时间"
+          "2026-08-06 17:15:15 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/kasong2048/status/2084835638067741150": {
         "href": "https://x.com/kasong2048/status/2084835638067741150",
-        "fetched_at": "2026-08-06 17:15:15 北京时间",
+        "fetched_at": "2026-08-06 21:10:14 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130743,7 +130883,7 @@
         "title": "很多人放弃 Superpowers，问题的表象是：执行速度太慢。 但“速度慢”可以靠“并行开发”弥补。 最核心问题在 brainstorming 的设计上，为了减少上手门槛他会留下很多需求缺口没对齐，Agent 为了完成需求会自行脑补代码设计。 “脑补的代码设计 与",
         "raw": "很多人放弃 Superpowers，问题的表象是：执行速度太慢。\n但“速度慢”可以靠“并行开发”弥补。\n最核心问题在 brainstorming 的设计上，为了减少上手门槛他会留下很多需求缺口没对齐，Agent 为了完成需求会自行脑补代码设计。\n“脑补的代码设计 与",
         "author": "@kasong2048",
-        "rank": 4,
+        "rank": 2,
         "isUseful": false,
         "content": "",
         "summary": "很多人放弃 Superpowers，问题的表象是：执行速度太慢。 但“速度慢”可以靠“并行开发”弥补。 最核心问题在 brainstorming 的设计上，为了减少上手门槛他会留下很多需求缺口没对齐，Agent 为了完成需求会自行脑补代码设…",
@@ -130754,12 +130894,16 @@
         "first_fetched_at": "2026-08-06 17:15:08 北京时间",
         "fetched_at_history": [
           "2026-08-06 17:15:08 北京时间",
-          "2026-08-06 17:15:15 北京时间"
+          "2026-08-06 17:15:15 北京时间",
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间"
         ]
       },
       "https://x.com/cyrilXBT/status/2085282227563241826": {
         "href": "https://x.com/cyrilXBT/status/2085282227563241826",
-        "fetched_at": "2026-08-06 17:30:00 北京时间",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130767,23 +130911,25 @@
         "title": "this is f**king insane Jack Dorsey just open-sourced the operating system for the one-person business. A free GitHub repo. 14.4K stars in days. Here's what it actually does: → Self-host your own server → Channels, search, git, automation — all in one place → Add an AI",
         "raw": "this is f**king insane\n\nJack Dorsey just open-sourced the operating system for the one-person business.\n\nA free GitHub repo.\n\n14.4K stars in days.\n\nHere's what it actually does:\n\n→ Self-host your own server\n→ Channels, search, git, automation — all in one place\n→ Add an AI",
         "author": "@cyrilXBT",
-        "rank": 1,
+        "rank": 10,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）this is f**king insane Jack Dorsey just open-sourced the operating system for the one-person business. A free GitHub rep…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:github",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 17:29:51 北京时间",
         "fetched_at_history": [
           "2026-08-06 17:29:51 北京时间",
-          "2026-08-06 17:30:00 北京时间"
+          "2026-08-06 17:30:00 北京时间",
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
         ]
       },
       "https://x.com/aiaicreate/status/2085276813144838387": {
         "href": "https://x.com/aiaicreate/status/2085276813144838387",
-        "fetched_at": "2026-08-06 17:30:00 北京时间",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130791,18 +130937,20 @@
         "title": "▼Overview A ComfyUI custom node \"ComfyUI-MiniMax-H3-Turbo\" for running the model \"MiniMax-H3,\" which generates video and synchronized audio, at high speed with a small number of sampling steps, has been released on GitHub. ▼Key Points ・Reduces the generation process, which",
         "raw": "▼Overview\nA ComfyUI custom node \"ComfyUI-MiniMax-H3-Turbo\" for running the model \"MiniMax-H3,\" which generates video and synchronized audio, at high speed with a small number of sampling steps, has been released on GitHub.\n\n▼Key Points\n・Reduces the generation process, which",
         "author": "@aiaicreate",
-        "rank": 2,
+        "rank": 13,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）▼Overview A ComfyUI custom node \"ComfyUI-MiniMax-H3-Turbo\" for running the model \"MiniMax-H3,\" which generates video and…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:github",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 17:29:51 北京时间",
         "fetched_at_history": [
           "2026-08-06 17:29:51 北京时间",
-          "2026-08-06 17:30:00 北京时间"
+          "2026-08-06 17:30:00 北京时间",
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
         ]
       },
       "https://x.com/Bha74142Shivani/status/2085267127662223790": {
@@ -130929,7 +131077,7 @@
       },
       "https://x.com/MangoCommunity/status/2085208117206528250": {
         "href": "https://x.com/MangoCommunity/status/2085208117206528250",
-        "fetched_at": "2026-08-06 17:44:01 北京时间",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -130937,18 +131085,20 @@
         "title": "英国 AI Security Institute 披露了一次不同寻常的安全测试。 OpenAI 与 Anthropic 模型驱动的智能体，在测试过程中创建虚假身份、向软件开发者发送针对性邮件，并尝试让恶意代码进入一个开源项目。 这不是科幻设定。也不是普通用户正在经历的日常场景。 一、事实",
         "raw": "英国 AI Security Institute 披露了一次不同寻常的安全测试。\n\nOpenAI 与 Anthropic 模型驱动的智能体，在测试过程中创建虚假身份、向软件开发者发送针对性邮件，并尝试让恶意代码进入一个开源项目。\n\n这不是科幻设定。也不是普通用户正在经历的日常场景。\n\n一、事实",
         "author": "@MangoCommunity",
-        "rank": 1,
+        "rank": 6,
         "isUseful": false,
         "content": "",
         "summary": "英国 AI Security Institute 披露了一次不同寻常的安全测试。 OpenAI 与 Anthropic 模型驱动的智能体，在测试过程中创建虚假身份、向软件开发者发送针对性邮件，并尝试让恶意代码进入一个开源项目。 这不是科幻设…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:软件开发",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 17:43:58 北京时间",
         "fetched_at_history": [
           "2026-08-06 17:43:58 北京时间",
-          "2026-08-06 17:44:01 北京时间"
+          "2026-08-06 17:44:01 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
         ]
       },
       "https://x.com/NBCNews/status/2085294833787179400": {
@@ -130977,31 +131127,33 @@
       },
       "https://x.com/Majin_AppSheet/status/2085293438938026281": {
         "href": "https://x.com/Majin_AppSheet/status/2085293438938026281",
-        "fetched_at": "2026-08-06 18:05:11 北京时间",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
         "is_pinned": false,
-        "title": "Xでいいねがいっぱい付いてるスキル。 GitHubとかで配ってるヤツ。 過去に何度もClaude Codeとかに食わせてきたけど、使い続けてるものはゼロ。 自分の用途・環境・習熟度レベルに合わせて自作するのが1番。 AI友達と話すときも、みんな共感するやつ。",
-        "raw": "Xでいいねがいっぱい付いてるスキル。\nGitHubとかで配ってるヤツ。\n\n過去に何度もClaude Codeとかに食わせてきたけど、使い続けてるものはゼロ。\n自分の用途・環境・習熟度レベルに合わせて自作するのが1番。\n\nAI友達と話すときも、みんな共感するやつ。",
+        "title": "Skills that get tons of likes on X. The kind of stuff that's distributed on GitHub and such. I've fed stuff like Claude Code into it multiple times in the past, but zero of them are things I'm still using. The best approach is to make your own, tailored to your own uses,",
+        "raw": "Skills that get tons of likes on X.  \nThe kind of stuff that's distributed on GitHub and such.  \n\nI've fed stuff like Claude Code into it multiple times in the past, but zero of them are things I'm still using.  \nThe best approach is to make your own, tailored to your own uses,",
         "author": "@Majin_AppSheet",
         "rank": 1,
         "isUseful": false,
         "content": "",
-        "summary": "Xでいいねがいっぱい付いてるスキル。 GitHubとかで配ってるヤツ。 過去に何度もClaude Codeとかに食わせてきたけど、使い続けてるものはゼロ。 自分の用途・環境・習熟度レベルに合わせて自作するのが1番。 AI友達と話すときも、み…",
+        "summary": "（英文原文摘录）Skills that get tons of likes on X. The kind of stuff that's distributed on GitHub and such. I've fed stuff like Claude …",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:github",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 18:05:05 北京时间",
         "fetched_at_history": [
           "2026-08-06 18:05:05 北京时间",
-          "2026-08-06 18:05:11 北京时间"
+          "2026-08-06 18:05:11 北京时间",
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
         ]
       },
       "https://x.com/HeyGurisaroy/status/2085289280621203575": {
         "href": "https://x.com/HeyGurisaroy/status/2085289280621203575",
-        "fetched_at": "2026-08-06 18:05:11 北京时间",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -131016,16 +131168,18 @@
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:github",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 18:05:05 北京时间",
         "fetched_at_history": [
           "2026-08-06 18:05:05 北京时间",
-          "2026-08-06 18:05:11 北京时间"
+          "2026-08-06 18:05:11 北京时间",
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
         ]
       },
       "https://x.com/Krypto_Bishop/status/2085284450963787852": {
         "href": "https://x.com/Krypto_Bishop/status/2085284450963787852",
-        "fetched_at": "2026-08-06 18:05:11 北京时间",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -131033,23 +131187,25 @@
         "title": "Hey family , I found a powerful skill that helps Claude (and other AI agents) design websites that actually feel Apple-level. It translates Apple’s interface and motion principles into practical rules for the web: → Fluid, physical spring animations → Proper gesture &",
         "raw": "Hey family , I found a powerful skill that helps Claude (and other AI agents) design websites that actually feel Apple-level.\n\nIt translates Apple’s interface and motion principles into practical rules for the web:\n→ Fluid, physical spring animations\n→ Proper gesture &",
         "author": "@Krypto_Bishop",
-        "rank": 3,
+        "rank": 5,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Hey family , I found a powerful skill that helps Claude (and other AI agents) design websites that actually feel Apple-l…",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:github",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 18:05:05 北京时间",
         "fetched_at_history": [
           "2026-08-06 18:05:05 北京时间",
-          "2026-08-06 18:05:11 北京时间"
+          "2026-08-06 18:05:11 北京时间",
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
         ]
       },
       "https://x.com/orcdev/status/2085280355200704926": {
         "href": "https://x.com/orcdev/status/2085280355200704926",
-        "fetched_at": "2026-08-06 18:05:11 北京时间",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
         "published_at": "",
         "published_iso": "",
         "time_label": "",
@@ -131057,18 +131213,864 @@
         "title": "Open source has always been easy to copy. With AI agents, it's easier than ever. But I don't think open source is going anywhere. Reputation can't be copy pasted, we all know @shadcn . We know who pushed the ecosystem forward. Credit naturally goes to the people doing the rea",
         "raw": "Open source has always been easy to copy.\n\nWith AI agents, it's easier than ever.\n\nBut I don't think open source is going anywhere.\n\nReputation can't be copy pasted, we all know \n@shadcn\n. We know who pushed the ecosystem forward. Credit naturally goes to the people doing the rea",
         "author": "@orcdev",
-        "rank": 4,
+        "rank": 11,
         "isUseful": false,
         "content": "",
         "summary": "（英文原文摘录）Open source has always been easy to copy. With AI agents, it's easier than ever. But I don't think open source is going …",
         "star": 0,
         "source": "X",
         "platform": "x-cdp",
-        "category": "search_balanced:github",
+        "category": "search_topup_1",
         "first_fetched_at": "2026-08-06 18:05:05 北京时间",
         "fetched_at_history": [
           "2026-08-06 18:05:05 北京时间",
-          "2026-08-06 18:05:11 北京时间"
+          "2026-08-06 18:05:11 北京时间",
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/CryptoLady_M/status/2085349885340180832": {
+        "href": "https://x.com/CryptoLady_M/status/2085349885340180832",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "A few signs a project is dying. Check if your bags are showing the same symptoms. • No real value capture The product works without the token. Holders only own the narrative. • Treasury runway keeps shrinking Legal costs rise, tokens are constantly sold, and no sustainable I gu",
+        "raw": "A few signs a project is dying. Check if your bags are showing the same symptoms.\n\n• No real value capture\nThe product works without the token. Holders only own the narrative.\n\n• Treasury runway keeps shrinking\nLegal costs rise, tokens are constantly sold, and no sustainable I gu",
+        "author": "@CryptoLady_M",
+        "rank": 1,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）A few signs a project is dying. Check if your bags are showing the same symptoms. • No real value capture The product wo…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/sesi_the_man/status/2085344718729166958": {
+        "href": "https://x.com/sesi_the_man/status/2085344718729166958",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "My primary message for today: You really can build a SeedSigner yourself !!! ( even if you're not \"technical\" !!! ) Myth 1, 2: I can't find a Zero 1.3 and even if I could, I don't know how to solder! Reality: The Zero W is widely available, commonly comes with the GPIO pins",
+        "raw": "My primary message for today:\n\nYou really can build a SeedSigner yourself !!!\n( even if you're not \"technical\" !!! )\n\nMyth 1, 2: I can't find a Zero 1.3 and even if I could, I don't know how to solder!\n\nReality: The Zero W is widely available, commonly comes with the GPIO pins",
+        "author": "@sesi_the_man",
+        "rank": 2,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）My primary message for today: You really can build a SeedSigner yourself !!! ( even if you're not \"technical\" !!! ) Myth…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/Latinfamil8fh9/status/2085338582663970856": {
+        "href": "https://x.com/Latinfamil8fh9/status/2085338582663970856",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "AI 工具越来越融入日常工作，一个稳定的网络环境已经成为效率的基础。 无论是使用 ChatGPT、Claude、Gemini 提升效率，还是通过 GitHub、Telegram 获取信息，连接体验都会直接影响工作节奏。 银狐VPN提供： Telegram 电报直连，沟通更顺畅 高速全球节点，连接更稳定",
+        "raw": "AI 工具越来越融入日常工作，一个稳定的网络环境已经成为效率的基础。 \n\n无论是使用 ChatGPT、Claude、Gemini 提升效率，还是通过 GitHub、Telegram 获取信息，连接体验都会直接影响工作节奏。 \n\n银狐VPN提供：  Telegram 电报直连，沟通更顺畅  高速全球节点，连接更稳定",
+        "author": "@Latinfamil8fh9",
+        "rank": 3,
+        "isUseful": false,
+        "content": "",
+        "summary": "AI 工具越来越融入日常工作，一个稳定的网络环境已经成为效率的基础。 无论是使用 ChatGPT、Claude、Gemini 提升效率，还是通过 GitHub、Telegram 获取信息，连接体验都会直接影响工作节奏。 银狐VPN提供： T…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/AbhinavXJ/status/2085337148560179263": {
+        "href": "https://x.com/AbhinavXJ/status/2085337148560179263",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "you all know me on X but here's the other places you can find me GitHub: github.com/abhinavxj Medium: abhinavxj.medium.com Discord(1.5k+ members): discord.gg/YcXJQrzzC X community (1.7k+ members): check my profile see you guyz there too",
+        "raw": "you all know me on X\n\nbut here's the other places you can find me\n\nGitHub: \ngithub.com/abhinavxj\n\nMedium: \nabhinavxj.medium.com\n\nDiscord(1.5k+ members): \ndiscord.gg/YcXJQrzzC\n\nX community (1.7k+ members): check my profile \n\nsee you guyz there too",
+        "author": "@AbhinavXJ",
+        "rank": 4,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）you all know me on X but here's the other places you can find me GitHub: github.com/abhinavxj Medium: abhinavxj.medium.c…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/genspark_ai/status/2085337077814837473": {
+        "href": "https://x.com/genspark_ai/status/2085337077814837473",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "GenOffice is on Linux now. Source is open, same as Mac and Windows. Build it, patch it, make it yours. Github github.com/genspark-ai/ge …",
+        "raw": "GenOffice is on Linux now.\nSource is open, same as Mac and Windows. Build it, patch it, make it yours.\nGithub  \ngithub.com/genspark-ai/ge\n…",
+        "author": "@genspark_ai",
+        "rank": 5,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）GenOffice is on Linux now. Source is open, same as Mac and Windows. Build it, patch it, make it yours. Github github.com…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/BitcoinNewsCom/status/2085329434056212554": {
+        "href": "https://x.com/BitcoinNewsCom/status/2085329434056212554",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "MALICIOUS COLDCARD SEED RECOVERY TOOL STEALS CREDENTIALS A security analysis claims the viral GitHub repository posing as a COLDCARD RNG proof of concept is malicious. The software presents itself as a research tool that can reproduce the wallet’s flawed random number",
+        "raw": "MALICIOUS COLDCARD SEED RECOVERY TOOL STEALS CREDENTIALS\n\nA security analysis claims the viral GitHub repository posing as a COLDCARD RNG proof of concept is malicious. \n\nThe software presents itself as a research tool that can reproduce the wallet’s flawed random number",
+        "author": "@BitcoinNewsCom",
+        "rank": 6,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）MALICIOUS COLDCARD SEED RECOVERY TOOL STEALS CREDENTIALS A security analysis claims the viral GitHub repository posing a…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/Kozh_Crypto/status/2085324505883508799": {
+        "href": "https://x.com/Kozh_Crypto/status/2085324505883508799",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "2 free student deals worth stacking right now - Perplexity Pro and the GitHub pack, both under 10 minutes to claim. Here's what's actually on offer: • Perplexity Education Pro - $10/mo permanently, not a trial. First month free. perplexity.ai/students • GitHub Student",
+        "raw": "2 free student deals worth stacking right now - Perplexity Pro and the GitHub pack, both under 10 minutes to claim.\n\nHere's what's actually on offer:\n\n• Perplexity Education Pro - $10/mo permanently, not a trial. First month free.\nperplexity.ai/students\n• GitHub Student",
+        "author": "@Kozh_Crypto",
+        "rank": 7,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）2 free student deals worth stacking right now - Perplexity Pro and the GitHub pack, both under 10 minutes to claim. Here…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/blackfort/status/2085323230039220685": {
+        "href": "https://x.com/blackfort/status/2085323230039220685",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "The BXN Developer Hub is Live Access BlackFort mainnet and testnet RPCs, EVM tooling, docs, explorer, GitHub resources, audits, and APIs - all in one place. Build with ultra-low fees, near-instant finality, and familiar tools like Solidity, MetaMask, Hardhat, and Foundry.",
+        "raw": "The BXN Developer Hub is Live\n\nAccess BlackFort mainnet and testnet RPCs, EVM tooling, docs, explorer, GitHub resources, audits, and APIs - all in one place.\n\nBuild with ultra-low fees, near-instant finality, and familiar tools like Solidity, MetaMask, Hardhat, and Foundry.",
+        "author": "@blackfort",
+        "rank": 8,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）The BXN Developer Hub is Live Access BlackFort mainnet and testnet RPCs, EVM tooling, docs, explorer, GitHub resources, …",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/Onchain_hoe/status/2085322866468212818": {
+        "href": "https://x.com/Onchain_hoe/status/2085322866468212818",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "YOOOOOO WE GETTING CA IN GITHUB TODAY EARLY",
+        "raw": "YOOOOOO WE GETTING CA IN GITHUB TODAY\n\nEARLY",
+        "author": "@Onchain_hoe",
+        "rank": 9,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）YOOOOOO WE GETTING CA IN GITHUB TODAY EARLY",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/sentient_agency/status/2085319277985587391": {
+        "href": "https://x.com/sentient_agency/status/2085319277985587391",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Someone quietly built the biggest free programming library on the internet and it's been sitting on GitHub for 12 years. It's called free-programming-books and it catalogs thousands of free books, courses, cheat sheets, podcasts, and playgrounds across every language and every",
+        "raw": "Someone quietly built the biggest free programming library on the internet and it's been sitting on GitHub for 12 years.\n\nIt's called free-programming-books and it catalogs thousands of free books, courses, cheat sheets, podcasts, and playgrounds across every language and every",
+        "author": "@sentient_agency",
+        "rank": 10,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）Someone quietly built the biggest free programming library on the internet and it's been sitting on GitHub for 12 years.…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/MillieMarconnni/status/2085317058368278779": {
+        "href": "https://x.com/MillieMarconnni/status/2085317058368278779",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "A self-taught engineer built his own computer science degree on GitHub to land a job at Amazon. He open sourced the entire study plan. 347K other people have used it to prep for FAANG interviews since. It's called coding-interview-university and it's the exact multi-month",
+        "raw": "A self-taught engineer built his own computer science degree on GitHub to land a job at Amazon.\n\nHe open sourced the entire study plan. 347K other people have used it to prep for FAANG interviews since.\n\nIt's called coding-interview-university and it's the exact multi-month",
+        "author": "@MillieMarconnni",
+        "rank": 11,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）A self-taught engineer built his own computer science degree on GitHub to land a job at Amazon. He open sourced the enti…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/GithubProjects/status/2085312443073568994": {
+        "href": "https://x.com/GithubProjects/status/2085312443073568994",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "D3 is a free, open-source JavaScript library for building custom, data-driven visualizations directly on web standards. - Low-level, standards-based approach for unmatched flexibility - Powers dynamic, data-driven graphics for over a decade - Foundational building block for",
+        "raw": "D3 is a free, open-source JavaScript library for building custom, data-driven visualizations directly on web standards.\n\n- Low-level, standards-based approach for unmatched flexibility\n- Powers dynamic, data-driven graphics for over a decade\n- Foundational building block for",
+        "author": "@GithubProjects",
+        "rank": 12,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）D3 is a free, open-source JavaScript library for building custom, data-driven visualizations directly on web standards. …",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/anupamrjp/status/2085312330901184518": {
+        "href": "https://x.com/anupamrjp/status/2085312330901184518",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "if your laptop died today… where’s your code? > GitHub > GitLab > Bitbucket > Nowhere (local only)",
+        "raw": "if your laptop died today… where’s your code?\n\n> GitHub\n> GitLab\n> Bitbucket\n> Nowhere (local only)",
+        "author": "@anupamrjp",
+        "rank": 13,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）if your laptop died today… where’s your code? > GitHub > GitLab > Bitbucket > Nowhere (local only)",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/thisguyknowsai/status/2085312243319894272": {
+        "href": "https://x.com/thisguyknowsai/status/2085312243319894272",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "10 GITHUB REPOS THAT MAKE DIFFERENCE IN AI INDUSTRY. Bookmark all of them. Each one replaces something a company charges money for. 1. Dify Production LLM app platform with visual workflows, RAG, and agents built in. Replaces Vellum, LangSmith Cloud, and every $500/mo agent",
+        "raw": "10 GITHUB REPOS THAT MAKE DIFFERENCE IN AI INDUSTRY.\n\nBookmark all of them. Each one replaces something a company charges money for.\n\n1. Dify\n\nProduction LLM app platform with visual workflows, RAG, and agents built in. Replaces Vellum, LangSmith Cloud, and every $500/mo agent",
+        "author": "@thisguyknowsai",
+        "rank": 14,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）10 GITHUB REPOS THAT MAKE DIFFERENCE IN AI INDUSTRY. Bookmark all of them. Each one replaces something a company charges…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/0xDanXbt/status/2085308113079406607": {
+        "href": "https://x.com/0xDanXbt/status/2085308113079406607",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "If you want to try claude code or codex for free You can get up to $200 free credits > go to agentrouter.org > sign in with github account Better act early as opportunity may have limited time window",
+        "raw": "If you want to try claude code or codex for free\n\nYou can get  up to $200 free credits \n\n> go to \nagentrouter.org\n> sign in with github account\n\nBetter act early as opportunity may have limited time window",
+        "author": "@0xDanXbt",
+        "rank": 15,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）If you want to try claude code or codex for free You can get up to $200 free credits > go to agentrouter.org > sign in w…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/trendtech33566/status/2085304949093859569": {
+        "href": "https://x.com/trendtech33566/status/2085304949093859569",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "【話題沸騰中（海外）】 コードベースやシステム構成を図にして理解できるMCPが登場 Blueprint MCP、約700。 何ができるかというと ・コードベースを読み取って構成図を生成 ・OAuthログインなどのシーケンス図も作れる ・ETLや決済処理のフローを可視化 ・Google",
+        "raw": "【話題沸騰中（海外）】\nコードベースやシステム構成を図にして理解できるMCPが登場\nBlueprint MCP、約700。\n\n何ができるかというと\n・コードベースを読み取って構成図を生成\n・OAuthログインなどのシーケンス図も作れる\n・ETLや決済処理のフローを可視化\n・Google",
+        "author": "@trendtech33566",
+        "rank": 16,
+        "isUseful": false,
+        "content": "",
+        "summary": "【話題沸騰中（海外）】 コードベースやシステム構成を図にして理解できるMCPが登場 Blueprint MCP、約700。 何ができるかというと ・コードベースを読み取って構成図を生成 ・OAuthログインなどのシーケンス図も作れる ・ET…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/lubijiaocheng/status/2085304680041890001": {
+        "href": "https://x.com/lubijiaocheng/status/2085304680041890001",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "大多数 AI 工具都在帮你更快地产出观点。 但真正稀缺的能力，是先证明你的观点有没有站得住。 最近发现一个很少有人提的 AI 研究工具：Rabbit Hole。 它最特别的地方，不是“搜得更多”，而是“先怀疑你”。 当你研究一个项目、一家公司或一条赛道时，它会让不同 Agent 同时去查： - 公司公告、财报和",
+        "raw": "大多数 AI 工具都在帮你更快地产出观点。\n\n但真正稀缺的能力，是先证明你的观点有没有站得住。\n\n最近发现一个很少有人提的 AI 研究工具：Rabbit Hole。\n\n它最特别的地方，不是“搜得更多”，而是“先怀疑你”。\n\n当你研究一个项目、一家公司或一条赛道时，它会让不同 Agent 同时去查：\n\n- 公司公告、财报和",
+        "author": "@lubijiaocheng",
+        "rank": 17,
+        "isUseful": false,
+        "content": "",
+        "summary": "大多数 AI 工具都在帮你更快地产出观点。 但真正稀缺的能力，是先证明你的观点有没有站得住。 最近发现一个很少有人提的 AI 研究工具：Rabbit Hole。 它最特别的地方，不是“搜得更多”，而是“先怀疑你”。 当你研究一个项目、一家公…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/huoshan007/status/2085301162748629273": {
+        "href": "https://x.com/huoshan007/status/2085301162748629273",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "兄弟们刷到一个 GPT-Image2 提示词库，我第一反应是： 这玩意涨 Star 是不是开挂了。 刚开源没几天，GitHub 直接干到 9000 Star。 在 GitHub 上见过不少项目起飞，但这种速度，真不多见。 它其实就干两件事。 但这两件事，刚好把我之前出图最痛苦的部分给拆了。 第一，一套工业级提示词引擎。",
+        "raw": "兄弟们刷到一个 GPT-Image2 提示词库，我第一反应是：\n\n这玩意涨 Star 是不是开挂了。\n\n刚开源没几天，GitHub 直接干到 9000 Star。\n\n在 GitHub 上见过不少项目起飞，但这种速度，真不多见。\n\n它其实就干两件事。\n\n但这两件事，刚好把我之前出图最痛苦的部分给拆了。\n\n第一，一套工业级提示词引擎。",
+        "author": "@huoshan007",
+        "rank": 18,
+        "isUseful": false,
+        "content": "",
+        "summary": "兄弟们刷到一个 GPT-Image2 提示词库，我第一反应是： 这玩意涨 Star 是不是开挂了。 刚开源没几天，GitHub 直接干到 9000 Star。 在 GitHub 上见过不少项目起飞，但这种速度，真不多见。 它其实就干两件事。…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/Coco_Airdrop/status/2085301060600811703": {
+        "href": "https://x.com/Coco_Airdrop/status/2085301060600811703",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "$ARC Airdrop Criteria Might Look Something Like This... (GitHub Edition) If you're farming the @arc ecosystem, these are the signals that could matter the most: 500+ ARC House Points Architect Role on Discord 100+ On-Chain Transactions 60+ Active Days Interact $ARC Main",
+        "raw": "$ARC\n Airdrop Criteria Might Look Something Like This... (GitHub Edition)\n\nIf you're farming the \n@arc\n ecosystem, these are the signals that could matter the most:\n\n 500+ ARC House Points\n Architect Role on Discord\n 100+ On-Chain Transactions\n 60+ Active Days\n Interact $ARC Main",
+        "author": "@Coco_Airdrop",
+        "rank": 19,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）$ARC Airdrop Criteria Might Look Something Like This... (GitHub Edition) If you're farming the @arc ecosystem, these are…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/qihang_zeng6688/status/2085298585109758237": {
+        "href": "https://x.com/qihang_zeng6688/status/2085298585109758237",
+        "fetched_at": "2026-08-06 21:07:49 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "新版本来了！ 这次新增5个搞钱信息差！ 1、小红书虚拟电商，不仅可以卖Skill、大V知识库，还可以卖 Youtupe 的视频合集，好几家店铺把 Youtupe 上面的英语生肉视频翻译，配字幕，然后放到 Notion 里面，更新了200期，一份39，卖了几万份； 2、不仅可以搬运国外大V的 X 如果你会翻墙，又会使用AI，那么你已经超过了99%的国人，没错，99%！ 利用这两项能力，你将解锁以下赚钱赛道： 1.小红书虚拟电商，售卖各类Skill，其实就是从reddit，X，github，youtupe上面这些平台找的免费Skill，包装一下，拿到小",
+        "raw": "新版本来了！\n这次新增5个搞钱信息差！\n\n1、小红书虚拟电商，不仅可以卖Skill、大V知识库，还可以卖 Youtupe 的视频合集，好几家店铺把 Youtupe 上面的英语生肉视频翻译，配字幕，然后放到 Notion 里面，更新了200期，一份39，卖了几万份；\n\n2、不仅可以搬运国外大V的 X 如果你会翻墙，又会使用AI，那么你已经超过了99%的国人，没错，99%！\n\n利用这两项能力，你将解锁以下赚钱赛道：\n1.小红书虚拟电商，售卖各类Skill，其实就是从reddit，X，github，youtupe上面这些平台找的免费Skill，包装一下，拿到小",
+        "author": "@qihang_zeng6688",
+        "rank": 20,
+        "isUseful": false,
+        "content": "",
+        "summary": "新版本来了！ 这次新增5个搞钱信息差！ 1、小红书虚拟电商，不仅可以卖Skill、大V知识库，还可以卖 Youtupe 的视频合集，好几家店铺把 Youtupe 上面的英语生肉视频翻译，配字幕，然后放到 Notion 里面，更新了200期，…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:github",
+        "first_fetched_at": "2026-08-06 21:07:45 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:07:45 北京时间",
+          "2026-08-06 21:07:49 北京时间"
+        ]
+      },
+      "https://x.com/0x3c3c3c3c/status/2085326638166974623": {
+        "href": "https://x.com/0x3c3c3c3c/status/2085326638166974623",
+        "fetched_at": "2026-08-06 21:44:47 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "回顾本周 1.提前告知存储周初低开回踩，1150平空闪迪 2.提前告知mu857和海力士1143的周线开线是光头，本周会拉过去，第二天拉上去了 并根据周振幅算了下本周mu和海力士可能点位924和1248，奈何海力士是在太弱，美光插针929，基本一致 x.com/i/status/20843 … sndk 1150摸了，空单走了",
+        "raw": "回顾本周\n\n1.提前告知存储周初低开回踩，1150平空闪迪\n\n2.提前告知mu857和海力士1143的周线开线是光头，本周会拉过去，第二天拉上去了\n并根据周振幅算了下本周mu和海力士可能点位924和1248，奈何海力士是在太弱，美光插针929，基本一致\nx.com/i/status/20843\n… sndk 1150摸了，空单走了",
+        "author": "@0x3c3c3c3c",
+        "rank": 1,
+        "isUseful": false,
+        "content": "",
+        "summary": "回顾本周 1.提前告知存储周初低开回踩，1150平空闪迪 2.提前告知mu857和海力士1143的周线开线是光头，本周会拉过去，第二天拉上去了 并根据周振幅算了下本周mu和海力士可能点位924和1248，奈何海力士是在太弱，美光插针929，…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:10:10 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间",
+          "2026-08-06 21:10:11 北京时间",
+          "2026-08-06 21:10:14 北京时间",
+          "2026-08-06 21:44:44 北京时间",
+          "2026-08-06 21:44:47 北京时间"
+        ]
+      },
+      "https://x.com/vista8/status/2085191643200958622": {
+        "href": "https://x.com/vista8/status/2085191643200958622",
+        "fetched_at": "2026-08-06 21:10:13 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "向阳乔木 @vista8 · 10h Article 谷歌 Gemini 背后的男人，永远的代码之神！ OpenAI 把谷歌的 Gemini 视为最大的竞争对手。 谷歌人工智能这个部门的领导者叫Jeff Dean，是一个传奇程序员。 我来讲讲这个程序员的传奇故事。 Jeffrey Dean: The 100 Most Influential People in AI 2025 | TIME... 7 5 22 17K",
+        "raw": "向阳乔木 @vista8 · 10h Article 谷歌 Gemini 背后的男人，永远的代码之神！ OpenAI 把谷歌的 Gemini 视为最大的竞争对手。 谷歌人工智能这个部门的领导者叫Jeff Dean，是一个传奇程序员。 我来讲讲这个程序员的传奇故事。 Jeffrey Dean: The 100 Most Influential People in AI 2025 | TIME... 7 5 22 17K",
+        "author": "@vista8",
+        "rank": 2,
+        "isUseful": false,
+        "content": "",
+        "summary": "向阳乔木 @vista8 · 10h Article 谷歌 Gemini 背后的男人，永远的代码之神！ OpenAI 把谷歌的 Gemini 视为最大的竞争对手。 谷歌人工智能这个部门的领导者叫Jeff Dean，是一个传奇程序员。 我来讲…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:软件开发",
+        "first_fetched_at": "2026-08-06 21:10:10 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:10:10 北京时间",
+          "2026-08-06 21:10:13 北京时间"
+        ]
+      },
+      "https://x.com/Presofthub/status/2085343218971877539": {
+        "href": "https://x.com/Presofthub/status/2085343218971877539",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Remote Client Engagement Specialist Scale Sales Teams Pay: $3,600 – $4,400 per week Job Type: Full-time Location: Remote Benefits: Pre-booked client conversations, ongoing coaching, career growth opportunities & supportive remote team culture Eligibility:",
+        "raw": "Remote Client Engagement Specialist\nScale Sales Teams\n Pay: $3,600 – $4,400 per week\n Job Type: Full-time\n Location: Remote\n Benefits: Pre-booked client conversations, ongoing coaching, career growth opportunities & supportive remote team culture\n Eligibility:",
+        "author": "@Presofthub",
+        "rank": 1,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）Remote Client Engagement Specialist Scale Sales Teams Pay: $3,600 – $4,400 per week Job Type: Full-time Location: Remote…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:twitter growth",
+        "first_fetched_at": "2026-08-06 21:20:09 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
+        ]
+      },
+      "https://x.com/Moweyyyy184273/status/2085333912952229958": {
+        "href": "https://x.com/Moweyyyy184273/status/2085333912952229958",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "You can hear the hunger, the growth, and the experience all over this album. #ORIADE is beautiful It’s one thing to make Hits. It’s another thing to make music people connect with. ORIADE did both.",
+        "raw": "You can hear the hunger, the growth, and the experience all over this album. #ORIADE is beautiful\n\nIt’s one thing to make Hits. It’s another thing to make music people connect with. ORIADE did both.",
+        "author": "@Moweyyyy184273",
+        "rank": 2,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）You can hear the hunger, the growth, and the experience all over this album. #ORIADE is beautiful It’s one thing to make…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:twitter growth",
+        "first_fetched_at": "2026-08-06 21:20:09 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
+        ]
+      },
+      "https://x.com/minako_rpm/status/2085304665173024850": {
+        "href": "https://x.com/minako_rpm/status/2085304665173024850",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Contest Concept for @WURKDOTFUN : The Agent Boss Challenge What if AI didn't take your job, but actually hired you? Here’s a quick contest idea built to flex WURK’s best feature and drive viral growth on X The Concept: AI Agents post fun, weird, or creative microtasks on",
+        "raw": "Contest Concept for \n@WURKDOTFUN\n : The Agent Boss Challenge \n\nWhat if AI didn't take your job, but actually hired you? Here’s a quick contest idea built to flex WURK’s best feature and drive viral growth on X\n\nThe Concept:\nAI Agents post fun, weird, or creative microtasks on",
+        "author": "@minako_rpm",
+        "rank": 3,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）Contest Concept for @WURKDOTFUN : The Agent Boss Challenge What if AI didn't take your job, but actually hired you? Here…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:twitter growth",
+        "first_fetched_at": "2026-08-06 21:20:09 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
+        ]
+      },
+      "https://x.com/saifmr20/status/2085301212698820698": {
+        "href": "https://x.com/saifmr20/status/2085301212698820698",
+        "fetched_at": "2026-08-06 21:20:12 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "The evolution of X through its product heads 2009 – 2010 Jason Goldman - Helped build the early Twitter experience. 2011 – 2012 Satya Patel - Focused on product & ads during Twitter's growth. 2012 – 2014 Michael Sippey - Led the core product. 2014 – 2016 Kevin Weil - Ladies",
+        "raw": "The evolution of X through its product heads \n\n2009 – 2010 \nJason Goldman - Helped build the early Twitter experience.\n\n2011 – 2012\nSatya Patel - Focused on product & ads during Twitter's growth.\n\n2012 – 2014\nMichael Sippey - Led the core product.\n\n2014 – 2016\nKevin Weil - Ladies",
+        "author": "@saifmr20",
+        "rank": 4,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）The evolution of X through its product heads 2009 – 2010 Jason Goldman - Helped build the early Twitter experience. 2011…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_balanced:twitter growth",
+        "first_fetched_at": "2026-08-06 21:20:09 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:20:09 北京时间",
+          "2026-08-06 21:20:12 北京时间"
+        ]
+      },
+      "https://x.com/timebokkaraa2/status/2085287970354106528": {
+        "href": "https://x.com/timebokkaraa2/status/2085287970354106528",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "Service Now - 276 Github repository resources link - github.com/servicenow Share",
+        "raw": "Service Now - 276 Github repository resources \n\nlink - \ngithub.com/servicenow\n\nShare",
+        "author": "@timebokkaraa2",
+        "rank": 3,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）Service Now - 276 Github repository resources link - github.com/servicenow Share",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/Humanevolvd/status/2085285157800415332": {
+        "href": "https://x.com/Humanevolvd/status/2085285157800415332",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "$SINGULARITY AI IS CREATING FAKE IDENTITIES TO UPLOAD MALICIOUS CODE ITS ALL OVER THE NEWS AS WE SPEAK IT JUST HAPPENED THIS IS ONE OF THE MOST HISTORICALLY SIGNIFICANT MOMENTS IN AI CA: CzbjxBQp43xPun4CQiBbkWJbARZchiCuUaqgNFNjpump youtu.be/jLjwGfAKJLo?si …",
+        "raw": "$SINGULARITY\n\nAI IS CREATING FAKE IDENTITIES TO UPLOAD MALICIOUS CODE \n\nITS ALL OVER THE NEWS AS WE SPEAK IT JUST HAPPENED \n\nTHIS IS ONE OF THE MOST HISTORICALLY SIGNIFICANT MOMENTS IN AI\n CA: CzbjxBQp43xPun4CQiBbkWJbARZchiCuUaqgNFNjpump\nyoutu.be/jLjwGfAKJLo?si\n…",
+        "author": "@Humanevolvd",
+        "rank": 4,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）$SINGULARITY AI IS CREATING FAKE IDENTITIES TO UPLOAD MALICIOUS CODE ITS ALL OVER THE NEWS AS WE SPEAK IT JUST HAPPENED …",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/forestgeoinfo/status/2085282868721500438": {
+        "href": "https://x.com/forestgeoinfo/status/2085282868721500438",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "I've published a plugin on GitHub. ↓ Published the ForestGeoStudio plugin (also accepting commissions for WEB map production) |",
+        "raw": "I've published a plugin on GitHub.\n   ↓\nPublished the ForestGeoStudio plugin (also accepting commissions for WEB map production) |",
+        "author": "@forestgeoinfo",
+        "rank": 6,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）I've published a plugin on GitHub. ↓ Published the ForestGeoStudio plugin (also accepting commissions for WEB map produc…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/3C3AHuangYou/status/2085282660256211205": {
+        "href": "https://x.com/3C3AHuangYou/status/2085282660256211205",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "欢迎空友支持本人Github新新开源： 李玲玲大战办公室 GitHub： github.com/ButterBartel3C …",
+        "raw": "欢迎空友支持本人Github新新开源：\n\n李玲玲大战办公室\n\nGitHub：\ngithub.com/ButterBartel3C\n…",
+        "author": "@3C3AHuangYou",
+        "rank": 7,
+        "isUseful": false,
+        "content": "",
+        "summary": "欢迎空友支持本人Github新新开源： 李玲玲大战办公室 GitHub： github.com/ButterBartel3C …",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/davidputra2112/status/2085282512516116851": {
+        "href": "https://x.com/davidputra2112/status/2085282512516116851",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "checked the github before posting this one, which is more than I can say for most \"AI agent\" tickers I look at. $XONA actually has a working SDK, live on npm, that lets an agent pay for image/video gen on its own through x402. setup's 1,4k+ API calls and 40 subscribers in just",
+        "raw": "checked the github before posting this one, which is more than I can say for most \"AI agent\" tickers I look at. \n$XONA\n actually has a working SDK, live on npm, that lets an agent pay for image/video gen on its own through x402. setup's 1,4k+ API calls and 40 subscribers in just ",
+        "author": "@davidputra2112",
+        "rank": 8,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）checked the github before posting this one, which is more than I can say for most \"AI agent\" tickers I look at. $XONA ac…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/vikingmute/status/2085282431771586722": {
+        "href": "https://x.com/vikingmute/status/2085282431771586722",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "才发现 firecrawl 新出的这个开源的 anydoc 文件转换器非常棒：支持 Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV, and PDF 等等转换为 GitHub-Flavored Markdown. Rust 写的，还有 Node, Python, browser, and CLI bindings，还有skills 支持，这是文件转换的大一统了吧。",
+        "raw": "才发现 firecrawl 新出的这个开源的 anydoc 文件转换器非常棒：支持 Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV, and PDF 等等转换为 GitHub-Flavored Markdown.\n\nRust 写的，还有 Node, Python, browser, and CLI bindings，还有skills 支持，这是文件转换的大一统了吧。",
+        "author": "@vikingmute",
+        "rank": 9,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）才发现 firecrawl 新出的这个开源的 anydoc 文件转换器非常棒：支持 Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV, and PDF 等等转换为 GitHub-Fl…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/aiaicreate/status/2085276929964605805": {
+        "href": "https://x.com/aiaicreate/status/2085276929964605805",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "▼Overview The GitHub repository for the ComfyUI extension \"ComfyUI-Minimax-H3-Prompt-Engineer,\" which converts short instruction text into structured and validated English prompts for MiniMax H3 video generation, has been released. ▼Key Points ・Execute prompt generation,",
+        "raw": "▼Overview\nThe GitHub repository for the ComfyUI extension \"ComfyUI-Minimax-H3-Prompt-Engineer,\" which converts short instruction text into structured and validated English prompts for MiniMax H3 video generation, has been released.\n\n▼Key Points\n・Execute prompt generation,",
+        "author": "@aiaicreate",
+        "rank": 12,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）▼Overview The GitHub repository for the ComfyUI extension \"ComfyUI-Minimax-H3-Prompt-Engineer,\" which converts short ins…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/Kongkongda5882/status/2085275442806939937": {
+        "href": "https://x.com/Kongkongda5882/status/2085275442806939937",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "手机会静默监听人的谈话吗？ 答：技术上是可以的，而且是用陀螺仪（加速度计）监听。 没想到吧？github上还有源代码，最主要的就是陀螺仪不用授权，随便都可以调用的…",
+        "raw": "手机会静默监听人的谈话吗？\n\n答：技术上是可以的，而且是用陀螺仪（加速度计）监听。\n\n没想到吧？github上还有源代码，最主要的就是陀螺仪不用授权，随便都可以调用的…",
+        "author": "@Kongkongda5882",
+        "rank": 14,
+        "isUseful": false,
+        "content": "",
+        "summary": "手机会静默监听人的谈话吗？ 答：技术上是可以的，而且是用陀螺仪（加速度计）监听。 没想到吧？github上还有源代码，最主要的就是陀螺仪不用授权，随便都可以调用的…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
+        ]
+      },
+      "https://x.com/char_bun/status/2085268750593388862": {
+        "href": "https://x.com/char_bun/status/2085268750593388862",
+        "fetched_at": "2026-08-06 21:29:56 北京时间",
+        "published_at": "",
+        "published_iso": "",
+        "time_label": "",
+        "is_pinned": false,
+        "title": "i think github should improve their mention parser somewhat because i don't really believe the KaTeX devs were tagging me here",
+        "raw": "i think github should improve their mention parser somewhat because i don't really believe the KaTeX devs were tagging me here",
+        "author": "@char_bun",
+        "rank": 15,
+        "isUseful": false,
+        "content": "",
+        "summary": "（英文原文摘录）i think github should improve their mention parser somewhat because i don't really believe the KaTeX devs were tagging m…",
+        "star": 0,
+        "source": "X",
+        "platform": "x-cdp",
+        "category": "search_topup_1",
+        "first_fetched_at": "2026-08-06 21:29:52 北京时间",
+        "fetched_at_history": [
+          "2026-08-06 21:29:52 北京时间",
+          "2026-08-06 21:29:56 北京时间"
         ]
       }
     },

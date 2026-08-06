@@ -9,7 +9,7 @@ cdp:
   wait_ms: 2500
   scroll_rounds: 8
   scroll_step: 900
-  # 静默：专用抓取标签 + 禁止反复切 tab；第一次可抢焦点，之后只 Page.navigate
+  # 静默：后台 createTarget + CDP session 导航/执行，不激活标签、不还焦抢回
   silent: true
 
 # 全局默认（各平台未单独配置时继承）

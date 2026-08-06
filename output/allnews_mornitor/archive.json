@@ -1,6 +1,74 @@
 {
   "items": [
     {
+      "post_id": "468a84e55087dc54",
+      "platform": "twitter",
+      "title": "Daddy's home.",
+      "url": "https://x.com/nikitabier/status/2085199604597858471",
+      "author": "@nikitabier",
+      "summary": "Daddy's home.",
+      "content": "Daddy's home.",
+      "likes": 7321,
+      "comments": 1033,
+      "collects": 0,
+      "shares": 437,
+      "views": 0,
+      "score": 9911.4,
+      "archive_type": "auto",
+      "reason": "likes 7321/med 49, comments 1033/med 11",
+      "median_likes": 49.0,
+      "median_comments": 11.0,
+      "archived_at": "2026-08-06 13:21:09",
+      "factors": {
+        "raw": "```json\n{\n  \"hook\": \"使用高度浓缩的、文化上已建立的短语（Cultural Shorthand）。它不是一个问题，而是一个声明，立即引发读者的认知联想和好奇心：'谁？为什么？在哪里？'\",\n  \"emotion\": \"怀旧感 (Nostalgia) + 满足感/骄傲感 (Pride)。该短语触发了童年安全感、家庭归属感以及“成功回归”的自豪情绪。\",\n  \"structure\": \"极简主义结构（Minimalist Structure）。仅用一个句子完成所有叙事工作。这种高信息密度使得用户无需等待上下文，即可立即产生情感反应或进行联想。\",\n  \"proof\": \"将该短语作为标题/首句，搭配一张具有强烈视觉冲击力的图片（如：成功登顶、回归故土的场景）。或者，将其用作一个开放式话题的开篇，引导用户在评论区提供“上下文”证明。例如：'Daddy's home. [配图] 告诉我你心中的 Daddy 是谁？'\",\n  \""
+      },
+      "tags": []
+    },
+    {
+      "post_id": "b5c04c296adaeb2e",
+      "platform": "twitter",
+      "title": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+      "url": "https://x.com/sofia3973/status/2084972763677421597",
+      "author": "@sofia3973",
+      "summary": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+      "content": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+      "likes": 617,
+      "comments": 30,
+      "collects": 0,
+      "shares": 101,
+      "views": 0,
+      "score": 798.2,
+      "archive_type": "auto",
+      "reason": "likes 617/med 48, comments 30/med 10",
+      "median_likes": 48.0,
+      "median_comments": 10.5,
+      "archived_at": "2026-08-06 11:19:01",
+      "factors": {},
+      "tags": []
+    },
+    {
+      "post_id": "6f73148eb907a35e",
+      "platform": "twitter",
+      "title": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+      "url": "https://x.com/BitcoinArchive/status/2085106330725961742",
+      "author": "@BitcoinArchive",
+      "summary": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+      "content": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+      "likes": 1628,
+      "comments": 56,
+      "collects": 0,
+      "shares": 137,
+      "views": 0,
+      "score": 1904.4,
+      "archive_type": "auto",
+      "reason": "likes 1628/med 47, comments 56/med 10",
+      "median_likes": 47.0,
+      "median_comments": 10.0,
+      "archived_at": "2026-08-06 10:17:38",
+      "factors": {},
+      "tags": []
+    },
+    {
       "post_id": "3c686f0bfb382481",
       "platform": "twitter",
       "title": "Ladies and gentlemen, it's time to pass the torch and demote myself to my natural state: a poster. I'll be stepping back from leading product for 𝕏 and will continue on as an advisor.\n\nServing the X community has been the privilege of a lifetime. X is, and will remain, the most",
@@ -2069,5 +2137,5 @@
       "tags": []
     }
   ],
-  "count": 94
+  "count": 97
 }
