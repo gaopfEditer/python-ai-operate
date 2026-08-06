@@ -1,12 +1,12 @@
 # coding=utf-8
-"""抓取调度：按平台 CDP 拉取 → 热度门槛入候选 → 中位数自动归档。"""
+"""抓取调度：整段共用一次静默 CDP session，避免每平台切标签抢焦点。"""
 
 from __future__ import annotations
 
 import traceback
 from typing import Any, Dict, List, Optional
 
-from allnews_mornitor import archive, store
+from allnews_mornitor import archive, cdp_browser, store
 from allnews_mornitor.models import Post
 from allnews_mornitor.platforms import loader  # noqa: F401 — 注册平台
 from allnews_mornitor.platforms import all_enabled_ids, get_platform
@@ -18,21 +18,31 @@ def run_crawl(platform_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     errors: Dict[str, str] = {}
     fetched: Dict[str, int] = {}
 
-    for pid in ids:
-        try:
-            plat = get_platform(pid)
-            if not plat.enabled():
-                continue
-            print(f"[allnews] 抓取 {pid} …")
-            posts = plat.fetch() or []
-            fetched[pid] = len(posts)
-            print(f"[allnews] {pid}: {len(posts)} 条")
-            all_posts.extend(posts)
-            store.touch_schedule(pid)
-        except Exception as e:
-            errors[pid] = str(e)
-            print(f"[allnews] {pid} 失败: {e}")
-            traceback.print_exc()
+    # 一次 session：只允许第一次建专用标签抢焦点，后续平台只 Page.navigate
+    try:
+        with cdp_browser.cdp_session() as driver:
+            for pid in ids:
+                try:
+                    plat = get_platform(pid)
+                    if not plat.enabled():
+                        continue
+                    print(f"[allnews] 抓取 {pid} …")
+                    try:
+                        posts = plat.fetch(driver=driver) or []
+                    except TypeError:
+                        posts = plat.fetch() or []
+                    fetched[pid] = len(posts)
+                    print(f"[allnews] {pid}: {len(posts)} 条")
+                    all_posts.extend(posts)
+                    store.touch_schedule(pid)
+                except Exception as e:
+                    errors[pid] = str(e)
+                    print(f"[allnews] {pid} 失败: {e}")
+                    traceback.print_exc()
+    except Exception as e:
+        errors["_session"] = str(e)
+        print(f"[allnews] CDP session 失败: {e}")
+        traceback.print_exc()
 
     result = archive.auto_archive_batch(all_posts)
     result["fetched"] = fetched

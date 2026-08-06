@@ -24,7 +24,7 @@ class BasePlatform:
         urls = p.get("entry_urls") or []
         return [str(u) for u in urls if str(u).strip()]
 
-    def fetch(self) -> List[Post]:
+    def fetch(self, driver=None) -> List[Post]:
         raise NotImplementedError
 
 

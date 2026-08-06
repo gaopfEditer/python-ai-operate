@@ -40,16 +40,16 @@ class HuxiuPlatform(BasePlatform):
     id = "huxiu"
     name = "虎嗅网"
 
-    def fetch(self) -> List[Post]:
+    def fetch(self, driver=None) -> List[Post]:
         cfg = store.load_config().get("cdp") or {}
         wait_ms = int(cfg.get("wait_ms") or 2500)
         posts: List[Post] = []
-        with cdp_browser.cdp_session() as driver:
+        with cdp_browser.borrow_driver(driver) as drv:
             for url in self.entry_urls():
-                cdp_browser.navigate_dedicated_tab(driver, url)
+                cdp_browser.navigate(drv, url)
                 cdp_browser.jitter_sleep(wait_ms)
-                cdp_browser.scroll_page(driver, rounds=5, step=900, wait_ms=wait_ms)
-                raw = cdp_browser.exec_js(driver, EXTRACT_JS)
+                cdp_browser.scroll_page(drv, rounds=5, step=900, wait_ms=wait_ms)
+                raw = cdp_browser.exec_js(drv, EXTRACT_JS)
                 posts.extend(parse_cards(raw, self.id))
         seen, uniq = set(), []
         for p in posts:

@@ -54,18 +54,18 @@ class TwitterPlatform(BasePlatform):
     id = "twitter"
     name = "X / Twitter"
 
-    def fetch(self) -> List[Post]:
+    def fetch(self, driver=None) -> List[Post]:
         cfg = store.load_config().get("cdp") or {}
         wait_ms = int(cfg.get("wait_ms") or 2500)
         rounds = int(cfg.get("scroll_rounds") or 8)
         step = int(cfg.get("scroll_step") or 900)
         posts: List[Post] = []
-        with cdp_browser.cdp_session() as driver:
+        with cdp_browser.borrow_driver(driver) as drv:
             for url in self.entry_urls():
-                cdp_browser.navigate_dedicated_tab(driver, url)
+                cdp_browser.navigate(drv, url)
                 cdp_browser.jitter_sleep(wait_ms)
-                cdp_browser.scroll_page(driver, rounds=rounds, step=step, wait_ms=wait_ms)
-                raw = cdp_browser.exec_js(driver, EXTRACT_JS)
+                cdp_browser.scroll_page(drv, rounds=rounds, step=step, wait_ms=wait_ms)
+                raw = cdp_browser.exec_js(drv, EXTRACT_JS)
                 posts.extend(parse_cards(raw, self.id))
         # 去重
         seen = set()
