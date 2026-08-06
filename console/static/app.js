@@ -154,6 +154,7 @@ function updateCounts(counts, tags, platforms) {
   setCount("#countLater", state.counts.watch_later);
   setCount("#countArchived", state.counts.archived);
   setCount("#countTagged", state.counts.tagged);
+  if (state.counts.corpus != null) setCount("#countCorpus", state.counts.corpus);
   refreshTagDatalist();
   renderTagCloud();
   renderPlatformBar("#newsPlatformBar", state.platforms, state.newsPlatform, (pid) => {
@@ -282,6 +283,7 @@ function renderItems(container, items, opts = {}) {
           <div class="item-actions">
             <button class="btn ghost btn-sm${archived ? " on" : ""}" type="button" data-action="toggle_archive">${archived ? "取消归档" : "归档"}</button>
             <button class="btn ghost btn-sm${later ? " on" : ""}" type="button" data-action="toggle_watch_later">${later ? "取消稍后" : "稍后观看"}</button>
+            <button class="btn ghost btn-sm" type="button" data-action="deconstruct">拆解入库</button>
             <button class="btn ghost btn-sm" type="button" data-use-topic="${escapeAttr(it.title || "")}">用作创作主题</button>
           </div>
         </article>`;
@@ -323,6 +325,25 @@ function bindItemActions(container) {
       if (!ids.key || !action) return;
       btn.disabled = true;
       try {
+        if (action === "deconstruct") {
+          setStatus($("#crawlStatus"), "正在拆解入库…");
+          const data = await api("/api/corpus/deconstruct", {
+            method: "POST",
+            body: JSON.stringify({
+              platform_id: ids.platform_id,
+              key: ids.key,
+              href: ids.href,
+            }),
+          });
+          if (!data.success) {
+            toast(data.error || "拆解失败", "error");
+            return;
+          }
+          const tid = data.template?.id;
+          toast(tid ? `已入库模板 #${tid}` : "拆解完成", "ok");
+          await refreshCorpusStats();
+          return;
+        }
         const data = await postMeta({ ...ids, action });
         if (!data.success) {
           toast(data.error || "操作失败", "error");
@@ -426,6 +447,7 @@ function switchTab(name) {
   if (name === "later") loadLibrary("later");
   if (name === "archived") loadLibrary("archived");
   if (name === "tags") loadLibrary("tags");
+  if (name === "corpus") loadCorpus();
 }
 
 async function refreshHealth() {
@@ -534,6 +556,229 @@ async function loadLibrary(kind) {
       return;
     }
     await loadPosts("", "", "tags", "all", tag);
+  }
+}
+
+const LAYER_LABEL = {
+  collect: "采集",
+  deconstruct: "拆解",
+  store: "入库",
+  generate: "再生成",
+};
+
+function renderPathView(pathObj) {
+  const el = $("#corpusPathView");
+  if (!el) return;
+  const steps = Array.isArray(pathObj?.steps) ? pathObj.steps : [];
+  if (!steps.length) {
+    el.className = "path-view muted";
+    el.textContent = "暂无取材路径";
+    return;
+  }
+  el.className = "path-view";
+  const nodes = steps
+    .map((s, i) => {
+      const layer = LAYER_LABEL[s.layer] || s.layer || `步骤${i + 1}`;
+      const detail = [
+        s.via || s.provider || s.store || "",
+        s.title ? String(s.title).slice(0, 40) : "",
+        s.topic ? `话题:${s.topic}` : "",
+        s.template_id != null ? `#${s.template_id}` : "",
+        s.at || "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return `<li class="path-step" data-layer="${escapeAttr(s.layer || "")}">
+        <span class="path-layer">${escapeHtml(layer)}</span>
+        <span class="path-detail">${escapeHtml(detail)}</span>
+      </li>`;
+    })
+    .join("");
+  el.innerHTML = `<ol class="path-flow">${nodes}</ol>`;
+}
+
+function renderCorpusItems(items) {
+  const box = $("#corpusList");
+  if (!box) return;
+  if (!items || !items.length) {
+    box.innerHTML = `<div class="item"><h3>暂无模板</h3><p class="snippet muted">在资讯列表点「拆解入库」，或调整筛选条件。</p></div>`;
+    return;
+  }
+  box.innerHTML = items
+    .map((it) => {
+      const kws = (it.keywords || []).map((k) => `<span class="chip">${escapeHtml(k)}</span>`).join("");
+      const tags = (it.tags || []).map((t) => `<span class="chip tag">${escapeHtml(t)}</span>`).join("");
+      const q = it.quality || "unrated";
+      return `
+        <article class="item corpus-item" data-id="${escapeAttr(String(it.id))}">
+          <div class="item-head">
+            <span class="source-badge">#${escapeHtml(String(it.id))} · ${escapeHtml(it.source_platform || "?")}</span>
+            <h3>${escapeHtml(it.pattern || it.source_title || "(无模板)")}</h3>
+          </div>
+          <div class="meta">
+            <span>情绪 ${escapeHtml(it.emotion || "-")}</span>
+            <span>冲突 ${escapeHtml(it.tension || "-")}</span>
+            <span>权重 ${escapeHtml(String(it.weight ?? 1))}</span>
+            <span class="badge q-${escapeAttr(q)}">${escapeHtml(q)}</span>
+            ${it.source_url ? `<a href="${escapeAttr(it.source_url)}" target="_blank" rel="noreferrer">原文</a>` : ""}
+          </div>
+          ${it.hooks ? `<p class="snippet">钩子：${escapeHtml(it.hooks)}</p>` : ""}
+          <div class="chip-row">${kws}${tags}</div>
+          <div class="item-actions">
+            <button class="btn ghost btn-sm" type="button" data-corpus="use">选用生成</button>
+            <button class="btn ghost btn-sm" type="button" data-corpus="path">取材路径</button>
+            <button class="btn ghost btn-sm" type="button" data-corpus="good">标优质</button>
+            <button class="btn ghost btn-sm" type="button" data-corpus="bad">标淘汰</button>
+            <button class="btn ghost btn-sm" type="button" data-corpus="archive">归档</button>
+            <button class="btn ghost btn-sm" type="button" data-corpus="tag">加标签</button>
+          </div>
+        </article>`;
+    })
+    .join("");
+
+  box.querySelectorAll("[data-corpus]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const root = btn.closest(".corpus-item");
+      const id = Number(root?.getAttribute("data-id") || 0);
+      const action = btn.getAttribute("data-corpus");
+      if (!id || !action) return;
+      const item = (state.corpusItems || []).find((x) => Number(x.id) === id);
+      if (action === "use") {
+        if ($("#regenTemplateId")) $("#regenTemplateId").value = String(id);
+        if (item) renderPathView(item.provenance || {});
+        $("#corpusRegenBox")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        toast(`已选用模板 #${id}`, "ok");
+        return;
+      }
+      if (action === "path") {
+        renderPathView(item?.provenance || {});
+        toast("已显示取材路径", "ok");
+        return;
+      }
+      btn.disabled = true;
+      try {
+        if (action === "tag") {
+          const raw = window.prompt("输入标签（逗号分隔）", "");
+          if (!raw) return;
+          const tags = raw
+            .split(/[,，]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const data = await api(`/api/corpus/templates/${id}`, {
+            method: "POST",
+            body: JSON.stringify({ action: "add_tags", tags }),
+          });
+          if (!data.success) toast(data.error || "失败", "error");
+          else {
+            toast("已加标签", "ok");
+            await loadCorpus();
+          }
+          return;
+        }
+        const map = { good: "rate_good", bad: "rate_bad", archive: "archive" };
+        const data = await api(`/api/corpus/templates/${id}`, {
+          method: "POST",
+          body: JSON.stringify({ action: map[action] }),
+        });
+        if (!data.success) toast(data.error || "失败", "error");
+        else {
+          toast("已更新", "ok");
+          await loadCorpus();
+        }
+      } catch (e) {
+        toast(String(e), "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+async function refreshCorpusStats() {
+  try {
+    const data = await api("/api/corpus/stats");
+    if (!data.success) return;
+    state.counts.corpus = data.active ?? data.total ?? 0;
+    const el = $("#countCorpus");
+    if (el) el.textContent = String(state.counts.corpus);
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function loadCorpus() {
+  const qs = new URLSearchParams();
+  const kw = $("#corpusKeyword")?.value.trim() || "";
+  const emotion = $("#corpusEmotion")?.value.trim() || "";
+  const quality = $("#corpusQuality")?.value || "";
+  const status = $("#corpusStatus")?.value ?? "active";
+  if (kw) qs.set("keyword", kw);
+  if (emotion) qs.set("emotion", emotion);
+  if (quality) qs.set("quality", quality);
+  if (status) qs.set("status", status);
+  qs.set("limit", "80");
+  setStatus($("#corpusMeta"), "加载中…");
+  try {
+    const data = await api(`/api/corpus/templates?${qs.toString()}`);
+    if (!data.success) {
+      setStatus($("#corpusMeta"), data.error || "加载失败", "error");
+      return;
+    }
+    state.corpusItems = data.items || [];
+    setStatus($("#corpusMeta"), `共 ${data.total} 条模板`, "ok");
+    renderCorpusItems(state.corpusItems);
+    await refreshCorpusStats();
+  } catch (e) {
+    setStatus($("#corpusMeta"), String(e), "error");
+  }
+}
+
+async function runCorpusRegen() {
+  const tid = Number($("#regenTemplateId")?.value || 0);
+  const topic = $("#regenTopic")?.value.trim() || "";
+  if (!tid || !topic) {
+    setStatus($("#corpusRegenStatus"), "请填写模板 ID 与新话题", "error");
+    return;
+  }
+  $("#btnCorpusRegen").disabled = true;
+  setStatus($("#corpusRegenStatus"), "正在再生成…");
+  try {
+    const data = await api("/api/corpus/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        template_id: tid,
+        topic,
+        platform_style: $("#regenStyle")?.value.trim() || "X/Twitter",
+        prompt: $("#regenPrompt")?.value.trim() || "",
+        save_article: true,
+      }),
+    });
+    if (!data.success) {
+      setStatus($("#corpusRegenStatus"), data.error || "生成失败", "error");
+      return;
+    }
+    const out = $("#corpusRegenOut");
+    if (out) {
+      out.classList.remove("muted");
+      out.textContent = data.content || "";
+    }
+    renderPathView(data.path || data.generation?.path || {});
+    state.lastCreate = {
+      title: topic,
+      content: data.content || "",
+      path: data.saved_path || "",
+    };
+    setStatus(
+      $("#corpusRegenStatus"),
+      data.saved_path ? `生成成功 · 已存 ${data.saved_path}` : "生成成功",
+      "ok"
+    );
+    await loadArticles();
+  } catch (e) {
+    setStatus($("#corpusRegenStatus"), String(e), "error");
+  } finally {
+    $("#btnCorpusRegen").disabled = false;
   }
 }
 
@@ -858,6 +1103,20 @@ function bind() {
     if (e.key === "Enter") loadLibrary("tags");
   });
 
+  $("#btnLoadCorpus")?.addEventListener("click", () => loadCorpus());
+  $("#corpusKeyword")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadCorpus();
+  });
+  $("#corpusEmotion")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadCorpus();
+  });
+  $("#corpusQuality")?.addEventListener("change", () => loadCorpus());
+  $("#corpusStatus")?.addEventListener("change", () => loadCorpus());
+  $("#btnCorpusRegen")?.addEventListener("click", () => runCorpusRegen());
+  $("#regenTopic")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runCorpusRegen();
+  });
+
   $("#btnExpand")?.addEventListener("click", async () => {
     const keyword = $("#newsKeyword").value.trim();
     if (!keyword) {
@@ -1080,10 +1339,12 @@ async function boot() {
   await loadPublishPlatforms();
   await loadArticles();
   await refreshStats();
+  await refreshCorpusStats();
   await loadPosts("", state.newsPlatform || "", "news", $("#newsView")?.value || "active", "");
   setInterval(refreshHealth, 15000);
   setInterval(loadTasks, 20000);
   setInterval(refreshStats, 30000);
+  setInterval(refreshCorpusStats, 45000);
 }
 
 boot();

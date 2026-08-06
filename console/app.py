@@ -1631,6 +1631,213 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         rel = (query.get("path") or [""])[0]
         return _json_bytes(_read_article(rel))
 
+    # ---------- 语料库 corpus（拆解 / CRUD / 再生成） ----------
+    if path == "/api/corpus/stats" and method == "GET":
+        from corpus.db import init_db, stats as corpus_stats
+
+        init_db()
+        return _json_bytes({"success": True, **corpus_stats()})
+
+    if path == "/api/corpus/templates" and method == "GET":
+        from corpus.db import init_db, list_templates
+
+        init_db()
+        try:
+            limit = int((query.get("limit") or ["50"])[0])
+        except Exception:
+            limit = 50
+        items = list_templates(
+            emotion=(query.get("emotion") or [""])[0],
+            tag=(query.get("tag") or [""])[0],
+            quality=(query.get("quality") or [""])[0],
+            status=(query.get("status") or ["active"])[0] or "active",
+            keyword=(query.get("keyword") or [""])[0],
+            platform=(query.get("platform") or [""])[0],
+            limit=limit,
+        )
+        return _json_bytes({"success": True, "total": len(items), "items": items})
+
+    if path.startswith("/api/corpus/templates/") and method == "GET":
+        from corpus.db import get_template, init_db
+
+        init_db()
+        tid = path.split("/api/corpus/templates/", 1)[1].strip("/").split("/")[0]
+        try:
+            item = get_template(int(tid))
+        except Exception:
+            item = None
+        if not item:
+            return _json_bytes({"success": False, "error": "模板不存在"}, 404)
+        return _json_bytes({"success": True, "item": item})
+
+    if path == "/api/corpus/templates" and method == "POST":
+        from corpus.db import create_template, init_db
+
+        init_db()
+        item = create_template(
+            source_platform=str(body.get("source_platform") or body.get("platform") or ""),
+            source_url=str(body.get("source_url") or body.get("url") or body.get("href") or ""),
+            source_key=str(body.get("source_key") or body.get("key") or ""),
+            source_title=str(body.get("source_title") or body.get("title") or ""),
+            raw_text=str(body.get("raw_text") or body.get("raw") or body.get("content") or ""),
+            pattern=str(body.get("pattern") or ""),
+            emotion=str(body.get("emotion") or ""),
+            tension=str(body.get("tension") or ""),
+            keywords=body.get("keywords") if isinstance(body.get("keywords"), list) else [],
+            hooks=str(body.get("hooks") or ""),
+            tags=body.get("tags") if isinstance(body.get("tags"), list) else [],
+            weight=float(body.get("weight") or 1.0),
+            quality=str(body.get("quality") or "unrated"),
+            status=str(body.get("status") or "active"),
+            provenance=body.get("provenance") if isinstance(body.get("provenance"), dict) else {},
+            factors=body.get("factors") if isinstance(body.get("factors"), dict) else {},
+        )
+        return _json_bytes({"success": True, "item": item})
+
+    if path.startswith("/api/corpus/templates/") and method == "POST":
+        from corpus.db import (
+            archive_template,
+            delete_template,
+            get_template,
+            init_db,
+            update_template,
+        )
+
+        init_db()
+        parts = [p for p in path.split("/api/corpus/templates/", 1)[1].strip("/").split("/") if p]
+        try:
+            tid = int(parts[0])
+        except Exception:
+            return _json_bytes({"success": False, "error": "无效 id"}, 400)
+        action = str(body.get("action") or (parts[1] if len(parts) > 1 else "update")).strip().lower()
+        if action in ("update", "edit", "patch"):
+            item = update_template(tid, body)
+            if not item:
+                return _json_bytes({"success": False, "error": "模板不存在"}, 404)
+            return _json_bytes({"success": True, "item": item})
+        if action in ("archive",):
+            item = archive_template(tid)
+            return _json_bytes({"success": True, "item": item})
+        if action in ("delete", "remove"):
+            ok = delete_template(tid, hard=bool(body.get("hard")))
+            return _json_bytes({"success": ok, "deleted": ok, "id": tid})
+        if action in ("rate_good", "good"):
+            item = update_template(tid, {"quality": "good", "weight": float((get_template(tid) or {}).get("weight") or 1) + 0.3})
+            return _json_bytes({"success": True, "item": item})
+        if action in ("rate_bad", "bad"):
+            item = update_template(tid, {"quality": "bad"})
+            return _json_bytes({"success": True, "item": item})
+        if action in ("add_tags",):
+            cur = get_template(tid)
+            if not cur:
+                return _json_bytes({"success": False, "error": "模板不存在"}, 404)
+            tags = list(cur.get("tags") or [])
+            extra = body.get("tags") if isinstance(body.get("tags"), list) else []
+            for t in extra:
+                if t and t not in tags:
+                    tags.append(str(t))
+            item = update_template(tid, {"tags": tags})
+            return _json_bytes({"success": True, "item": item})
+        return _json_bytes({"success": False, "error": f"未知操作: {action}"}, 400)
+
+    if path == "/api/corpus/deconstruct" and method == "POST":
+        from corpus.deconstruct import deconstruct_post, import_and_deconstruct
+
+        posts = body.get("posts")
+        if isinstance(posts, list) and posts:
+            return _json_bytes(import_and_deconstruct(posts))
+
+        title = str(body.get("title") or "")
+        raw_text = str(body.get("raw") or body.get("content") or body.get("summary") or "")
+        platform = str(body.get("platform") or body.get("platform_id") or "")
+        url = str(body.get("url") or body.get("href") or "")
+        source_key = str(body.get("key") or body.get("source_key") or "")
+        tags = body.get("tags") if isinstance(body.get("tags"), list) else []
+        fetched_at = str(body.get("fetched_at") or "")
+        author = str(body.get("author") or "")
+
+        # 仅传 key 时从本地缓存补全正文，便于列表一键拆解
+        if source_key or url:
+            state = _load_posts_state()
+            _, found_key, entry = _find_post_ref(
+                state, platform_id=platform, key=source_key, href=url
+            )
+            if isinstance(entry, dict):
+                title = title or str(entry.get("title") or "")
+                raw_text = raw_text or str(
+                    entry.get("content")
+                    or entry.get("raw")
+                    or entry.get("summary")
+                    or entry.get("title")
+                    or ""
+                )
+                platform = platform or str(entry.get("platform_id") or "")
+                url = url or str(entry.get("href") or found_key or "")
+                source_key = source_key or str(found_key or entry.get("key") or url)
+                fetched_at = fetched_at or str(entry.get("fetched_at") or "")
+                author = author or str(entry.get("author") or "")
+                if not tags and isinstance(entry.get("tags"), list):
+                    tags = list(entry.get("tags") or [])
+
+        result = deconstruct_post(
+            title=title,
+            raw_text=raw_text,
+            platform=platform,
+            url=url,
+            source_key=source_key,
+            tags=tags,
+            collect_meta={
+                "via": platform or "console",
+                "fetched_at": fetched_at,
+                "author": author,
+            },
+        )
+        status = 200 if result.get("success") else 400
+        return _json_bytes(result, status)
+
+    if path == "/api/corpus/generate" and method == "POST":
+        from corpus.generate import regenerate_from_template
+
+        try:
+            tid = int(body.get("template_id"))
+        except Exception:
+            return _json_bytes({"success": False, "error": "缺少 template_id"}, 400)
+        result = regenerate_from_template(
+            template_id=tid,
+            topic=str(body.get("topic") or "").strip(),
+            platform_style=str(body.get("platform_style") or body.get("style") or "通用"),
+            extra_prompt=str(body.get("prompt") or body.get("extra_prompt") or ""),
+            bump_weight=bool(body.get("bump_weight", True)),
+        )
+        # 可选：同步保存为文章，便于发布
+        if result.get("success") and body.get("save_article") and result.get("content"):
+            saved = _save_article(
+                str(body.get("topic") or "语料再生成"),
+                result["content"],
+                {"platform": body.get("platform_style") or "语料", "style": "爆款模板"},
+            )
+            result["saved_path"] = saved
+        status = 200 if result.get("success") else 400
+        return _json_bytes(result, status)
+
+    if path == "/api/corpus/generations" and method == "GET":
+        from corpus.db import init_db, list_generations
+
+        init_db()
+        tid = None
+        if (query.get("template_id") or [""])[0]:
+            try:
+                tid = int((query.get("template_id") or [""])[0])
+            except Exception:
+                tid = None
+        try:
+            limit = int((query.get("limit") or ["30"])[0])
+        except Exception:
+            limit = 30
+        return _json_bytes(
+            {"success": True, "items": list_generations(template_id=tid, limit=limit)}
+        )
+
     if path == "/api/create" and method == "POST":
         topic = str(body.get("topic") or "").strip()
         if not topic:
@@ -1828,6 +2035,12 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
     restored = _load_crawl_tasks()
+    try:
+        from corpus.db import init_db as init_corpus_db
+
+        init_corpus_db()
+    except Exception as e:
+        safe_print(f" 语料库初始化跳过: {e}")
     _free_port(port, log=safe_print)
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"

@@ -15,7 +15,7 @@
       <div>
         <p class="eyebrow">TRENDRADAR</p>
         <h1 class="brand">Console</h1>
-        <p class="brand-sub">资讯获取 · 历史缓存 · Prompt 创作 · CDP 发布</p>
+        <p class="brand-sub">资讯获取 · 语料拆解 · Prompt 创作 · CDP 发布</p>
         <div class="signal" aria-hidden="true"></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="功能分区">
@@ -24,6 +24,7 @@
         <button class="tab" type="button" role="tab" data-tab="archived" aria-selected="false">归档 <span class="tab-count" id="countArchived">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="tags" aria-selected="false">标签 <span class="tab-count" id="countTagged">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false">历史缓存</button>
+        <button class="tab" type="button" role="tab" data-tab="corpus" aria-selected="false">语料库 <span class="tab-count" id="countCorpus">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
         <button class="tab" type="button" role="tab" data-tab="publish" aria-selected="false">CDP 发布</button>
       </nav>
@@ -217,6 +218,71 @@
         <p id="historyMeta" class="status"></p>
         <div id="historyList" class="card-list"></div>
       </section>
+      <section id="panel-corpus" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h2>语料库</h2>
+          <p>采集 → Prompt 拆解 → SQLite 资产化 → 按模板再生成。可查看取材路径并打标归档。</p>
+        </div>
+        <div class="toolbar">
+          <label class="field grow">
+            <span>检索</span>
+            <input id="corpusKeyword" type="search" placeholder="模板 / 情绪 / 关键词" />
+          </label>
+          <label class="field">
+            <span>情绪</span>
+            <input id="corpusEmotion" type="text" placeholder="自嘲 / 反转…" />
+          </label>
+          <label class="field">
+            <span>质量</span>
+            <select id="corpusQuality">
+              <option value="">全部</option>
+              <option value="good">优质</option>
+              <option value="unrated">未评</option>
+              <option value="bad">淘汰</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>状态</span>
+            <select id="corpusStatus">
+              <option value="active" selected>在用</option>
+              <option value="archived">已归档</option>
+              <option value="">全部</option>
+            </select>
+          </label>
+          <button id="btnLoadCorpus" class="btn primary" type="button">加载</button>
+        </div>
+        <p id="corpusMeta" class="status"></p>
+        <div id="corpusList" class="card-list"></div>
+        <div class="preview" id="corpusRegenBox">
+          <h3>基于模板再生成</h3>
+          <div class="form-grid">
+            <label class="field">
+              <span>模板 ID</span>
+              <input id="regenTemplateId" type="number" min="1" placeholder="从上方点选用" />
+            </label>
+            <label class="field grow">
+              <span>新话题</span>
+              <input id="regenTopic" type="text" placeholder="例如：某款 AI 工具发布" />
+            </label>
+            <label class="field">
+              <span>平台风格</span>
+              <input id="regenStyle" type="text" value="X/Twitter" />
+            </label>
+            <label class="field full">
+              <span>补充要求</span>
+              <textarea id="regenPrompt" rows="3" placeholder="可选"></textarea>
+            </label>
+            <div class="field" style="justify-content:end">
+              <span>&nbsp;</span>
+              <button id="btnCorpusRegen" class="btn primary" type="button">生成爆款帖</button>
+            </div>
+          </div>
+          <p id="corpusRegenStatus" class="status"></p>
+          <div id="corpusPathView" class="path-view muted">取材路径会显示在这里</div>
+          <pre id="corpusRegenOut" class="preview-body muted">生成结果…</pre>
+        </div>
+      </section>
+
       <section id="panel-create" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>Prompt 创作</h2>
