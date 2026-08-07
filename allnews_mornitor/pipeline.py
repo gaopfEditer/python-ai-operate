@@ -18,7 +18,7 @@ def run_crawl(platform_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     errors: Dict[str, str] = {}
     fetched: Dict[str, int] = {}
 
-    # 一次 session：只允许第一次建专用标签抢焦点，后续平台只 Page.navigate
+    # 一次后台 CDP session：不激活标签、不还焦
     try:
         with cdp_browser.cdp_session() as driver:
             for pid in ids:

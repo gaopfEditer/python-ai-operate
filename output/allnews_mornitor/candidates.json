@@ -784,6 +784,33 @@
       "post_id": "f0a388f12a60e2cb"
     },
     {
+      "platform": "twitter",
+      "title": "Daddy's home.",
+      "url": "https://x.com/nikitabier/status/2085199604597858471",
+      "author": "@nikitabier",
+      "summary": "Daddy's home.",
+      "content": "Daddy's home.",
+      "likes": 7321,
+      "comments": 1033,
+      "collects": 0,
+      "shares": 437,
+      "views": 0,
+      "score": 9911.4,
+      "fetched_at": "2026-08-06 13:20:43",
+      "raw": {
+        "author": "@nikitabier",
+        "collects": 0,
+        "comments": 1033,
+        "likes": 7321,
+        "shares": 437,
+        "summary": "Daddy's home.",
+        "title": "Daddy's home.",
+        "url": "https://x.com/nikitabier/status/2085199604597858471",
+        "views": 0
+      },
+      "post_id": "468a84e55087dc54"
+    },
+    {
       "platform": "zhihu",
       "title": "漫威旗下那么多超级英雄，为何偏偏是蜘蛛侠的电影票房在内地市场甚至全球市场最赚钱？\n\n蜘蛛侠系列电影 如今漫威的超级英雄大片《蜘蛛侠 4：崭新之日》正式在内地上映，《蜘蛛侠 4：崭新之日》在内地的票房也是势如破竹节节攀升。 这里也说句不好听的，还真不是所有漫威电影在内地都有这么高的票房，不信可以看《黑豹 2》和《蚁人 3》，《黑豹 2》和《蚁人 3》在内地上映好几周的票房，一直到下映，这么多天的票房",
       "url": "https://www.zhihu.com/question/2065883320236480395",
@@ -1999,6 +2026,33 @@
       "post_id": "c9d64da720b6aca3"
     },
     {
+      "platform": "twitter",
+      "title": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+      "url": "https://x.com/BitcoinArchive/status/2085106330725961742",
+      "author": "@BitcoinArchive",
+      "summary": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+      "content": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+      "likes": 1628,
+      "comments": 56,
+      "collects": 0,
+      "shares": 137,
+      "views": 0,
+      "score": 1904.4,
+      "fetched_at": "2026-08-06 10:17:13",
+      "raw": {
+        "author": "@BitcoinArchive",
+        "collects": 0,
+        "comments": 56,
+        "likes": 1628,
+        "shares": 137,
+        "summary": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+        "title": "JUST IN: Jack Dorsey’s BLOCK adds $18M worth of Bitcoin\n\nNow holds 9,117 BTC worth $589M\n\nAverage purchase price: $34,000",
+        "url": "https://x.com/BitcoinArchive/status/2085106330725961742",
+        "views": 0
+      },
+      "post_id": "6f73148eb907a35e"
+    },
+    {
       "platform": "xiaohongshu",
       "title": "细软塌救星✨这款短发氛围感拉满",
       "url": "https://www.xiaohongshu.com/explore/6a6e31cb000000002402ffa5",
@@ -3023,6 +3077,33 @@
         "views": 0
       },
       "post_id": "d23d501447dd6e35"
+    },
+    {
+      "platform": "twitter",
+      "title": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+      "url": "https://x.com/sofia3973/status/2084972763677421597",
+      "author": "@sofia3973",
+      "summary": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+      "content": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+      "likes": 617,
+      "comments": 30,
+      "collects": 0,
+      "shares": 101,
+      "views": 0,
+      "score": 798.2,
+      "fetched_at": "2026-08-06 11:18:33",
+      "raw": {
+        "author": "@sofia3973",
+        "collects": 0,
+        "comments": 30,
+        "likes": 617,
+        "shares": 101,
+        "summary": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+        "title": "DELETE THESE FROM YOUR LIFE BEFORE AUGUST.\n\nNo explanation needed. Just do it.",
+        "url": "https://x.com/sofia3973/status/2084972763677421597",
+        "views": 0
+      },
+      "post_id": "b5c04c296adaeb2e"
     },
     {
       "platform": "xiaohongshu",
@@ -9337,5 +9418,5 @@
       "post_id": "67d163e6a761f4c2"
     }
   ],
-  "count": 348
+  "count": 351
 }

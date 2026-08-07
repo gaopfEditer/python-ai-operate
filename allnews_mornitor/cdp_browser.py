@@ -1,30 +1,31 @@
 # coding=utf-8
 """
-共享 CDP / Selenium 浏览器连接（静默优先）。
+共享 CDP 浏览器连接（不抢焦点）。
 
-静默规则（对齐 crawler/index.py）：
-1. 第一次：后台建专用抓取标签，允许抢一次焦点 → 立刻还回
-2. 之后：禁止 switch_to / new_window / driver.get；只用 Page.navigate
-3. 禁止遍历 tab 去匹配 URL（那是抢焦点主因）
+静默模式（默认）：
+- 经 Chrome 远程调试 WebSocket 建标签：Target.createTarget(background=True)
+- 用 Target.attachToTarget 附着，禁止 Target.activateTarget / switch_to / driver.get
+- 导航与 JS 均走该 session，不把 Chrome 拉到前台
+- 绝不「还焦」或守护前台：用户切走别处后不会被抢回来
+
+非静默：退回 Selenium 常规打开（会切前台，仅调试用）。
 """
 
 from __future__ import annotations
 
+import json
 import random
-import subprocess
-import sys
+import threading
 import time
+import urllib.error
+import urllib.request
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional
 
 from allnews_mornitor import store
 
 _driver = None
-_crawl_handle: Optional[str] = None
-_silent_primed: bool = False
-_user_hwnd: int = 0
-_mac_front_app: str = ""
-_fg_guard = None
+_bg: Optional["BackgroundTarget"] = None
 
 
 def get_debugger_url() -> str:
@@ -36,8 +37,184 @@ def silent_enabled() -> bool:
     return bool((store.load_config().get("cdp") or {}).get("silent", True))
 
 
+def _http_json(path: str) -> Any:
+    base = get_debugger_url().rstrip("/")
+    if not base.startswith("http"):
+        base = f"http://{base}"
+    url = f"{base}{path}"
+    with urllib.request.urlopen(url, timeout=5) as resp:
+        return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+
+def _browser_ws_url() -> str:
+    ver = _http_json("/json/version")
+    ws = (ver or {}).get("webSocketDebuggerUrl") or ""
+    if not ws:
+        raise RuntimeError("Chrome CDP 未返回 webSocketDebuggerUrl，请确认已开 --remote-debugging-port")
+    return ws
+
+
+class _CdpClient:
+    """浏览器级 CDP：按 sessionId 把命令发到后台页，不 activate。"""
+
+    def __init__(self, ws_url: str):
+        from websockets.sync.client import connect
+
+        self._ws = connect(ws_url, max_size=64 * 1024 * 1024, open_timeout=10)
+        self._next_id = 0
+        self._lock = threading.Lock()
+        self._cv = threading.Condition(self._lock)
+        self._pending: dict[int, dict] = {}
+        self._closed = False
+        self._reader = threading.Thread(target=self._read_loop, name="allnews-cdp", daemon=True)
+        self._reader.start()
+
+    def _read_loop(self) -> None:
+        try:
+            while not self._closed:
+                raw = self._ws.recv()
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", errors="replace")
+                msg = json.loads(raw)
+                mid = msg.get("id")
+                if mid is None:
+                    continue
+                with self._cv:
+                    self._pending[int(mid)] = msg
+                    self._cv.notify_all()
+        except Exception:
+            with self._cv:
+                self._closed = True
+                self._cv.notify_all()
+
+    def call(
+        self,
+        method: str,
+        params: Optional[dict] = None,
+        session_id: Optional[str] = None,
+        timeout: float = 60.0,
+    ) -> dict:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("CDP 连接已关闭")
+            self._next_id += 1
+            msg_id = self._next_id
+            payload: dict[str, Any] = {
+                "id": msg_id,
+                "method": method,
+                "params": params or {},
+            }
+            if session_id:
+                payload["sessionId"] = session_id
+            self._ws.send(json.dumps(payload))
+            deadline = time.time() + timeout
+            while msg_id not in self._pending:
+                if self._closed:
+                    raise RuntimeError(f"CDP 断开: {method}")
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise TimeoutError(f"CDP 超时: {method}")
+                self._cv.wait(timeout=remaining)
+            resp = self._pending.pop(msg_id)
+        if "error" in resp:
+            err = resp["error"]
+            raise RuntimeError(f"{method}: {err}")
+        return resp.get("result") or {}
+
+    def close(self) -> None:
+        self._closed = True
+        try:
+            self._ws.close()
+        except Exception:
+            pass
+
+
+class BackgroundTarget:
+    """后台标签：创建与操作均不 activate。"""
+
+    def __init__(self, client: _CdpClient, target_id: str, session_id: str):
+        self.client = client
+        self.target_id = target_id
+        self.session_id = session_id
+
+    @classmethod
+    def create(cls, client: _CdpClient, url: str = "about:blank") -> "BackgroundTarget":
+        created = client.call(
+            "Target.createTarget",
+            {"url": url or "about:blank", "background": True},
+        )
+        target_id = str(created.get("targetId") or "")
+        if not target_id:
+            raise RuntimeError("Target.createTarget 未返回 targetId")
+        attached = client.call(
+            "Target.attachToTarget",
+            {"targetId": target_id, "flatten": True},
+        )
+        session_id = str(attached.get("sessionId") or "")
+        if not session_id:
+            raise RuntimeError("Target.attachToTarget 未返回 sessionId")
+        page = cls(client, target_id, session_id)
+        # 不调用 Target.activateTarget
+        try:
+            page.call("Page.enable")
+            page.call("Runtime.enable")
+        except Exception:
+            pass
+        return page
+
+    def call(self, method: str, params: Optional[dict] = None, timeout: float = 60.0) -> dict:
+        return self.client.call(method, params, session_id=self.session_id, timeout=timeout)
+
+    def silent_navigate(self, url: str) -> None:
+        target = (url or "").strip()
+        if not target:
+            return
+        self.call("Page.navigate", {"url": target})
+        self._wait_ready()
+
+    def _wait_ready(self, timeout: float = 25.0) -> None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                state = self.eval_js("document.readyState")
+                if state in ("interactive", "complete"):
+                    return
+            except Exception:
+                pass
+            time.sleep(0.12)
+
+    def eval_js(self, script: str) -> Any:
+        # 包一层 IIFE，兼容「多语句 + return」的抽取脚本
+        src = (script or "").strip()
+        if not src:
+            return None
+        expression = f"(() => {{\n{src}\n}})()"
+        result = self.call(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "returnByValue": True,
+                "awaitPromise": True,
+                "userGesture": False,
+            },
+            timeout=90.0,
+        )
+        if result.get("exceptionDetails"):
+            detail = result["exceptionDetails"]
+            text = detail.get("text") or detail.get("exception", {}).get("description") or detail
+            raise RuntimeError(f"JS 执行失败: {text}")
+        remote = result.get("result") or {}
+        return remote.get("value")
+
+    def detach(self) -> None:
+        try:
+            self.client.call("Target.detachFromTarget", {"sessionId": self.session_id})
+        except Exception:
+            pass
+
+
 def get_driver(force_new: bool = False):
-    """连接已启动的 Chrome CDP。"""
+    """非静默模式用的 Selenium 连接。"""
     global _driver
     if _driver is not None and not force_new:
         try:
@@ -55,16 +232,19 @@ def get_driver(force_new: bool = False):
 
 
 def reset_driver() -> None:
-    global _driver, _crawl_handle, _silent_primed
-    _stop_focus_guard()
+    global _driver, _bg
+    if _bg is not None:
+        try:
+            _bg.client.close()
+        except Exception:
+            pass
+        _bg = None
     try:
         if _driver is not None:
             _driver.quit()
     except Exception:
         pass
     _driver = None
-    _crawl_handle = None
-    _silent_primed = False
 
 
 def jitter_sleep(base_ms: int = 2000, ratio: float = 0.35) -> None:
@@ -74,204 +254,24 @@ def jitter_sleep(base_ms: int = 2000, ratio: float = 0.35) -> None:
     time.sleep(delay / 1000)
 
 
-def _capture_user_front() -> None:
-    global _user_hwnd, _mac_front_app
-    if sys.platform == "win32":
-        if _user_hwnd:
-            return
-        try:
-            from utils.window_focus import get_foreground_hwnd
-
-            _user_hwnd = get_foreground_hwnd()
-        except Exception:
-            _user_hwnd = 0
-        return
-    if sys.platform == "darwin":
-        if _mac_front_app:
-            return
-        try:
-            out = subprocess.check_output(
-                [
-                    "osascript",
-                    "-e",
-                    'tell application "System Events" to get name of first application process whose frontmost is true',
-                ],
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=2,
-            )
-            _mac_front_app = (out or "").strip()
-        except Exception:
-            _mac_front_app = ""
-
-
-def _give_back_focus() -> None:
-    if sys.platform == "win32":
-        try:
-            from utils.window_focus import yield_focus_if_chrome_stolen
-
-            yield_focus_if_chrome_stolen(_user_hwnd)
-        except Exception:
-            pass
-        return
-    if sys.platform == "darwin" and _mac_front_app:
-        # 不要激活 Google Chrome / Chromium
-        app = _mac_front_app
-        if app.lower() in {"google chrome", "chromium", "chrome", "microsoft edge"}:
-            return
-        try:
-            subprocess.run(
-                [
-                    "osascript",
-                    "-e",
-                    f'tell application "System Events" to set frontmost of process "{app}" to true',
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=2,
-                check=False,
-            )
-        except Exception:
-            pass
-
-
-def _start_focus_guard() -> None:
-    global _fg_guard
-    if not silent_enabled():
-        return
-    if _fg_guard is not None:
-        return
-    if sys.platform == "win32":
-        try:
-            from utils.window_focus import ForegroundGuardThread
-
-            _fg_guard = ForegroundGuardThread(preferred_hwnd=_user_hwnd, interval=0.04)
-            _fg_guard.start()
-        except Exception:
-            _fg_guard = None
-        return
-    if sys.platform == "darwin" and _mac_front_app:
-        import threading
-
-        stop = threading.Event()
-
-        def _loop():
-            while not stop.wait(0.35):
-                try:
-                    out = subprocess.check_output(
-                        [
-                            "osascript",
-                            "-e",
-                            'tell application "System Events" to get name of first application process whose frontmost is true',
-                        ],
-                        stderr=subprocess.DEVNULL,
-                        text=True,
-                        timeout=2,
-                    )
-                    front = (out or "").strip().lower()
-                    if front in {"google chrome", "chromium", "chrome", "microsoft edge"}:
-                        _give_back_focus()
-                except Exception:
-                    pass
-
-        t = threading.Thread(target=_loop, name="allnews-fg-guard", daemon=True)
-        t.start()
-        _fg_guard = (stop, t)
-
-
-def _stop_focus_guard() -> None:
-    global _fg_guard
-    guard = _fg_guard
-    _fg_guard = None
-    if guard is None:
-        return
-    if sys.platform == "win32":
-        try:
-            guard.stop()
-        except Exception:
-            pass
-        return
-    if isinstance(guard, tuple):
-        stop, t = guard
-        stop.set()
-        try:
-            t.join(timeout=1.0)
-        except Exception:
-            pass
-    _give_back_focus()
-
-
-def _ensure_crawl_tab(driver) -> str:
-    """专用抓取标签：已 primed 后绝不 switch_to。"""
-    global _crawl_handle, _silent_primed
-
-    handles = list(driver.window_handles or [])
-
-    if _silent_primed and _crawl_handle:
-        if _crawl_handle in handles:
-            return _crawl_handle
-        print("[allnews] 静默抓取标签丢失，将重建（可能再抢一次焦点）")
-        _silent_primed = False
-        _crawl_handle = None
-
-    if _crawl_handle and _crawl_handle in handles:
-        try:
-            if driver.current_window_handle != _crawl_handle:
-                driver.switch_to.window(_crawl_handle)
-        except Exception:
-            _crawl_handle = None
-        if _crawl_handle:
-            return _crawl_handle
-
-    # 后台建标签，减少置顶
-    created = None
-    try:
-        before = set(handles)
-        driver.execute_cdp_cmd(
-            "Target.createTarget",
-            {"url": "about:blank", "background": True},
-        )
-        for _ in range(30):
-            now = list(driver.window_handles or [])
-            new_ones = [h for h in now if h not in before]
-            if new_ones:
-                created = new_ones[-1]
-                break
-            time.sleep(0.08)
-    except Exception:
-        created = None
-
-    if not created:
-        try:
-            driver.switch_to.new_window("tab")
-            created = driver.current_window_handle
-        except Exception:
-            driver.execute_script("window.open('about:blank','_blank');")
-            created = driver.window_handles[-1]
-
-    # 仅此一次切到专用标签，让 Selenium 附着
-    try:
-        driver.switch_to.window(created)
-    except Exception:
-        pass
-    _crawl_handle = created
-    return created
+def _as_bg(driver) -> Optional[BackgroundTarget]:
+    if isinstance(driver, BackgroundTarget):
+        return driver
+    return _bg if isinstance(_bg, BackgroundTarget) else None
 
 
 def navigate(driver, url: str) -> None:
-    """
-    静默导航：
-    - 第一次建专用 tab（可抢一次）→ 还焦点 → primed
-    - 之后只 Page.navigate / location.href，禁止遍历 switch_to
-    """
-    global _silent_primed
-
+    """静默：后台 session Page.navigate；非静默：Selenium get。"""
     target = (url or "").strip()
     if not target:
         return
 
+    bg = _as_bg(driver)
+    if bg is not None:
+        bg.silent_navigate(target)
+        return
+
     if not silent_enabled():
-        # 非静默：仍避免扫描全部 tab，直接新开或当前页打开
         try:
             driver.switch_to.new_window("tab")
         except Exception:
@@ -279,95 +279,91 @@ def navigate(driver, url: str) -> None:
         driver.get(target)
         return
 
-    first = not _silent_primed
-    if first:
-        _capture_user_front()
-        print("[allnews] 静默：第一次允许抢焦点，打开专用抓取标签…")
-        _ensure_crawl_tab(driver)
-    else:
-        if not _crawl_handle:
-            _ensure_crawl_tab(driver)
-        # 已锁定：即使不在 crawl 标签也不 switch_to
-        try:
-            cur = driver.current_window_handle
-        except Exception:
-            cur = None
-        if cur != _crawl_handle:
-            print("[allnews] 已静默锁定，跳过 switch_to，改用 CDP navigate")
-
-    try:
-        driver.execute_cdp_cmd("Page.navigate", {"url": target})
-    except Exception:
-        if first:
-            driver.get(target)
-        else:
-            # 禁止 get（常会置顶）
-            try:
-                driver.execute_script("window.location.href = arguments[0];", target)
-            except Exception:
-                pass
-
-    for _ in range(50):
-        try:
-            ready = driver.execute_script("return document.readyState")
-            if ready in ("interactive", "complete"):
-                break
-        except Exception:
-            pass
-        time.sleep(0.1)
-
-    if first:
-        _silent_primed = True
-        _give_back_focus()
-        _start_focus_guard()
-        print("[allnews] 静默已锁定：后续只 navigate，不再切标签")
-    else:
-        _give_back_focus()
+    raise RuntimeError("静默模式未建立后台 CDP session")
 
 
-# 兼容旧名
 def navigate_dedicated_tab(driver, url: str) -> None:
     navigate(driver, url)
 
 
 def scroll_page(driver, rounds: int = 6, step: int = 900, wait_ms: int = 1200) -> None:
+    bg = _as_bg(driver)
     for _ in range(max(1, rounds)):
         try:
-            driver.execute_script(f"window.scrollBy(0, {int(step)});")
+            if bg is not None:
+                bg.eval_js(f"window.scrollBy(0, {int(step)}); return true;")
+            else:
+                driver.execute_script(f"window.scrollBy(0, {int(step)});")
         except Exception:
             break
-        if silent_enabled() and _silent_primed:
-            _give_back_focus()
         jitter_sleep(wait_ms, 0.4)
 
 
 def exec_js(driver, script: str) -> Any:
+    bg = _as_bg(driver)
+    if bg is not None:
+        return bg.eval_js(script)
     return driver.execute_script(script)
 
 
 @contextmanager
 def cdp_session() -> Iterator[Any]:
     """
-    整段抓取生命周期：记录用户前台 → 抓取 → 停止守护并还焦点。
-    多平台应共用同一次 session，避免反复 primed。
+    整段抓取共用一次后台标签。
+    静默：纯 CDP，不抢焦点、不还焦。
     """
-    driver = get_driver()
-    if silent_enabled():
-        _capture_user_front()
+    global _bg
+
+    if not silent_enabled():
+        driver = get_driver()
+        try:
+            yield driver
+        except Exception:
+            reset_driver()
+            raise
+        return
+
+    client: Optional[_CdpClient] = None
+    page: Optional[BackgroundTarget] = None
     try:
-        yield driver
+        try:
+            _http_json("/json/version")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            raise RuntimeError(
+                f"无法连接 Chrome CDP ({get_debugger_url()})，请先用 --remote-debugging-port 启动: {e}"
+            ) from e
+
+        client = _CdpClient(_browser_ws_url())
+        page = BackgroundTarget.create(client, "about:blank")
+        _bg = page
+        print("[allnews] 静默 CDP：后台标签已建立（不激活、不还焦）")
+        yield page
     except Exception:
-        reset_driver()
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        _bg = None
         raise
     finally:
-        if silent_enabled():
-            _stop_focus_guard()
-            _give_back_focus()
+        if page is not None:
+            try:
+                page.detach()
+            except Exception:
+                pass
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        if _bg is page:
+            _bg = None
 
 
 @contextmanager
 def borrow_driver(driver=None) -> Iterator[Any]:
-    """平台适配器用：有外部 driver 则复用，否则自开短 session。"""
+    """平台适配器用：有外部 session 则复用，否则自开短 session。"""
     if driver is not None:
         yield driver
         return
