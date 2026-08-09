@@ -17,6 +17,8 @@ from .db import (
 )
 from .deconstruct import deconstruct_post, import_and_deconstruct
 from .generate import regenerate_from_template
+from .viral_deconstruct import deconstruct_viral_post
+from .xgrowth import run_xgrowth_viral_pipeline
 
 __all__ = [
     "DEFAULT_DB_PATH",
@@ -34,4 +36,6 @@ __all__ = [
     "deconstruct_post",
     "import_and_deconstruct",
     "regenerate_from_template",
+    "deconstruct_viral_post",
+    "run_xgrowth_viral_pipeline",
 ]

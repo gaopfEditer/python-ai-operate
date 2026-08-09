@@ -70,13 +70,13 @@
       ],
       "enabled": false,
       "created_at": "2026-08-03T14:42:46",
-      "updated_at": "2026-08-06T23:18:47",
-      "stopped_at": "2026-08-06T23:18:47",
-      "last_run_at": "2026-08-06T21:34:56",
+      "updated_at": "2026-08-07T23:29:48",
+      "stopped_at": "2026-08-07T23:29:48",
+      "last_run_at": "2026-08-07T23:13:49",
       "next_run_at": null,
       "last_status": "stopped",
       "last_message": "已停止（仍保留在历史任务库）",
-      "run_count": 23,
+      "run_count": 29,
       "expansion": null
     },
     {
@@ -96,13 +96,13 @@
       ],
       "enabled": false,
       "created_at": "2026-08-03T14:43:36",
-      "updated_at": "2026-08-06T23:18:46",
-      "stopped_at": "2026-08-06T23:18:46",
-      "last_run_at": "2026-08-06T21:20:12",
+      "updated_at": "2026-08-07T23:29:47",
+      "stopped_at": "2026-08-07T23:29:47",
+      "last_run_at": "2026-08-07T23:31:26",
       "next_run_at": null,
-      "last_status": "stopped",
-      "last_message": "已停止（仍保留在历史任务库）",
-      "run_count": 14,
+      "last_status": "done",
+      "last_message": "抓取完成，匹配 2 条｜Reddit 2（本轮 Reddit +0 / Telegram +0）；注意：Reddit 搜索无结果 q='twitter growth'（官方接口失败: ProxyError: HTTPSConnectionPool(host='www.reddit.com', port=443): Max retries exceeded with url: /search.json?q=twitt...",
+      "run_count": 20,
       "expansion": null
     }
   ]

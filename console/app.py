@@ -13,6 +13,7 @@ import random
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -1838,6 +1839,87 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             {"success": True, "items": list_generations(template_id=tid, limit=limit)}
         )
 
+    if path == "/api/corpus/taxonomy" and method == "GET":
+        from corpus.taxonomy import TAG_TREE, flatten_tag_options
+
+        return _json_bytes(
+            {
+                "success": True,
+                "tree": TAG_TREE,
+                "options": [
+                    {"domain": d, "primary": p, "secondary": s}
+                    for d, p, s in flatten_tag_options()
+                ],
+            }
+        )
+
+    if path == "/api/corpus/xgrowth/run" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+        try:
+            limit = int(body.get("limit") or 8)
+        except Exception:
+            limit = 8
+        try:
+            min_velocity = int(body.get("min_velocity") or 0)
+        except Exception:
+            min_velocity = 0
+        include_potential = bool(body.get("include_potential", True))
+        open_tweet = bool(body.get("open_tweet", True))
+
+        def _progress(msg: str) -> None:
+            _set_job(job_id, message=str(msg or "")[:300])
+
+        def _worker() -> None:
+            _set_job(
+                job_id,
+                status="running",
+                type="xgrowth_viral",
+                message="开始抓取 xgrowth 热榜…",
+                started_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            try:
+                from corpus.xgrowth import run_xgrowth_viral_pipeline
+
+                result = run_xgrowth_viral_pipeline(
+                    limit=limit,
+                    include_potential=include_potential,
+                    open_tweet=open_tweet,
+                    min_velocity=min_velocity,
+                    progress=_progress,
+                )
+                _set_job(
+                    job_id,
+                    status="done" if result.get("success") else "error",
+                    message=(
+                        f"完成：成功 {result.get('ok', 0)} / 失败 {result.get('fail', 0)}"
+                        if result.get("success")
+                        else str(result.get("error") or "失败")
+                    ),
+                    result=result,
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    error=str(e),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+
+        _set_job(
+            job_id,
+            status="queued",
+            type="xgrowth_viral",
+            message="排队中",
+            limit=limit,
+            include_potential=include_potential,
+            open_tweet=open_tweet,
+            min_velocity=min_velocity,
+        )
+        threading.Thread(target=_worker, name=f"xgrowth-{job_id}", daemon=True).start()
+        return _json_bytes({"success": True, "job_id": job_id})
+
     if path == "/api/create" and method == "POST":
         topic = str(body.get("topic") or "").strip()
         if not topic:
@@ -1877,7 +1959,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
     if path == "/api/publish" and method == "POST":
         title = str(body.get("title") or "").strip()
-        content = str(body.get("content") or "").strip()
+        content = str(body.get("content") or body.get("text") or "").strip()
         file_path = str(body.get("file") or "").strip()
         tags = str(body.get("tags") or "").strip() or None
         platforms = body.get("platforms")
@@ -1886,6 +1968,18 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         if not isinstance(platforms, list):
             platforms = None
 
+        media_paths = body.get("media_paths") or body.get("media") or []
+        if isinstance(media_paths, str):
+            media_paths = [
+                p.strip()
+                for p in re.split(r"[\n,;]+", media_paths)
+                if p.strip()
+            ]
+        elif not isinstance(media_paths, list):
+            media_paths = []
+        else:
+            media_paths = [str(p).strip() for p in media_paths if str(p).strip()]
+
         if file_path and (not title or not content):
             art = _read_article(file_path)
             if not art.get("success"):
@@ -1893,13 +1987,37 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             title = title or art["title"]
             content = content or art["content"]
 
-        if not title or not content:
-            return _json_bytes({"success": False, "error": "请提供标题和正文，或选择文章文件"}, 400)
+        # 社交 CDP（X / 币安广场）：允许无标题，正文或媒体至少其一
+        social_types = {"x", "twitter", "binance_square", "binance", "square"}
+        plats = platforms or []
+        is_social_only = False
+        if plats:
+            try:
+                if str(PROJECT_ROOT) not in sys.path:
+                    sys.path.insert(0, str(PROJECT_ROOT))
+                from public.index import get_platform_config
+
+                types = {
+                    str((get_platform_config(pid) or {}).get("type") or "").lower()
+                    for pid in plats
+                }
+                is_social_only = bool(types) and types.issubset(social_types)
+            except Exception:
+                is_social_only = False
+
+        if is_social_only:
+            if not content and not media_paths:
+                return _json_bytes(
+                    {"success": False, "error": "请提供正文或媒体路径"}, 400
+                )
+        elif not title or not content:
+            return _json_bytes(
+                {"success": False, "error": "请提供标题和正文，或选择文章文件"}, 400
+            )
 
         use_cdp = bool(body.get("use_cdp", True))
         debugger_url = str(body.get("debugger_url") or "").strip()
-
-        import sys
+        submit = bool(body.get("submit", True))
 
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
@@ -1911,6 +2029,8 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             tags=tags,
             use_cdp=use_cdp,
             debugger_url=debugger_url or None,
+            media_paths=media_paths,
+            submit=submit,
         )
         return _json_bytes(result)
 
@@ -2048,7 +2168,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
     safe_print(" TrendRadar Console")
     safe_print("=" * 60)
     safe_print(f" 地址: {url}")
-    safe_print(" 功能: 资讯获取 / 历史缓存 / Prompt 创作 / CDP 发布")
+    safe_print(" 功能: 资讯获取 / 语料库(xgrowth热榜拆解) / Prompt 创作 / CDP 发布")
     safe_print(" 抓取日志: 页面点「开始抓取」后，本窗口会打印 [Crawl] 进度")
     if restored:
         active = sum(1 for t in _CRAWL_TASKS.values() if t.get("enabled"))

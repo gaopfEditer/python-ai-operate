@@ -219,8 +219,9 @@ code {
   white-space: nowrap;
 }
 .crawl-opts .field:not(.check) {
-  flex: 0 0 auto;
-  width: 108px;
+  flex: 0 0 112px;
+  width: 112px;
+  max-width: 112px;
 }
 .crawl-opts .field span {
   font-size: 0.75rem;
@@ -230,6 +231,8 @@ code {
   padding: 6px 8px;
   border-radius: 8px;
   font-size: 0.88rem;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
 }
 .crawl-opts input[type="checkbox"] {
   width: auto;
@@ -259,6 +262,19 @@ input, textarea, select {
   border-radius: 10px;
   padding: 11px 12px;
   font: 400 0.95rem/1.4 var(--body);
+}
+input[type="number"] {
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+  height: 0;
 }
 textarea { resize: vertical; min-height: 120px; }
 input:focus, textarea:focus, select:focus {
@@ -392,9 +408,15 @@ input:focus, textarea:focus, select:focus {
   background: rgba(15, 118, 110, 0.16);
 }
 .tag-chip.cloud em {
+  display: inline-block;
+  width: 2.2em;
+  min-width: 2.2em;
+  margin-left: 4px;
   font-style: normal;
   opacity: 0.7;
-  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  text-align: left;
 }
 .tag-chip.cloud.on {
   border-color: var(--teal);
@@ -432,7 +454,8 @@ input:focus, textarea:focus, select:focus {
 }
 .tab-count {
   display: inline-block;
-  min-width: 1.4em;
+  width: 2.6em;
+  min-width: 2.6em;
   margin-left: 4px;
   padding: 1px 6px;
   border-radius: 999px;
@@ -440,7 +463,11 @@ input:focus, textarea:focus, select:focus {
   color: #d7e0da;
   font-size: 0.72rem;
   font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  text-align: left;
   vertical-align: middle;
+  box-sizing: border-box;
 }
 .tab.active .tab-count {
   background: rgba(15, 118, 110, 0.25);
@@ -536,14 +563,29 @@ input:focus, textarea:focus, select:focus {
   background: rgba(255, 255, 255, 0.45);
   color: var(--ink);
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 6px 10px;
   font: 600 0.8rem/1.2 var(--mono);
   cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 5.8em;
+  justify-content: flex-start;
+}
+.platform-chip .chip-label {
+  flex: 0 0 auto;
 }
 .platform-chip em {
+  display: inline-block;
+  width: 2.4em;
+  flex: 0 0 2.4em;
+  margin-left: 0;
   font-style: normal;
   opacity: 0.7;
-  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  font-feature-settings: "tnum";
 }
 .platform-chip.on {
   border-color: var(--teal);
@@ -582,6 +624,37 @@ input:focus, textarea:focus, select:focus {
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.42);
   box-shadow: var(--shadow);
+}
+.task-library .run-flag {
+  display: inline-block;
+  width: 3.2em;
+  min-width: 3.2em;
+  color: var(--warn, #c2410c);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  text-align: left;
+}
+.task-library [data-k="runcount"],
+.task-library [data-k="status"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+.task-library [data-k="status"] {
+  display: inline-block;
+  min-width: 3.2em;
+  text-align: left;
+}
+.task-library [data-k="lastrun"],
+.task-library [data-k="nextrun"],
+.task-library [data-k="stopped"] {
+  display: inline-block;
+  min-width: 9em;
+  font-variant-numeric: tabular-nums;
+}
+#taskMeta {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  min-height: 1.4em;
 }
 .task-library .panel-head {
   margin-bottom: 10px;

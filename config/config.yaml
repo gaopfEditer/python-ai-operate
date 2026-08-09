@@ -218,17 +218,31 @@ publish:
   # 是否启用发布功能
   enable: true
   # 默认发布的平台列表（使用平台ID，用逗号分隔）
-  default_platforms: "typecho"
+  default_platforms: "x,binance_square"
   # 是否使用无头模式（不显示浏览器）
   # 建议首次测试时设为false，可以看到浏览器操作过程，便于调试
   headless: false
   # 浏览器等待时间（秒）
   wait_timeout: 10
   # CDP：复用已启动的 Chrome（控制台「CDP 发布」默认开启）
+  # 启动示例：Chrome --remote-debugging-port=9222 --user-data-dir=...
+  # 并提前登录 X / 币安
   debugger_url: "127.0.0.1:9222"
   
   # 平台配置
   platforms:
+    - id: "x"
+      name: "X / Twitter"
+      type: "x"
+      compose_url: "https://x.com/compose/post"
+      enabled: true
+    - id: "binance_square"
+      name: "币安广场"
+      type: "binance_square"
+      square_url: "https://www.binance.com/zh-CN/square"
+      wait_sec: 8
+      media_upload_wait: 25
+      enabled: true
     - id: "typecho"
       name: "Typecho博客"
       type: "typecho"
@@ -236,7 +250,7 @@ publish:
       write_url: "https://easycoin.gaopf.top/admin/write-post.php"
       username: "admin"
       password: "1245@qq.com"
-      enabled: true  # 是否启用此平台
+      enabled: true
 
 # 评论平台配置
 comment:

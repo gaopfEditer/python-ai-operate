@@ -223,10 +223,35 @@
           <h2>语料库</h2>
           <p>采集 → Prompt 拆解 → SQLite 资产化 → 按模板再生成。可查看取材路径并打标归档。</p>
         </div>
+        <div class="preview" id="xgrowthBox">
+          <h3>xgrowth 爆款热榜 → AI 拆解入库</h3>
+          <p class="muted" style="margin:0 0 10px">CDP 打开 <a href="https://xgrowth.tools/viral-tweets" target="_blank" rel="noreferrer">xgrowth.tools/viral-tweets</a> 热榜，再打开原帖分析高流量原因并打两级标签。</p>
+          <div class="toolbar" style="margin:0">
+            <label class="field">
+              <span>条数</span>
+              <input id="xgrowthLimit" type="number" min="1" max="30" value="8" />
+            </label>
+            <label class="field">
+              <span>最低流速/时</span>
+              <input id="xgrowthMinVel" type="number" min="0" step="1000" value="0" />
+            </label>
+            <label class="field check">
+              <input id="xgrowthPotential" type="checkbox" checked />
+              <span>含潜力榜(4h)</span>
+            </label>
+            <label class="field check">
+              <input id="xgrowthOpenTweet" type="checkbox" checked />
+              <span>CDP 打开原帖</span>
+            </label>
+            <button id="btnXgrowthRun" class="btn primary" type="button">抓取并拆解</button>
+          </div>
+          <p id="xgrowthStatus" class="status"></p>
+          <pre id="xgrowthOut" class="preview-body muted">尚未运行</pre>
+        </div>
         <div class="toolbar">
           <label class="field grow">
             <span>检索</span>
-            <input id="corpusKeyword" type="search" placeholder="模板 / 情绪 / 关键词" />
+            <input id="corpusKeyword" type="search" placeholder="模板 / 情绪 / 标签 / 流速" />
           </label>
           <label class="field">
             <span>情绪</span>
@@ -322,7 +347,7 @@
       <section id="panel-publish" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>CDP 发布</h2>
-          <p>载入本地文章或粘贴正文，通过已配置的平台发布。</p>
+          <p>复用已登录 Chrome（CDP），发布文本到 X / 币安广场，支持图片与视频本地路径。</p>
         </div>
         <div class="toolbar">
           <label class="field grow">
@@ -335,20 +360,24 @@
         </div>
         <div class="form-grid">
           <label class="field full">
-            <span>标题</span>
+            <span>标题（可选，社交帖会并入正文首行）</span>
             <input id="publishTitle" type="text" />
           </label>
           <label class="field full">
             <span>正文</span>
             <textarea id="publishContent" rows="12"></textarea>
           </label>
-          <label class="field">
-            <span>标签（逗号分隔）</span>
-            <input id="publishTags" type="text" placeholder="AI, 热点" />
+          <label class="field full">
+            <span>媒体路径（图片/视频，每行一个或逗号分隔）</span>
+            <textarea id="publishMedia" rows="3" placeholder="/path/to/a.jpg&#10;/path/to/b.mp4"></textarea>
           </label>
           <label class="field">
-            <span>发布平台</span>
-            <select id="publishPlatform"></select>
+            <span>标签（逗号分隔，博客用）</span>
+            <input id="publishTags" type="text" placeholder="AI, 热点" />
+          </label>
+          <label class="field full">
+            <span>发布平台（可多选）</span>
+            <select id="publishPlatform" multiple size="4"></select>
           </label>
           <label class="field">
             <span>CDP debugger</span>
@@ -357,6 +386,10 @@
           <label class="field check">
             <input id="useCdp" type="checkbox" checked />
             <span>使用 CDP 发布</span>
+          </label>
+          <label class="field check">
+            <input id="publishDryRun" type="checkbox" />
+            <span>仅填内容不点发布</span>
           </label>
         </div>
         <div class="toolbar">
