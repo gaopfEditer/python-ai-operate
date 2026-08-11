@@ -347,7 +347,7 @@
       <section id="panel-publish" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>CDP 发布</h2>
-          <p>复用已登录 Chrome（CDP），发布文本到 X / 币安广场，支持图片与视频本地路径。</p>
+          <p>上传图文保存到后台按月目录（可拷贝），也可预约定时发布。存储：<code>output/publish_cache/YYYY-MM/</code></p>
         </div>
         <div class="toolbar">
           <label class="field grow">
@@ -360,24 +360,33 @@
         </div>
         <div class="form-grid">
           <label class="field full">
-            <span>标题（可选，社交帖会并入正文首行）</span>
+            <span>标题（可选）</span>
             <input id="publishTitle" type="text" />
           </label>
           <label class="field full">
             <span>正文</span>
-            <textarea id="publishContent" rows="12"></textarea>
+            <textarea id="publishContent" rows="8"></textarea>
           </label>
           <label class="field full">
-            <span>媒体路径（图片/视频，每行一个或逗号分隔）</span>
-            <textarea id="publishMedia" rows="3" placeholder="/path/to/a.jpg&#10;/path/to/b.mp4"></textarea>
+            <span>上传图片（可多选）</span>
+            <input id="publishMediaFiles" type="file" accept="image/*,video/*" multiple />
+          </label>
+          <div id="publishMediaPreview" class="media-preview"></div>
+          <label class="field full">
+            <span>或粘贴本地路径（可选，每行一个）</span>
+            <textarea id="publishMedia" rows="2" placeholder="/path/to/a.jpg"></textarea>
           </label>
           <label class="field">
-            <span>标签（逗号分隔，博客用）</span>
+            <span>标签（博客用）</span>
             <input id="publishTags" type="text" placeholder="AI, 热点" />
+          </label>
+          <label class="field">
+            <span>预约发布时间</span>
+            <input id="publishScheduleAt" type="datetime-local" />
           </label>
           <label class="field full">
             <span>发布平台（可多选）</span>
-            <select id="publishPlatform" multiple size="4"></select>
+            <select id="publishPlatform" multiple size="3"></select>
           </label>
           <label class="field">
             <span>CDP debugger</span>
@@ -389,13 +398,34 @@
           </label>
           <label class="field check">
             <input id="publishDryRun" type="checkbox" />
-            <span>仅填内容不点发布</span>
+            <span>立即发布时：仅填不点发</span>
           </label>
         </div>
         <div class="toolbar">
-          <button id="btnPublish" class="btn primary" type="button">发布</button>
+          <button id="btnCacheSave" class="btn primary" type="button">保存到月度缓存</button>
+          <button id="btnQueueAdd" class="btn primary" type="button">保存并加入定时队列</button>
+          <button id="btnPublish" class="btn ghost" type="button">立即发布</button>
+          <button id="btnQueueRefresh" class="btn ghost" type="button">刷新队列</button>
+          <button id="btnQueueClearDone" class="btn ghost" type="button">清理已完成</button>
         </div>
         <p id="publishStatus" class="status"></p>
+        <div class="queue-head">
+          <h3>发布队列 <span id="queueStats" class="muted"></span></h3>
+        </div>
+        <div id="publishQueueList" class="card-list queue-list"></div>
+
+        <div class="queue-head" style="margin-top:28px">
+          <h3>月度缓存浏览 <span id="cacheRootLabel" class="muted"></span></h3>
+        </div>
+        <div class="toolbar">
+          <label class="field">
+            <span>月份</span>
+            <select id="cacheMonthSelect"></select>
+          </label>
+          <button id="btnCacheRefresh" class="btn ghost" type="button">刷新</button>
+          <button id="btnCacheOpenRoot" class="btn ghost" type="button">打开缓存根目录</button>
+        </div>
+        <div id="publishCacheList" class="card-list queue-list"></div>
         <pre id="publishResult" class="preview-body muted"></pre>
       </section>
     </main>

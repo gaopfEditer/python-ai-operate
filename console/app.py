@@ -2034,6 +2034,157 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         )
         return _json_bytes(result)
 
+    # —— 定时发布队列 ——
+    if path == "/api/publish/queue" and method == "GET":
+        from console import publish_queue as pq
+
+        status = (query.get("status") or [""])[0].strip() or None
+        include_done = (query.get("include_done") or ["1"])[0] not in ("0", "false", "no")
+        return _json_bytes(
+            {
+                "success": True,
+                "items": pq.list_items(status=status, include_done=include_done),
+                "stats": pq.stats(),
+                "cache_root": str(pq.cache_root()),
+            }
+        )
+
+    if path == "/api/publish/queue" and method == "POST":
+        from console import publish_queue as pq
+
+        try:
+            item = pq.add_item(body)
+            return _json_bytes({"success": True, "item": item, "stats": pq.stats()})
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 500)
+
+    if path == "/api/publish/cache/save" and method == "POST":
+        from console import publish_queue as pq
+
+        try:
+            item = pq.save_draft(body, enqueue=False)
+            return _json_bytes({"success": True, "item": item, "stats": pq.stats()})
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 500)
+
+    if path == "/api/publish/cache/months" and method == "GET":
+        from console import publish_queue as pq
+
+        return _json_bytes(
+            {
+                "success": True,
+                "months": pq.list_months(),
+                "cache_root": str(pq.cache_root()),
+            }
+        )
+
+    if path == "/api/publish/cache" and method == "GET":
+        from console import publish_queue as pq
+
+        month = (query.get("month") or [""])[0].strip()
+        if not month:
+            month = datetime.now().strftime("%Y-%m")
+        try:
+            items = pq.list_cache_month(month)
+            return _json_bytes(
+                {
+                    "success": True,
+                    "month": month,
+                    "items": items,
+                    "cache_root": str(pq.cache_root()),
+                }
+            )
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/publish/cache/content" and method == "GET":
+        from console import publish_queue as pq
+
+        rel = (query.get("rel") or [""])[0].strip()
+        try:
+            text = pq.read_content_md(rel)
+            return _json_bytes({"success": True, "rel": rel, "content_md": text})
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/publish/cache/reveal" and method == "POST":
+        from console import publish_queue as pq
+
+        rel = str(body.get("rel") or body.get("path") or body.get("storage_dir") or "").strip()
+        try:
+            result = pq.reveal_in_finder(rel)
+            return _json_bytes(result)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/publish/cache/file" and method == "GET":
+        from console import publish_queue as pq
+        import mimetypes
+
+        rel = (query.get("rel") or [""])[0].strip()
+        try:
+            fpath = pq.resolve_cache_path(rel)
+            if not fpath.is_file():
+                return _json_bytes({"success": False, "error": "文件不存在"}, 404)
+            data = fpath.read_bytes()
+            ctype = mimetypes.guess_type(str(fpath))[0] or "application/octet-stream"
+            return data, 200, ctype
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/publish/queue/clear-done" and method == "POST":
+        from console import publish_queue as pq
+
+        n = pq.clear_done()
+        return _json_bytes({"success": True, "cleared": n, "stats": pq.stats()})
+
+    if path.startswith("/api/publish/queue/") and method in ("GET", "POST", "DELETE"):
+        from console import publish_queue as pq
+
+        rest = path[len("/api/publish/queue/") :].strip("/")
+        parts = [p for p in rest.split("/") if p]
+        if not parts:
+            return _json_bytes({"success": False, "error": "缺少队列 id"}, 400)
+        item_id = parts[0]
+        action = parts[1] if len(parts) > 1 else ""
+
+        if method == "GET":
+            item = pq.get_item(item_id)
+            if not item:
+                return _json_bytes({"success": False, "error": "条目不存在"}, 404)
+            return _json_bytes({"success": True, "item": item})
+
+        if method == "DELETE" or action in ("delete", "remove"):
+            remove_files = False
+            if method == "DELETE":
+                remove_files = (query.get("remove_files") or ["0"])[0] in ("1", "true", "yes")
+            else:
+                remove_files = bool(body.get("remove_files"))
+            ok = pq.delete_item(item_id, remove_files=remove_files)
+            if not ok:
+                return _json_bytes({"success": False, "error": "条目不存在"}, 404)
+            return _json_bytes({"success": True, "stats": pq.stats()})
+
+        if action in ("run", "publish", "now"):
+            result = pq.publish_now(item_id)
+            code = 200 if result.get("success") else 400
+            return _json_bytes(result, code)
+
+        if action in ("update", "patch", "") or method == "POST":
+            try:
+                item = pq.update_item(item_id, body)
+            except ValueError as e:
+                return _json_bytes({"success": False, "error": str(e)}, 400)
+            if not item:
+                return _json_bytes({"success": False, "error": "条目不存在"}, 404)
+            return _json_bytes({"success": True, "item": item, "stats": pq.stats()})
+
+        return _json_bytes({"success": False, "error": f"未知操作: {action}"}, 404)
+
     return _json_bytes({"success": False, "error": f"未知接口: {path}"}, 404)
 
 
@@ -2155,6 +2306,16 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
     restored = _load_crawl_tasks()
+    queue_n = 0
+    try:
+        from console import publish_queue as pq
+
+        queue_n = pq.init(
+            PROJECT_ROOT / "output" / "publish_queue.json",
+            cache_root=PROJECT_ROOT / "output" / "publish_cache",
+        )
+    except Exception as e:
+        safe_print(f" 发布队列初始化跳过: {e}")
     try:
         from corpus.db import init_db as init_corpus_db
 
@@ -2168,11 +2329,13 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
     safe_print(" TrendRadar Console")
     safe_print("=" * 60)
     safe_print(f" 地址: {url}")
-    safe_print(" 功能: 资讯获取 / 语料库(xgrowth热榜拆解) / Prompt 创作 / CDP 发布")
+    safe_print(" 功能: 资讯获取 / 语料库(xgrowth热榜拆解) / Prompt 创作 / CDP 发布(定时队列)")
     safe_print(" 抓取日志: 页面点「开始抓取」后，本窗口会打印 [Crawl] 进度")
     if restored:
         active = sum(1 for t in _CRAWL_TASKS.values() if t.get("enabled"))
         safe_print(f" 周期任务库: 已恢复 {restored} 条（运行中 {active}）")
+    if queue_n:
+        safe_print(f" 发布队列: 已恢复 {queue_n} 条（到点自动发）")
     safe_print(" 按 Ctrl+C 停止")
     safe_print("=" * 60)
     if open_browser:

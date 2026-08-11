@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -14,14 +15,39 @@ SYSTEM_PROMPT = """你是社交媒体搜索顾问。根据用户主题，输出�
 只输出 JSON，不要 markdown 代码块，不要解释。
 JSON 结构：
 {
-  "seeds": ["短词或短语，中英皆可，6~12个"],
-  "twitter_queries": ["3~6条 X 高级搜索语法，可用引号、OR、min_faves、-filter:replies、-filter:retweets、lang:en 等"],
-  "reddit_queries": ["2~5个适合 Reddit search 的短语"],
-  "telegram_queries": ["2~5个适合 Telegram 全文搜索的短语"],
-  "questions": ["2~4个用户常搜的问题句，可选"]
+  "seeds": ["短词或短语，以中文为主，可少量英文专有名词，6~12个"],
+  "twitter_queries": ["3~6条 X 高级搜索语法，可用引号、OR、min_faves、-filter:replies、-filter:retweets、lang:zh 等"],
+  "reddit_queries": ["2~5个适合 Reddit search 的中文或中英混合短语"],
+  "telegram_queries": ["2~5个适合 Telegram 全文搜索的中文短语"],
+  "questions": ["2~4个用户常搜的中文问题句，可选"]
 }
-twitter_queries 要求：每条可直接粘贴到 X 搜索框；优先英文职业/场景词；不要太长。
+twitter_queries 要求：每条可直接粘贴到 X 搜索框；优先中文内容；必须带 lang:zh；不要太长。
 """
+
+
+def _prefer_chinese_queries() -> bool:
+    env = os.environ.get("ONLY_CHINESE", "").strip().lower()
+    if env:
+        return env in ("1", "true", "yes")
+    try:
+        from pathlib import Path
+        import yaml
+
+        cfg = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
+        with open(cfg, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return bool((data.get("crawler") or {}).get("only_chinese", False))
+    except Exception:
+        return False
+
+
+def _ensure_lang_zh(query: str) -> str:
+    q = (query or "").strip()
+    if not q:
+        return q
+    if re.search(r"\blang:\w+", q, re.I):
+        return re.sub(r"\blang:\w+", "lang:zh", q, flags=re.I)
+    return f"{q} lang:zh"
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
@@ -101,11 +127,19 @@ def _heuristic_expand(keyword: str) -> Dict[str, Any]:
 
     en = next((s for s in uniq if re.search(r"[A-Za-z]", s)), kw)
     alt = next((s for s in uniq if re.search(r"[A-Za-z]", s) and s.lower() != en.lower()), "remote job")
-    twitter = [
-        f'("{en}" OR "{alt}") (min_faves:20 OR min_retweets:5) -filter:replies',
-        f'"{en}" (hiring OR job OR opportunity) -filter:replies lang:en',
-        f'"{en}" -filter:retweets -filter:replies',
-    ]
+    zh_only = _prefer_chinese_queries()
+    if zh_only:
+        twitter = [
+            f'("{kw}" OR "{en}") (min_faves:20 OR min_retweets:5) -filter:replies lang:zh',
+            f'"{kw}" (招聘 OR 机会 OR 远程) -filter:replies lang:zh',
+            f'"{kw}" -filter:retweets -filter:replies lang:zh',
+        ]
+    else:
+        twitter = [
+            f'("{en}" OR "{alt}") (min_faves:20 OR min_retweets:5) -filter:replies',
+            f'"{en}" (hiring OR job OR opportunity) -filter:replies lang:en',
+            f'"{en}" -filter:retweets -filter:replies',
+        ]
     return {
         "seeds": uniq[:10],
         "twitter_queries": twitter[:4],
@@ -200,4 +234,6 @@ def expand_keyword(keyword: str, max_twitter: int = 5) -> Dict[str, Any]:
         data["reddit_queries"] = data["seeds"][:4]
     if not data["telegram_queries"]:
         data["telegram_queries"] = data["seeds"][:4]
+    if _prefer_chinese_queries():
+        data["twitter_queries"] = [_ensure_lang_zh(q) for q in data["twitter_queries"]]
     return data

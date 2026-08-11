@@ -208,6 +208,10 @@ def load_config():
         else config_data["report"].get("reverse_content_order", False),
         "USE_PROXY": config_data["crawler"]["use_proxy"],
         "DEFAULT_PROXY": config_data["crawler"]["default_proxy"],
+        "ONLY_CHINESE": os.environ.get("ONLY_CHINESE", "").strip().lower()
+        in ("true", "1", "yes")
+        if os.environ.get("ONLY_CHINESE", "").strip()
+        else bool(config_data["crawler"].get("only_chinese", False)),
         "ENABLE_CRAWLER": os.environ.get("ENABLE_CRAWLER", "").strip().lower()
         in ("true", "1")
         if os.environ.get("ENABLE_CRAWLER", "").strip()
@@ -996,14 +1000,24 @@ class DataFetcher:
         target = max(1, int(search_cfg.get("target_per_query", 15) or 15))
 
         jobs: List[Dict] = []
+        only_zh = bool(CONFIG.get("ONLY_CHINESE"))
+
+        def _with_lang_zh(query: str) -> str:
+            q = (query or "").strip()
+            if not q:
+                return q
+            if re.search(r"\blang:\w+", q, re.I):
+                return re.sub(r"\blang:\w+", "lang:zh", q, flags=re.I)
+            return f"{q} lang:zh"
 
         def add_job(query: str, tab: str, label: str):
+            q = _with_lang_zh(query) if only_zh else query
             jobs.append(
                 {
-                    "url": self._build_x_search_url(query, tab),
+                    "url": self._build_x_search_url(q, tab),
                     "label": label,
                     "target": target,
-                    "query": query,
+                    "query": q,
                     "tab": tab,
                 }
             )
@@ -1232,6 +1246,15 @@ class DataFetcher:
                     text = clean_title(self._safe_text(article))
                 if not text:
                     continue
+
+                if CONFIG.get("ONLY_CHINESE"):
+                    try:
+                        from utils.summary_zh import looks_mostly_chinese
+                    except Exception:
+                        looks_mostly_chinese = None  # type: ignore
+                    if looks_mostly_chinese is not None and not looks_mostly_chinese(text):
+                        seen_ids.add(tweet_id)
+                        continue
 
                 try:
                     user_nodes = article.find_elements(

@@ -23,6 +23,23 @@ def looks_mostly_english(text: str) -> bool:
     return len(letters) >= max(12, len(cjk) * 2)
 
 
+def looks_mostly_chinese(text: str, min_cjk: int = 2) -> bool:
+    """
+    粗判文本是否含足够中文（资讯「仅中文」过滤用）。
+    - 至少 min_cjk 个汉字
+    - 且不是 looks_mostly_english（避免中英混排以英为主被误收）
+    """
+    s = (text or "").strip()
+    if not s:
+        return False
+    cjk = re.findall(r"[\u4e00-\u9fff]", s)
+    if len(cjk) < max(1, int(min_cjk)):
+        return False
+    if looks_mostly_english(s):
+        return False
+    return True
+
+
 def _fallback_summary(text: str) -> str:
     s = re.sub(r"\s+", " ", (text or "").strip())
     if not s:

@@ -1247,6 +1247,326 @@ function parseMediaPaths(raw) {
     .filter(Boolean);
 }
 
+function toDatetimeLocalValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return String(iso).slice(0, 16);
+  }
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function defaultScheduleLocal(minutesAhead = 30) {
+  const d = new Date(Date.now() + minutesAhead * 60 * 1000);
+  return toDatetimeLocalValue(d.toISOString());
+}
+
+function fileToBase64Payload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const data_b64 = result.includes(",") ? result.split(",", 1)[1] : result;
+      resolve({
+        name: file.name,
+        type: file.type || "",
+        data_b64,
+      });
+    };
+    reader.onerror = () => reject(reader.error || new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function collectUploadMediaFiles() {
+  const input = $("#publishMediaFiles");
+  const files = input?.files ? [...input.files] : [];
+  if (!files.length) return [];
+  const out = [];
+  for (const f of files) {
+    if (f.size > 12 * 1024 * 1024) {
+      throw new Error(`文件过大（>12MB）: ${f.name}`);
+    }
+    out.push(await fileToBase64Payload(f));
+  }
+  return out;
+}
+
+function renderMediaPreview() {
+  const box = $("#publishMediaPreview");
+  const input = $("#publishMediaFiles");
+  if (!box || !input) return;
+  box.innerHTML = "";
+  [...(input.files || [])].forEach((f) => {
+    const wrap = document.createElement("div");
+    if (f.type.startsWith("image/")) {
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.alt = f.name;
+      img.src = URL.createObjectURL(f);
+      wrap.appendChild(img);
+    }
+    const name = document.createElement("div");
+    name.className = "thumb-name";
+    name.textContent = f.name;
+    wrap.appendChild(name);
+    box.appendChild(wrap);
+  });
+}
+
+async function collectPublishDraft({ requireSchedule = false } = {}) {
+  const media_files = await collectUploadMediaFiles();
+  const draft = {
+    title: $("#publishTitle")?.value.trim() || "",
+    content: $("#publishContent")?.value.trim() || "",
+    tags: $("#publishTags")?.value.trim() || "",
+    platforms: selectedPublishPlatforms(),
+    media_paths: parseMediaPaths($("#publishMedia")?.value || ""),
+    media_files,
+    use_cdp: !!$("#useCdp")?.checked,
+    debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+    scheduled_at: $("#publishScheduleAt")?.value || "",
+  };
+  if (!draft.platforms.length) {
+    throw new Error("请至少选择一个平台");
+  }
+  if (!draft.content && !draft.media_paths.length && !draft.media_files.length) {
+    throw new Error("请填写正文或上传图片");
+  }
+  if (requireSchedule && !draft.scheduled_at) {
+    throw new Error("请设置预约发布时间");
+  }
+  return draft;
+}
+
+function clearPublishEditorKeepMeta() {
+  $("#publishTitle").value = "";
+  $("#publishContent").value = "";
+  $("#publishMedia").value = "";
+  $("#publishTags").value = "";
+  const input = $("#publishMediaFiles");
+  if (input) input.value = "";
+  renderMediaPreview();
+  const sch = $("#publishScheduleAt");
+  if (sch) sch.value = defaultScheduleLocal(60);
+}
+
+function statusLabel(st) {
+  const map = {
+    pending: "待发布",
+    running: "发布中",
+    done: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+    draft: "仅缓存",
+  };
+  return map[st] || st || "?";
+}
+
+function mirrorQueueLocal(items) {
+  try {
+    localStorage.setItem(
+      "pai_publish_queue_cache",
+      JSON.stringify({ saved_at: Date.now(), items: items || [] })
+    );
+  } catch (_) {}
+}
+
+async function loadPublishQueue() {
+  const box = $("#publishQueueList");
+  if (!box) return;
+  try {
+    const data = await api("/api/publish/queue");
+    const items = data.items || [];
+    const stats = data.stats || {};
+    mirrorQueueLocal(items);
+    const statsEl = $("#queueStats");
+    if (statsEl) {
+      statsEl.textContent = `共 ${stats.all || 0} · 待发 ${stats.pending || 0} · 缓存 ${stats.draft || 0} · 完成 ${stats.done || 0} · 失败 ${stats.failed || 0}`;
+    }
+    if (data.cache_root && $("#cacheRootLabel")) {
+      $("#cacheRootLabel").textContent = data.cache_root;
+    }
+    if (!items.length) {
+      box.innerHTML = `<div class="item muted">队列为空。上传图文后可「保存到月度缓存」或「保存并加入定时队列」。</div>`;
+      return;
+    }
+    box.innerHTML = items
+      .map((it) => {
+        const mediaN = it.media_count || (it.media_paths || []).length;
+        const plats = (it.platforms || []).join(", ");
+        const err = it.last_error
+          ? `<p class="snippet" style="color:#8c2828">${escapeHtml(it.last_error)}</p>`
+          : "";
+        const canEdit = ["pending", "failed", "cancelled", "draft"].includes(it.status);
+        const thumbs = (it.media_rels || [])
+          .slice(0, 4)
+          .map(
+            (rel) =>
+              `<img src="/api/publish/cache/file?rel=${encodeURIComponent(rel)}" alt="" loading="lazy" />`
+          )
+          .join("");
+        return `<article class="item" data-qid="${escapeAttr(it.id)}" data-rel="${escapeAttr(it.storage_rel || "")}">
+          <div class="queue-row">
+            <div class="meta">
+              <span class="status-pill ${escapeAttr(it.status)}">${escapeHtml(statusLabel(it.status))}</span>
+              <span>${escapeHtml(it.month || "")}</span>
+              <span>${escapeHtml(it.id)}</span>
+              <span>${escapeHtml(plats || "-")}</span>
+              <span>${mediaN ? `图 ${mediaN}` : "纯文本"}</span>
+            </div>
+            <div class="queue-actions">
+              ${
+                canEdit
+                  ? `<button type="button" class="btn ghost btn-sm" data-q-act="run">立即发</button>
+                     <button type="button" class="btn ghost btn-sm" data-q-act="save-time">保存时间</button>
+                     <button type="button" class="btn ghost btn-sm" data-q-act="cancel">${it.status === "cancelled" ? "恢复" : "取消"}</button>`
+                  : ""
+              }
+              <button type="button" class="btn ghost btn-sm" data-q-act="copy">复制文案</button>
+              <button type="button" class="btn ghost btn-sm" data-q-act="open">打开目录</button>
+              <button type="button" class="btn ghost btn-sm" data-q-act="load">载入编辑</button>
+              <button type="button" class="btn ghost btn-sm" data-q-act="del">删除</button>
+            </div>
+          </div>
+          <p class="snippet">${escapeHtml(it.snippet || it.content || it.title || "")}</p>
+          ${thumbs ? `<div class="cache-thumbs">${thumbs}</div>` : ""}
+          <p class="path-mono">${escapeHtml(it.storage_dir || it.storage_rel || "")}</p>
+          <label class="field">
+            <span>预约时间</span>
+            <input type="datetime-local" data-q-time value="${escapeAttr(toDatetimeLocalValue(it.scheduled_at))}" ${canEdit ? "" : "disabled"} />
+          </label>
+          ${err}
+        </article>`;
+      })
+      .join("");
+  } catch (e) {
+    box.innerHTML = `<div class="item" style="color:#8c2828">${escapeHtml(String(e))}</div>`;
+  }
+}
+
+async function savePublishBundle({ enqueue }) {
+  setStatus($("#publishStatus"), enqueue ? "正在保存并加入队列…" : "正在保存到月度缓存…");
+  try {
+    const draft = await collectPublishDraft({ requireSchedule: enqueue });
+    const data = await api(enqueue ? "/api/publish/queue" : "/api/publish/cache/save", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    });
+    if (!data.success) {
+      setStatus($("#publishStatus"), data.error || "保存失败", "error");
+      return;
+    }
+    const it = data.item || {};
+    setStatus(
+      $("#publishStatus"),
+      enqueue
+        ? `已入队 ${it.id} · ${it.scheduled_at || ""} · ${it.storage_rel || ""}`
+        : `已缓存 ${it.id} · ${it.storage_rel || ""}`,
+      "ok"
+    );
+    $("#publishResult").textContent = JSON.stringify(it, null, 2);
+    clearPublishEditorKeepMeta();
+    await loadPublishQueue();
+    await loadPublishCache();
+  } catch (e) {
+    setStatus($("#publishStatus"), String(e), "error");
+  }
+}
+
+async function loadPublishCacheMonths() {
+  const sel = $("#cacheMonthSelect");
+  if (!sel) return;
+  const data = await api("/api/publish/cache/months");
+  const months = data.months || [];
+  if (data.cache_root && $("#cacheRootLabel")) {
+    $("#cacheRootLabel").textContent = data.cache_root;
+  }
+  const current = sel.value;
+  sel.innerHTML = "";
+  if (!months.length) {
+    const now = new Date();
+    const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = `${m} (0)`;
+    sel.appendChild(opt);
+    return;
+  }
+  months.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m.month;
+    opt.textContent = `${m.month} (${m.count})`;
+    sel.appendChild(opt);
+  });
+  if (current && [...sel.options].some((o) => o.value === current)) {
+    sel.value = current;
+  }
+}
+
+async function loadPublishCache() {
+  const box = $("#publishCacheList");
+  if (!box) return;
+  try {
+    await loadPublishCacheMonths();
+    const month = $("#cacheMonthSelect")?.value || "";
+    const data = await api(`/api/publish/cache?month=${encodeURIComponent(month)}`);
+    const items = data.items || [];
+    if (!items.length) {
+      box.innerHTML = `<div class="item muted">本月暂无缓存。上传图文后点「保存到月度缓存」。</div>`;
+      return;
+    }
+    box.innerHTML = items
+      .map((it) => {
+        const thumbs = (it.media_files || [])
+          .slice(0, 6)
+          .map((name) => {
+            const rel = `${it.storage_rel}/media/${name}`;
+            return `<img src="/api/publish/cache/file?rel=${encodeURIComponent(rel)}" alt="${escapeAttr(name)}" loading="lazy" />`;
+          })
+          .join("");
+        return `<article class="item" data-crel="${escapeAttr(it.storage_rel)}">
+          <div class="queue-row">
+            <div class="meta">
+              <span>${escapeHtml(it.folder || "")}</span>
+              <span>${(it.media_count || 0) ? `图 ${it.media_count}` : "纯文本"}</span>
+              <span>${escapeHtml(it.status || "")}</span>
+            </div>
+            <div class="queue-actions">
+              <button type="button" class="btn ghost btn-sm" data-c-act="copy">复制文案</button>
+              <button type="button" class="btn ghost btn-sm" data-c-act="open">打开目录</button>
+              <button type="button" class="btn ghost btn-sm" data-c-act="load">载入编辑</button>
+            </div>
+          </div>
+          <p class="snippet">${escapeHtml(it.snippet || it.title || "")}</p>
+          ${thumbs ? `<div class="cache-thumbs">${thumbs}</div>` : ""}
+          <p class="path-mono">${escapeHtml(it.storage_dir || "")}</p>
+        </article>`;
+      })
+      .join("");
+  } catch (e) {
+    box.innerHTML = `<div class="item" style="color:#8c2828">${escapeHtml(String(e))}</div>`;
+  }
+}
+
+async function copyCacheContent(rel) {
+  const data = await api(`/api/publish/cache/content?rel=${encodeURIComponent(rel)}`);
+  if (!data.success) throw new Error(data.error || "读取失败");
+  const text = data.content_md || "";
+  await navigator.clipboard.writeText(text);
+  return text;
+}
+
+async function openCacheDir(rel) {
+  const data = await api("/api/publish/cache/reveal", {
+    method: "POST",
+    body: JSON.stringify({ rel }),
+  });
+  if (!data.success) throw new Error(data.error || "打开失败");
+  return data.path;
+}
+
 async function loadArticles() {
   const data = await api("/api/articles");
   const sel = $("#articleSelect");
@@ -1543,19 +1863,207 @@ function bind() {
       $("#btnPublish").disabled = false;
     }
   });
+
+  $("#btnQueueAdd")?.addEventListener("click", () => savePublishBundle({ enqueue: true }));
+  $("#btnCacheSave")?.addEventListener("click", () => savePublishBundle({ enqueue: false }));
+  $("#btnQueueRefresh")?.addEventListener("click", () => {
+    loadPublishQueue();
+    loadPublishCache();
+  });
+  $("#btnQueueClearDone")?.addEventListener("click", async () => {
+    try {
+      const data = await api("/api/publish/queue/clear-done", {
+        method: "POST",
+        body: "{}",
+      });
+      setStatus($("#publishStatus"), `已清理 ${data.cleared || 0} 条`, "ok");
+      await loadPublishQueue();
+    } catch (e) {
+      setStatus($("#publishStatus"), String(e), "error");
+    }
+  });
+  $("#publishMediaFiles")?.addEventListener("change", renderMediaPreview);
+  $("#btnCacheRefresh")?.addEventListener("click", () => loadPublishCache());
+  $("#cacheMonthSelect")?.addEventListener("change", () => loadPublishCache());
+  $("#btnCacheOpenRoot")?.addEventListener("click", async () => {
+    try {
+      const months = await api("/api/publish/cache/months");
+      const root = months.cache_root || "";
+      if (!root) {
+        setStatus($("#publishStatus"), "缓存目录尚未初始化", "error");
+        return;
+      }
+      await openCacheDir(root);
+      setStatus($("#publishStatus"), `已打开 ${root}`, "ok");
+    } catch (e) {
+      setStatus($("#publishStatus"), String(e), "error");
+    }
+  });
+
+  $("#publishCacheList")?.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-c-act]");
+    if (!btn) return;
+    const card = btn.closest("[data-crel]");
+    if (!card) return;
+    const rel = card.getAttribute("data-crel") || "";
+    const act = btn.getAttribute("data-c-act");
+    try {
+      if (act === "copy") {
+        await copyCacheContent(rel);
+        setStatus($("#publishStatus"), "文案已复制到剪贴板", "ok");
+        return;
+      }
+      if (act === "open") {
+        const path = await openCacheDir(rel);
+        setStatus($("#publishStatus"), `已打开 ${path}`, "ok");
+        return;
+      }
+      if (act === "load") {
+        const data = await api(`/api/publish/cache/content?rel=${encodeURIComponent(rel)}`);
+        const md = data.content_md || "";
+        const lines = md.split("\n");
+        let title = "";
+        let bodyStart = 0;
+        if (lines[0]?.startsWith("# ")) {
+          title = lines[0].slice(2).trim();
+          bodyStart = 1;
+          while (lines[bodyStart] === "") bodyStart += 1;
+        }
+        const sep = lines.findIndex((l) => l.trim() === "---");
+        const body = lines
+          .slice(bodyStart, sep >= 0 ? sep : undefined)
+          .join("\n")
+          .trim();
+        $("#publishTitle").value = title;
+        $("#publishContent").value = body;
+        setStatus($("#publishStatus"), `已载入 ${rel}`, "ok");
+      }
+    } catch (e) {
+      setStatus($("#publishStatus"), String(e), "error");
+    }
+  });
+
+  $("#publishQueueList")?.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-q-act]");
+    if (!btn) return;
+    const card = btn.closest("[data-qid]");
+    if (!card) return;
+    const id = card.getAttribute("data-qid");
+    const rel = card.getAttribute("data-rel") || "";
+    const act = btn.getAttribute("data-q-act");
+    try {
+      if (act === "del") {
+        await api(`/api/publish/queue/${encodeURIComponent(id)}`, { method: "DELETE" });
+        setStatus($("#publishStatus"), `已删除队列项 ${id}（磁盘文件保留）`, "ok");
+        await loadPublishQueue();
+        await loadPublishCache();
+        return;
+      }
+      if (act === "copy") {
+        if (!rel) throw new Error("无存储路径");
+        await copyCacheContent(rel);
+        setStatus($("#publishStatus"), "文案已复制到剪贴板", "ok");
+        return;
+      }
+      if (act === "open") {
+        if (!rel) throw new Error("无存储路径");
+        const path = await openCacheDir(rel);
+        setStatus($("#publishStatus"), `已打开 ${path}`, "ok");
+        return;
+      }
+      if (act === "load") {
+        const data = await api(`/api/publish/queue/${encodeURIComponent(id)}`);
+        const it = data.item || {};
+        $("#publishTitle").value = it.title || "";
+        $("#publishContent").value = it.content || "";
+        $("#publishMedia").value = (it.media_paths || []).join("\n");
+        $("#publishTags").value = it.tags || "";
+        if ($("#publishScheduleAt")) {
+          $("#publishScheduleAt").value = toDatetimeLocalValue(it.scheduled_at);
+        }
+        const sel = $("#publishPlatform");
+        if (sel) {
+          const want = new Set(it.platforms || []);
+          [...sel.options].forEach((o) => {
+            o.selected = want.has(o.value);
+          });
+        }
+        setStatus($("#publishStatus"), `已载入 ${id} 到编辑区`, "ok");
+        return;
+      }
+      if (act === "save-time") {
+        const input = card.querySelector("[data-q-time]");
+        const when = input?.value || "";
+        if (!when) {
+          setStatus($("#publishStatus"), "请填写预约时间", "error");
+          return;
+        }
+        const data = await api(`/api/publish/queue/${encodeURIComponent(id)}/update`, {
+          method: "POST",
+          body: JSON.stringify({ scheduled_at: when, status: "pending", requeue: true, enabled: true }),
+        });
+        if (!data.success) {
+          setStatus($("#publishStatus"), data.error || "保存失败", "error");
+          return;
+        }
+        setStatus($("#publishStatus"), `已更新时间 ${when}`, "ok");
+        await loadPublishQueue();
+        return;
+      }
+      if (act === "cancel") {
+        const pill = card.querySelector(".status-pill");
+        const cur = pill?.classList.contains("cancelled");
+        const data = await api(`/api/publish/queue/${encodeURIComponent(id)}/update`, {
+          method: "POST",
+          body: JSON.stringify(
+            cur
+              ? { status: "pending", requeue: true, enabled: true }
+              : { status: "cancelled", enabled: false }
+          ),
+        });
+        if (!data.success) {
+          setStatus($("#publishStatus"), data.error || "操作失败", "error");
+          return;
+        }
+        await loadPublishQueue();
+        return;
+      }
+      if (act === "run") {
+        setStatus($("#publishStatus"), `正在立即发布 ${id}…`);
+        const data = await api(`/api/publish/queue/${encodeURIComponent(id)}/run`, {
+          method: "POST",
+          body: "{}",
+        });
+        $("#publishResult").textContent = JSON.stringify(data, null, 2);
+        setStatus(
+          $("#publishStatus"),
+          data.success ? `已发布 ${id}` : data.error || "发布失败",
+          data.success ? "ok" : "error"
+        );
+        await loadPublishQueue();
+      }
+    } catch (e) {
+      setStatus($("#publishStatus"), String(e), "error");
+    }
+  });
 }
 
 async function boot() {
   bind();
   syncTaskUi();
+  const sch = $("#publishScheduleAt");
+  if (sch && !sch.value) sch.value = defaultScheduleLocal(30);
   await refreshHealth();
   await loadPublishPlatforms();
   await loadArticles();
+  await loadPublishQueue();
+  await loadPublishCache();
   await refreshStats();
   await refreshCorpusStats();
   await loadPosts("", state.newsPlatform || "", "news", $("#newsView")?.value || "active", "");
   setInterval(refreshHealth, 15000);
   setInterval(loadTasks, 20000);
+  setInterval(loadPublishQueue, 20000);
   setInterval(refreshStats, 30000);
   setInterval(refreshCorpusStats, 45000);
 }

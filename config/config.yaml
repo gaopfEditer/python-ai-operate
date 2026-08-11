@@ -30,6 +30,8 @@ crawler:
   enable_crawler: true # 是否启用爬取新闻功能，如果 false，则直接停止程序
   use_proxy: false # 是否启用代理，false 时为关闭
   default_proxy: "http://127.0.0.1:10086"
+  # 资讯获取：仅保留正文含足够中文的帖子（X / Reddit / Telegram）
+  only_chinese: true
   # X.com CDP 抓取（可选）
   # 使用前先启动 Chrome：
   #   chrome.exe --remote-debugging-port=9222 --user-data-dir="D:\chrome-cdp-profile"

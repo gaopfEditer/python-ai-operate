@@ -102,21 +102,32 @@ def _resolve_proxies() -> Optional[Dict[str, str]]:
 def _merge_items(platform_id: str, platform_name: str, items: List[Dict[str, Any]]) -> int:
     if not items:
         return 0
+    only_zh = _only_chinese_enabled()
     state = _load_state()
     posts = state.setdefault("posts", {})
     labels = state.setdefault("platform_labels", {})
     labels[platform_id] = platform_name
     bucket = posts.setdefault(platform_id, {})
     added = 0
+    skipped_lang = 0
     fetched = _now()
     for it in items:
         href = str(it.get("href") or it.get("url") or "").strip()
         title = str(it.get("title") or "").strip()
         if not href and not title:
             continue
+        raw = str(it.get("raw") or it.get("content") or title)
+        if only_zh:
+            blob = f"{title}\n{raw}".strip()
+            try:
+                from utils.summary_zh import looks_mostly_chinese
+            except Exception:
+                looks_mostly_chinese = None  # type: ignore
+            if looks_mostly_chinese is not None and not looks_mostly_chinese(blob):
+                skipped_lang += 1
+                continue
         key = href or f"__title__:{hash(title) & 0xFFFFFFFF}"
         prev = bucket.get(key) if isinstance(bucket.get(key), dict) else {}
-        raw = str(it.get("raw") or it.get("content") or title)
         summary = str(it.get("summary") or prev.get("summary") or "").strip()
         # 入库时不强制 AI 摘要，避免额外源拖慢；列表页会懒生成
         if not summary:
@@ -149,7 +160,24 @@ def _merge_items(platform_id: str, platform_name: str, items: List[Dict[str, Any
         bucket[key] = entry
         added += 1
     _save_state(state)
+    if skipped_lang:
+        print(f"[{platform_name}] 已跳过非中文帖 {skipped_lang} 条")
     return added
+
+
+def _only_chinese_enabled() -> bool:
+    env = os.environ.get("ONLY_CHINESE", "").strip().lower()
+    if env:
+        return env in ("1", "true", "yes")
+    try:
+        import yaml
+
+        cfg_path = PROJECT_ROOT / "config" / "config.yaml"
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return bool((data.get("crawler") or {}).get("only_chinese", False))
+    except Exception:
+        return False
 
 
 def _parse_reddit_listing(data: Any, query: str, seen: set) -> List[Dict[str, Any]]:
