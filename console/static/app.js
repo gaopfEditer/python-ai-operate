@@ -9,6 +9,12 @@ const state = {
   newsPlatform: "",
   historyPlatform: "",
   taskStatus: "all",
+  corpusSelected: new Set(),
+  corpusItems: [],
+  labFormula: "contrarian",
+  labTagFilter: "",
+  labVariants: [],
+  labActiveVariant: null,
 };
 
 function platformMeta(pid) {
@@ -330,6 +336,7 @@ function renderItems(container, items, opts = {}) {
             <button class="btn ghost btn-sm${archived ? " on" : ""}" type="button" data-action="toggle_archive">${archived ? "取消归档" : "归档"}</button>
             <button class="btn ghost btn-sm${later ? " on" : ""}" type="button" data-action="toggle_watch_later">${later ? "取消稍后" : "稍后观看"}</button>
             <button class="btn ghost btn-sm" type="button" data-action="deconstruct">拆解入库</button>
+            <button class="btn ghost btn-sm" type="button" data-action="pick_synth">${(state.newsPicked || new Set()).has(`${pid}||${key}`) ? "已选合成" : "选入合成"}</button>
             <button class="btn ghost btn-sm" type="button" data-use-topic="${escapeAttr(it.title || "")}">用作创作主题</button>
           </div>
         </article>`;
@@ -388,6 +395,19 @@ function bindItemActions(container) {
           const tid = data.template?.id;
           toast(tid ? `已入库模板 #${tid}` : "拆解完成", "ok");
           await refreshCorpusStats();
+          return;
+        }
+        if (action === "pick_synth") {
+          if (!state.newsPicked) state.newsPicked = new Set();
+          const token = `${ids.platform_id || ""}||${ids.key || ""}`;
+          if (state.newsPicked.has(token)) state.newsPicked.delete(token);
+          else state.newsPicked.add(token);
+          btn.textContent = state.newsPicked.has(token) ? "已选合成" : "选入合成";
+          btn.classList.toggle("on", state.newsPicked.has(token));
+          const n = state.newsPicked.size;
+          setStatus($("#crawlStatus"), n ? `已选 ${n} 条待合成（去语料库点「合成已选帖」）` : "已清空合成选中", "ok");
+          const badge = $("#synthPickedCount");
+          if (badge) badge.textContent = String(n);
           return;
         }
         const data = await postMeta({ ...ids, action });
@@ -493,7 +513,7 @@ function switchTab(name) {
   if (name === "later") loadLibrary("later");
   if (name === "archived") loadLibrary("archived");
   if (name === "tags") loadLibrary("tags");
-  if (name === "corpus") loadCorpus();
+  if (name === "corpus") { loadLabFormulas(); loadCorpus(); }
 }
 
 async function refreshHealth() {
@@ -612,150 +632,427 @@ const LAYER_LABEL = {
   generate: "再生成",
 };
 
+
+const LAYER_LABEL = {
+  collect: "采集",
+  deconstruct: "拆解",
+  store: "入库",
+  generate: "再生成",
+};
+
+const LAB_FORMULAS_FALLBACK = [
+  { id: "contrarian", label: "反常识批判风", emoji: "⚡", blurb: "否定直觉 → 隐藏代价 → 底层解法" },
+  { id: "build_public", label: "Build in Public 复盘", emoji: "🧪", blurb: "踩坑数据 → 实验对比 → 通用经验" },
+  { id: "absurd", label: "荒诞讽刺风", emoji: "🎭", blurb: "严肃日常 → 荒谬反转 → 时代痛点" },
+  { id: "checklist", label: "硬核极简清单", emoji: "🛠️", blurb: "痛点 → 3点建议 → 落地指令" },
+];
+
+function updateLabSteps() {
+  const steps = document.querySelectorAll("#labSteps [data-step]");
+  if (!steps.length) return;
+  const hasCards = (state.corpusSelected || new Set()).size > 0;
+  const hasTopic = Boolean($("#regenTopic")?.value.trim());
+  const hasVariants = Boolean((state.labVariants || []).length);
+  const hasPick = Boolean(state.labActiveVariant?.content);
+  const active = hasPick ? 4 : hasVariants ? 4 : hasTopic && hasCards ? 3 : hasTopic || hasCards ? 2 : 1;
+  steps.forEach((el) => {
+    const n = Number(el.getAttribute("data-step"));
+    el.classList.toggle("on", n === active);
+    el.classList.toggle("done", n < active);
+  });
+}
+
+function syncCorpusSelectionInput() {
+  const ids = [...(state.corpusSelected || [])].sort((a, b) => a - b);
+  const el = $("#regenTemplateIds");
+  if (el) el.value = ids.join(", ");
+  renderLabBlocks();
+  const badge = $("#labTrayBadge");
+  if (badge) badge.textContent = `已选 ${ids.length}/3`;
+  const meta = $("#corpusMeta");
+  if (meta) meta.textContent = `${(state.corpusItems || []).length} 张语料`;
+  if (typeof updateLabSteps === "function") updateLabSteps();
+}
+
+function renderLabBlocks() {
+  const box = $("#labBlocks");
+  const hint = $("#labBlocksHint");
+  if (!box) return;
+  const ids = [...(state.corpusSelected || [])];
+  if (!ids.length) {
+    box.innerHTML = "";
+    if (hint) hint.hidden = false;
+    return;
+  }
+  if (hint) hint.hidden = true;
+  box.innerHTML = ids
+    .map((id) => {
+      const it = (state.corpusItems || []).find((x) => Number(x.id) === id) || { id };
+      const factors = it.factors || {};
+      const hook = it.hooks || factors.hook || it.pattern || "";
+      const narrative = factors.narrative_type || it.emotion || "灵感";
+      return `<div class="lab-block" data-id="${escapeAttr(String(id))}">
+        <span class="lab-block-badge">${escapeHtml(String(narrative).slice(0, 8))}</span>
+        <p>${escapeHtml(String(hook).slice(0, 72))}</p>
+        <button type="button" class="lab-block-x" data-remove-block="${escapeAttr(String(id))}" title="移除">×</button>
+      </div>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-remove-block]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-remove-block"));
+      state.corpusSelected.delete(id);
+      renderCorpusItems(state.corpusItems || []);
+      syncCorpusSelectionInput();
+    });
+  });
+}
+
+function renderLabFormulas(items) {
+  const box = $("#labFormulas");
+  if (!box) return;
+  const list = items && items.length ? items : LAB_FORMULAS_FALLBACK;
+  if (!state.labFormula) state.labFormula = list[0].id;
+  box.innerHTML = list
+    .map((f) => {
+      const on = state.labFormula === f.id ? " on" : "";
+      return `<button type="button" class="lab-formula${on}" data-formula="${escapeAttr(f.id)}">
+        <strong>${escapeHtml((f.emoji || "") + " " + (f.label || f.id))}</strong>
+        <span>${escapeHtml(f.blurb || "")}</span>
+      </button>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-formula]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.labFormula = btn.getAttribute("data-formula");
+      box.querySelectorAll(".lab-formula").forEach((b) => b.classList.toggle("on", b === btn));
+    });
+  });
+}
+
+async function loadLabFormulas() {
+  try {
+    const data = await api("/api/corpus/lab/formulas");
+    renderLabFormulas(data.items || LAB_FORMULAS_FALLBACK);
+  } catch (e) {
+    renderLabFormulas(LAB_FORMULAS_FALLBACK);
+  }
+}
+
+function renderLabTagCloud(items) {
+  const box = $("#labTagCloud");
+  if (!box) return;
+  const counts = {};
+  (items || []).forEach((it) => {
+    (it.tags || []).forEach((t) => {
+      const k = String(t || "").trim();
+      if (!k) return;
+      counts[k] = (counts[k] || 0) + 1;
+    });
+  });
+  const top = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12);
+  if (!top.length) {
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = top
+    .map(
+      ([t, n]) =>
+        `<button type="button" class="lab-tag${state.labTagFilter === t ? " on" : ""}" data-lab-tag="${escapeAttr(t)}">#${escapeHtml(t)} <em>${n}</em></button>`
+    )
+    .join("");
+  box.querySelectorAll("[data-lab-tag]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const t = btn.getAttribute("data-lab-tag");
+      state.labTagFilter = state.labTagFilter === t ? "" : t;
+      if ($("#corpusKeyword")) {
+        $("#corpusKeyword").value = state.labTagFilter ? `#${state.labTagFilter}` : "";
+      }
+      loadCorpus();
+    });
+  });
+}
+
 function renderPathView(pathObj) {
   const el = $("#corpusPathView");
   if (!el) return;
   const steps = Array.isArray(pathObj?.steps) ? pathObj.steps : [];
   if (!steps.length) {
-    el.className = "path-view muted";
-    el.textContent = "暂无取材路径";
+    el.hidden = true;
     return;
   }
+  el.hidden = false;
   el.className = "path-view";
-  const nodes = steps
-    .map((s, i) => {
-      const layer = LAYER_LABEL[s.layer] || s.layer || `步骤${i + 1}`;
-      const detail = [
-        s.via || s.provider || s.store || "",
-        s.title ? String(s.title).slice(0, 40) : "",
-        s.topic ? `话题:${s.topic}` : "",
-        s.template_id != null ? `#${s.template_id}` : "",
-        s.at || "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      return `<li class="path-step" data-layer="${escapeAttr(s.layer || "")}">
-        <span class="path-layer">${escapeHtml(layer)}</span>
-        <span class="path-detail">${escapeHtml(detail)}</span>
-      </li>`;
+  el.innerHTML = `<ol class="path-flow">${steps
+    .slice(-6)
+    .map((s) => {
+      const layer = LAYER_LABEL[s.layer] || s.layer || "";
+      return `<li class="path-step" data-layer="${escapeAttr(s.layer || "")}"><span class="path-layer">${escapeHtml(layer)}</span></li>`;
     })
-    .join("");
-  el.innerHTML = `<ol class="path-flow">${nodes}</ol>`;
+    .join("")}</ol>`;
+}
+
+function narrativeBadge(it) {
+  const factors = it.factors || {};
+  return factors.narrative_type || it.emotion || "灵感";
 }
 
 function renderCorpusItems(items) {
   const box = $("#corpusList");
   if (!box) return;
-  if (!items || !items.length) {
-    box.innerHTML = `<div class="item"><h3>暂无模板</h3><p class="snippet muted">可先跑「xgrowth 爆款热榜拆解」，或在资讯列表点「拆解入库」。</p></div>`;
+  if (!state.corpusSelected) state.corpusSelected = new Set();
+  let list = items || [];
+  if (state.labTagFilter) {
+    const tag = state.labTagFilter.toLowerCase();
+    list = list.filter((it) => (it.tags || []).some((t) => String(t).toLowerCase() === tag));
+  }
+  if (!list.length) {
+    box.innerHTML = `<div class="lab-empty">暂无卡片。上方快捕，或用进阶工具导入。</div>`;
+    syncCorpusSelectionInput();
     return;
   }
-  box.innerHTML = items
+  box.innerHTML = list
     .map((it) => {
       const factors = it.factors || {};
-      const tagObj = factors.tags || {};
-      const elements = factors.elements || {};
-      const metrics = factors.metrics || {};
-      const kws = (it.keywords || []).map((k) => `<span class="chip">${escapeHtml(k)}</span>`).join("");
-      const tags = (it.tags || []).map((t) => `<span class="chip tag">${escapeHtml(t)}</span>`).join("");
-      const q = it.quality || "unrated";
-      const domainLine = [
-        factors.domain || tagObj.primary
-          ? `${factors.domain || ""} · ${tagObj.primary || ""} / ${tagObj.secondary || ""}`
-          : "",
-        metrics.velocity_per_hour ? `${metrics.velocity_per_hour}/h` : "",
-        elements.hook_type || "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const reason = factors.viral_reason
-        ? `<p class="snippet">爆款原因：${escapeHtml(String(factors.viral_reason).slice(0, 180))}</p>`
-        : "";
+      const selected = state.corpusSelected.has(Number(it.id));
+      const hook = it.hooks || factors.hook || it.pattern || it.source_title || "";
+      const narrative = narrativeBadge(it);
+      const tags = (it.tags || [])
+        .slice(0, 3)
+        .map((t) => `<span class="chip tag">#${escapeHtml(t)}</span>`)
+        .join("");
       return `
-        <article class="item corpus-item" data-id="${escapeAttr(String(it.id))}">
-          <div class="item-head">
-            <span class="source-badge">#${escapeHtml(String(it.id))} · ${escapeHtml(it.source_platform || "?")}</span>
-            <h3>${escapeHtml(it.pattern || it.source_title || "(无模板)")}</h3>
-          </div>
-          <div class="meta">
-            <span>情绪 ${escapeHtml(it.emotion || "-")}</span>
-            <span>冲突 ${escapeHtml(it.tension || "-")}</span>
-            <span>权重 ${escapeHtml(String(it.weight ?? 1))}</span>
-            <span class="badge q-${escapeAttr(q)}">${escapeHtml(q)}</span>
-            ${it.source_url ? `<a href="${escapeAttr(it.source_url)}" target="_blank" rel="noreferrer">原文</a>` : ""}
-          </div>
-          ${domainLine ? `<p class="snippet muted">${escapeHtml(domainLine)}</p>` : ""}
-          ${it.hooks ? `<p class="snippet">钩子：${escapeHtml(it.hooks)}</p>` : ""}
-          ${reason}
-          <div class="chip-row">${kws}${tags}</div>
-          <div class="item-actions">
-            <button class="btn ghost btn-sm" type="button" data-corpus="use">选用生成</button>
-            <button class="btn ghost btn-sm" type="button" data-corpus="path">取材路径</button>
-            <button class="btn ghost btn-sm" type="button" data-corpus="good">标优质</button>
-            <button class="btn ghost btn-sm" type="button" data-corpus="bad">标淘汰</button>
-            <button class="btn ghost btn-sm" type="button" data-corpus="archive">归档</button>
-            <button class="btn ghost btn-sm" type="button" data-corpus="tag">加标签</button>
-          </div>
+        <article class="lab-card${selected ? " is-selected" : ""}" data-id="${escapeAttr(String(it.id))}" data-corpus-card>
+          <details class="lab-card-menu" onclick="event.stopPropagation()">
+            <summary title="更多">···</summary>
+            <div class="lab-card-menu-list">
+              <button type="button" data-corpus="edit">编辑</button>
+              <button type="button" data-corpus="delete">删除</button>
+            </div>
+          </details>
+          <span class="lab-narrative">${escapeHtml(String(narrative).slice(0, 10))}</span>
+          <p class="lab-hook">${escapeHtml(String(hook).slice(0, 140))}</p>
+          <div class="chip-row">${tags}</div>
         </article>`;
     })
     .join("");
 
+  const toggleCard = (id) => {
+    if (!id) return;
+    if (state.corpusSelected.has(id)) state.corpusSelected.delete(id);
+    else {
+      if (state.corpusSelected.size >= 3) {
+        toast("最多选 3 张", "error");
+        return;
+      }
+      state.corpusSelected.add(id);
+    }
+    renderCorpusItems(state.corpusItems || []);
+    syncCorpusSelectionInput();
+    if ($("#regenTopic") && !($("#regenTopic").value || "").trim()) {
+      $("#regenTopic").focus();
+    }
+  };
+  box.querySelectorAll("[data-corpus-card]").forEach((card) => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("[data-corpus], .lab-card-menu")) return;
+      toggleCard(Number(card.getAttribute("data-id") || 0));
+    });
+  });
   box.querySelectorAll("[data-corpus]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const root = btn.closest(".corpus-item");
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const root = btn.closest(".lab-card");
       const id = Number(root?.getAttribute("data-id") || 0);
       const action = btn.getAttribute("data-corpus");
       if (!id || !action) return;
       const item = (state.corpusItems || []).find((x) => Number(x.id) === id);
-      if (action === "use") {
-        if ($("#regenTemplateId")) $("#regenTemplateId").value = String(id);
-        if (item) renderPathView(item.provenance || {});
-        $("#corpusRegenBox")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        toast(`已选用模板 #${id}`, "ok");
+      if (action === "edit") {
+        openCorpusEdit(item || { id });
         return;
       }
-      if (action === "path") {
-        renderPathView(item?.provenance || {});
-        toast("已显示取材路径", "ok");
-        return;
-      }
-      btn.disabled = true;
-      try {
-        if (action === "tag") {
-          const raw = window.prompt("输入标签（逗号分隔）", "");
-          if (!raw) return;
-          const tags = raw
-            .split(/[,，]/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-          const data = await api(`/api/corpus/templates/${id}`, {
-            method: "POST",
-            body: JSON.stringify({ action: "add_tags", tags }),
-          });
-          if (!data.success) toast(data.error || "失败", "error");
-          else {
-            toast("已加标签", "ok");
-            await loadCorpus();
-          }
-          return;
-        }
-        const map = { good: "rate_good", bad: "rate_bad", archive: "archive" };
-        const data = await api(`/api/corpus/templates/${id}`, {
+      if (action === "delete") {
+        if (!window.confirm(`删除卡片 #${id}？`)) return;
+        await api(`/api/corpus/templates/${id}`, {
           method: "POST",
-          body: JSON.stringify({ action: map[action] }),
+          body: JSON.stringify({ action: "delete" }),
         });
-        if (!data.success) toast(data.error || "失败", "error");
-        else {
-          toast("已更新", "ok");
-          await loadCorpus();
-        }
-      } catch (e) {
-        toast(String(e), "error");
-      } finally {
-        btn.disabled = false;
+        state.corpusSelected.delete(id);
+        toast("已删除", "ok");
+        await loadCorpus();
       }
     });
   });
+  renderLabTagCloud(state.corpusItems || []);
+  syncCorpusSelectionInput();
+}
+
+function openCorpusEdit(item) {
+  const dlg = $("#corpusEditDialog");
+  if (!dlg || !item) return;
+  $("#editCorpusId").value = String(item.id || "");
+  $("#editCorpusTitle").value = item.source_title || "";
+  $("#editCorpusPattern").value = item.pattern || "";
+  $("#editCorpusEmotion").value = item.emotion || "";
+  $("#editCorpusTension").value = item.tension || "";
+  $("#editCorpusKeywords").value = (item.keywords || []).join(", ");
+  $("#editCorpusHooks").value = item.hooks || "";
+  $("#editCorpusTags").value = (item.tags || []).join(", ");
+  if (typeof dlg.showModal === "function") dlg.showModal();
+  else dlg.setAttribute("open", "true");
+}
+
+function splitCsv(s) {
+  return String(s || "")
+    .split(/[,，]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+async function saveCorpusEdit(ev) {
+  if (ev) ev.preventDefault();
+  const dlg = $("#corpusEditDialog");
+  const id = Number($("#editCorpusId")?.value || 0);
+  if (!id) return;
+  const payload = {
+    action: "update",
+    source_title: $("#editCorpusTitle")?.value.trim() || "",
+    pattern: $("#editCorpusPattern")?.value.trim() || "",
+    emotion: $("#editCorpusEmotion")?.value.trim() || "",
+    tension: $("#editCorpusTension")?.value.trim() || "",
+    keywords: splitCsv($("#editCorpusKeywords")?.value),
+    hooks: $("#editCorpusHooks")?.value.trim() || "",
+    tags: splitCsv($("#editCorpusTags")?.value),
+  };
+  try {
+    const data = await api(`/api/corpus/templates/${id}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (!data.success) {
+      toast(data.error || "保存失败", "error");
+      return;
+    }
+    toast("已保存", "ok");
+    if (dlg?.close) dlg.close();
+    else dlg?.removeAttribute("open");
+    await loadCorpus();
+  } catch (e) {
+    toast(String(e), "error");
+  }
+}
+
+async function createManualCorpus() {
+  const pattern = window.prompt("句式模板", "关于【话题】，其实【反转】");
+  if (!pattern) return;
+  await api("/api/corpus/templates", {
+    method: "POST",
+    body: JSON.stringify({
+      source_platform: "manual",
+      source_key: `manual-${Date.now()}`,
+      source_title: pattern.slice(0, 40),
+      pattern,
+      emotion: "共鸣",
+      tension: "预期违背",
+      tags: ["手动"],
+    }),
+  });
+  await loadCorpus();
+}
+
+async function runLabCapture(ev) {
+  if (ev) ev.preventDefault();
+  const input = $("#labCaptureInput");
+  const text = input?.value.trim() || "";
+  if (!text) return;
+  input.disabled = true;
+  try {
+    const data = await api("/api/corpus/capture", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    if (!data.success) {
+      toast(data.error || "快捕失败", "error");
+      return;
+    }
+    toast(data.message || "已入库", "ok");
+    input.value = "";
+    if (data.template) {
+      state.corpusItems = [data.template, ...(state.corpusItems || [])];
+      state.corpusSelected.add(Number(data.template.id));
+      // 保持最多 3 张选中
+      const sel = [...state.corpusSelected];
+      if (sel.length > 3) state.corpusSelected = new Set(sel.slice(0, 3));
+      renderCorpusItems(state.corpusItems);
+      syncCorpusSelectionInput();
+      refreshCorpusStats();
+    } else {
+      await loadCorpus();
+    }
+  } catch (e) {
+    toast(String(e), "error");
+  } finally {
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+async function runCorpusSynthesizeRandom() {
+  const btn = $("#btnSynthRandom");
+  if (btn) btn.disabled = true;
+  setStatus($("#synthStatus"), "随机合成中…");
+  try {
+    const data = await api("/api/corpus/synthesize", {
+      method: "POST",
+      body: JSON.stringify({ mode: "random", count: Number($("#synthCount")?.value || 3) }),
+    });
+    if (!data.success) {
+      setStatus($("#synthStatus"), data.error || "失败", "error");
+      return;
+    }
+    setStatus($("#synthStatus"), `已入库 #${data.template?.id}`, "ok");
+    toast("合成完成", "ok");
+    await loadCorpus();
+  } catch (e) {
+    setStatus($("#synthStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runCorpusSynthesizePicked() {
+  const picked = [...(state.newsPicked || [])];
+  if (!picked.length) {
+    setStatus($("#synthStatus"), "请先在资讯列表点「选入合成」", "error");
+    return;
+  }
+  const btn = $("#btnSynthPicked");
+  if (btn) btn.disabled = true;
+  try {
+    const refs = picked.map((token) => {
+      const [platform_id, key] = String(token).split("||");
+      return { platform_id, key };
+    });
+    const data = await api("/api/corpus/synthesize", {
+      method: "POST",
+      body: JSON.stringify({ mode: "specified", refs }),
+    });
+    if (!data.success) {
+      setStatus($("#synthStatus"), data.error || "失败", "error");
+      return;
+    }
+    state.newsPicked = new Set();
+    const badge = $("#synthPickedCount");
+    if (badge) badge.textContent = "0";
+    toast("指定帖合成完成", "ok");
+    await loadCorpus();
+  } catch (e) {
+    setStatus($("#synthStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function refreshCorpusStats() {
@@ -773,72 +1070,181 @@ async function refreshCorpusStats() {
 
 async function loadCorpus() {
   const qs = new URLSearchParams();
-  const kw = $("#corpusKeyword")?.value.trim() || "";
-  const emotion = $("#corpusEmotion")?.value.trim() || "";
+  let kw = $("#corpusKeyword")?.value.trim() || "";
+  if (kw.startsWith("#")) kw = kw.slice(1);
   const quality = $("#corpusQuality")?.value || "";
   const status = $("#corpusStatus")?.value ?? "active";
   if (kw) qs.set("keyword", kw);
-  if (emotion) qs.set("emotion", emotion);
   if (quality) qs.set("quality", quality);
   if (status) qs.set("status", status);
-  qs.set("limit", "80");
-  setStatus($("#corpusMeta"), "加载中…");
+  qs.set("limit", "100");
   try {
     const data = await api(`/api/corpus/templates?${qs.toString()}`);
     if (!data.success) {
-      setStatus($("#corpusMeta"), data.error || "加载失败", "error");
+      toast(data.error || "加载失败", "error");
       return;
     }
     state.corpusItems = data.items || [];
-    setStatus($("#corpusMeta"), `共 ${data.total} 条模板`, "ok");
+    const alive = new Set(state.corpusItems.map((x) => Number(x.id)));
+    state.corpusSelected = new Set([...(state.corpusSelected || [])].filter((id) => alive.has(id)));
     renderCorpusItems(state.corpusItems);
     await refreshCorpusStats();
+    await loadGenerations();
   } catch (e) {
-    setStatus($("#corpusMeta"), String(e), "error");
+    toast(String(e), "error");
   }
 }
 
+async function loadGenerations() {
+  const box = $("#corpusGenList");
+  if (!box) return;
+  try {
+    const data = await api("/api/corpus/generations?limit=8");
+    const items = data.items || [];
+    state.corpusGenerations = items;
+    if (!items.length) {
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML =
+      `<h4 class="lab-hist-title">最近生成</h4>` +
+      items
+        .map(
+          (g) => `<button type="button" class="lab-hist-item" data-gen-use="${escapeAttr(String(g.id))}">
+            <strong>${escapeHtml((g.topic || "").slice(0, 24))}</strong>
+            <span>${escapeHtml(String(g.content || "").slice(0, 60))}</span>
+          </button>`
+        )
+        .join("");
+    box.querySelectorAll("[data-gen-use]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const g = (state.corpusGenerations || []).find(
+          (x) => Number(x.id) === Number(btn.getAttribute("data-gen-use"))
+        );
+        if (!g) return;
+        state.labActiveVariant = {
+          id: "H",
+          label: g.meta?.variant_label || "历史",
+          content: g.content,
+          hook: String(g.content || "").split("\n")[0],
+        };
+        state.lastCreate = { title: g.topic || "", content: g.content || "", path: "" };
+        renderLabVariants([state.labActiveVariant], 0);
+      });
+    });
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+async function loadTemplateHistory(templateId) {
+  /* kept for API compat; history lives in edit flow */
+  void templateId;
+}
+
+function showLabSkeleton(loading) {
+  const box = $("#labVariants");
+  if (!box) return;
+  box.innerHTML = `<div class="lab-skel${loading ? " is-loading" : ""}" aria-hidden="true">
+    <div class="lab-skel-card"><div class="sk-line w40"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line w70"></div></div>
+    <div class="lab-skel-card"><div class="sk-line w40"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line w70"></div></div>
+    <div class="lab-skel-card"><div class="sk-line w40"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line w70"></div></div>
+  </div>`;
+  if ($("#labResultBar")) $("#labResultBar").hidden = true;
+  if ($("#labTweaks")) $("#labTweaks").hidden = true;
+}
+
+function renderLabVariants(variants, activeIdx) {
+  const box = $("#labVariants");
+  if (!box) return;
+  if (!variants || !variants.length) {
+    showLabSkeleton(false);
+    return;
+  }
+  state.labVariants = variants;
+  const idx = activeIdx == null ? 0 : activeIdx;
+  state.labActiveVariant = variants[idx];
+  box.innerHTML = variants
+    .map((v, i) => {
+      const on = i === idx ? " on" : "";
+      return `<article class="lab-variant${on}" data-vidx="${i}">
+        <header><span class="lab-vid">${escapeHtml(v.id || String.fromCharCode(65 + i))}</span>
+        <strong>${escapeHtml(v.label || "变体")}</strong></header>
+        <p class="lab-vhook">${escapeHtml(v.hook || "")}</p>
+        <pre class="lab-vbody">${escapeHtml(v.content || "")}</pre>
+      </article>`;
+    })
+    .join("");
+  box.querySelectorAll(".lab-variant").forEach((el) => {
+    el.addEventListener("click", () => {
+      const i = Number(el.getAttribute("data-vidx"));
+      renderLabVariants(state.labVariants, i);
+    });
+  });
+  if ($("#labResultBar")) $("#labResultBar").hidden = false;
+  if ($("#labTweaks")) $("#labTweaks").hidden = false;
+  const active = state.labActiveVariant;
+  state.lastCreate = {
+    title: $("#regenTopic")?.value.trim() || "Post Lab",
+    content: active?.content || "",
+    path: "",
+  };
+  const out = $("#corpusRegenOut");
+  if (out) out.textContent = active?.content || "";
+  if (typeof updateLabSteps === "function") updateLabSteps();
+}
+
+function renderLabCot(steps) {
+  const box = $("#labCotBox");
+  const list = $("#labCotList");
+  if (!box || !list) return;
+  const arr = Array.isArray(steps) ? steps : [];
+  if (!arr.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  box.open = true;
+  list.innerHTML = arr.map((s) => `<li>${escapeHtml(String(s))}</li>`).join("");
+}
+
 async function runCorpusRegen() {
-  const tid = Number($("#regenTemplateId")?.value || 0);
+  const ids = [...(state.corpusSelected || [])];
   const topic = $("#regenTopic")?.value.trim() || "";
-  if (!tid || !topic) {
-    setStatus($("#corpusRegenStatus"), "请填写模板 ID 与新话题", "error");
+  if (!topic) {
+    setStatus($("#corpusRegenStatus"), "先填热点主题（选卡可选）", "error");
     return;
   }
   $("#btnCorpusRegen").disabled = true;
-  setStatus($("#corpusRegenStatus"), "正在再生成…");
+  setStatus($("#corpusRegenStatus"), "生成中…");
+  showLabSkeleton(true);
+  renderLabCot(["读取灵感卡骨架…", "注入热点变量…", "分化 A刺眼 / B干货 / C故事…"]);
   try {
     const data = await api("/api/corpus/generate", {
       method: "POST",
       body: JSON.stringify({
-        template_id: tid,
+        lab: true,
+        template_ids: ids,
         topic,
+        formula: state.labFormula || "contrarian",
         platform_style: $("#regenStyle")?.value.trim() || "X/Twitter",
         prompt: $("#regenPrompt")?.value.trim() || "",
-        save_article: true,
+        variant_count: 3,
       }),
     });
     if (!data.success) {
       setStatus($("#corpusRegenStatus"), data.error || "生成失败", "error");
       return;
     }
-    const out = $("#corpusRegenOut");
-    if (out) {
-      out.classList.remove("muted");
-      out.textContent = data.content || "";
-    }
-    renderPathView(data.path || data.generation?.path || {});
-    state.lastCreate = {
-      title: topic,
-      content: data.content || "",
-      path: data.saved_path || "",
-    };
+    renderLabCot(data.cot || []);
+    renderLabVariants(data.variants || [], 0);
+    renderPathView(data.path || {});
     setStatus(
       $("#corpusRegenStatus"),
-      data.saved_path ? `生成成功 · 已存 ${data.saved_path}` : "生成成功",
+      `完成 · ${data.provider || "ai"} · ${(data.variants || []).length} 个变体`,
       "ok"
     );
-    await loadArticles();
+    await loadGenerations();
   } catch (e) {
     setStatus($("#corpusRegenStatus"), String(e), "error");
   } finally {
@@ -846,6 +1252,73 @@ async function runCorpusRegen() {
   }
 }
 
+async function runLabTweak(tweakId) {
+  const active = state.labActiveVariant;
+  if (!active?.content) {
+    toast("请先选一个变体", "error");
+    return;
+  }
+  setStatus($("#corpusRegenStatus"), "微调中…");
+  try {
+    const data = await api("/api/corpus/lab/tweak", {
+      method: "POST",
+      body: JSON.stringify({
+        content: active.content,
+        tweak: tweakId,
+        topic: $("#regenTopic")?.value.trim() || "",
+      }),
+    });
+    if (!data.success) {
+      toast(data.error || "微调失败", "error");
+      return;
+    }
+    active.content = data.content;
+    active.hook = data.hook || data.content.split("\n")[0];
+    const idx = (state.labVariants || []).indexOf(active);
+    renderLabVariants(state.labVariants, idx >= 0 ? idx : 0);
+    setStatus($("#corpusRegenStatus"), "微调完成", "ok");
+  } catch (e) {
+    toast(String(e), "error");
+  }
+}
+
+async function labCopyMarkdown() {
+  const v = state.labActiveVariant;
+  if (!v?.content) return;
+  const md = `## ${v.label || "Post"}\n\n${v.content}\n`;
+  try {
+    await navigator.clipboard.writeText(md);
+    toast("已复制 Markdown", "ok");
+  } catch (e) {
+    toast("复制失败", "error");
+  }
+}
+
+async function labSaveFeatured() {
+  const v = state.labActiveVariant;
+  if (!v?.content) return;
+  const data = await api("/api/corpus/templates", {
+    method: "POST",
+    body: JSON.stringify({
+      source_platform: "featured",
+      source_key: `featured-${Date.now()}`,
+      source_title: (v.hook || v.label || "精选").slice(0, 40),
+      pattern: v.hook || v.content.slice(0, 80),
+      raw_text: v.content,
+      hooks: v.hook || "",
+      emotion: "精选",
+      tags: ["精选", "生成"],
+      quality: "good",
+      status: "active",
+    }),
+  });
+  if (data.success) {
+    toast(`已存精选 #${data.item?.id}`, "ok");
+    await loadCorpus();
+  } else toast(data.error || "保存失败", "error");
+}
+
+async function runXgrowthViral() {
 async function runXgrowthViral() {
   const btn = $("#btnXgrowthRun");
   const limit = Number($("#xgrowthLimit")?.value || 8);
@@ -1625,10 +2098,43 @@ function bind() {
 
   $("#btnLoadCorpus")?.addEventListener("click", () => loadCorpus());
   $("#btnXgrowthRun")?.addEventListener("click", () => runXgrowthViral());
-  $("#corpusKeyword")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") loadCorpus();
+  $("#btnSynthRandom")?.addEventListener("click", () => runCorpusSynthesizeRandom());
+  $("#btnSynthPicked")?.addEventListener("click", () => runCorpusSynthesizePicked());
+  $("#btnCorpusManual")?.addEventListener("click", () => createManualCorpus());
+  $("#btnCorpusSelectAll")?.addEventListener("click", () => {
+    state.corpusSelected = new Set((state.corpusItems || []).slice(0, 3).map((x) => Number(x.id)));
+    renderCorpusItems(state.corpusItems || []);
   });
-  $("#corpusEmotion")?.addEventListener("keydown", (e) => {
+  $("#btnCorpusClearSel")?.addEventListener("click", () => {
+    state.corpusSelected = new Set();
+    renderCorpusItems(state.corpusItems || []);
+  });
+  $("#btnLoadGenerations")?.addEventListener("click", () => loadGenerations());
+  $("#labCaptureForm")?.addEventListener("submit", runLabCapture);
+  $("#btnLabCopyMd")?.addEventListener("click", () => labCopyMarkdown());
+  $("#btnLabRegen")?.addEventListener("click", () => runCorpusRegen());
+  $("#btnLabSaveFeatured")?.addEventListener("click", () => labSaveFeatured());
+  document.querySelectorAll("#labTweaks [data-tweak]").forEach((btn) => {
+    btn.addEventListener("click", () => runLabTweak(btn.getAttribute("data-tweak")));
+  });
+  $("#btnCorpusToPublish")?.addEventListener("click", () => {
+    if (!state.lastCreate?.content) {
+      toast("请先融合创作并选择变体", "error");
+      return;
+    }
+    $("#publishTitle").value = state.lastCreate.title || "";
+    $("#publishContent").value = state.lastCreate.content || "";
+    switchTab("publish");
+  });
+  $("#corpusEditForm")?.addEventListener("submit", (e) => {
+    const submitter = e.submitter;
+    if (submitter && submitter.value === "cancel") return;
+    if (submitter && submitter.value === "save") {
+      e.preventDefault();
+      saveCorpusEdit(e);
+    }
+  });
+  $("#corpusKeyword")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") loadCorpus();
   });
   $("#corpusQuality")?.addEventListener("change", () => loadCorpus());
@@ -1637,6 +2143,7 @@ function bind() {
   $("#regenTopic")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") runCorpusRegen();
   });
+  $("#regenTopic")?.addEventListener("input", () => updateLabSteps());
 
   $("#btnExpand")?.addEventListener("click", async () => {
     const keyword = $("#newsKeyword").value.trim();

@@ -110,6 +110,19 @@ def init_db(db_path: Optional[Path] = None) -> Path:
                 ON generations(template_id);
             CREATE INDEX IF NOT EXISTS idx_generations_created
                 ON generations(created_at);
+
+            CREATE TABLE IF NOT EXISTS template_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id INTEGER NOT NULL,
+                snapshot_json TEXT NOT NULL DEFAULT '{}',
+                reason TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(template_id) REFERENCES templates(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_template_history_tid
+                ON template_history(template_id);
+            CREATE INDEX IF NOT EXISTS idx_template_history_created
+                ON template_history(created_at);
             """
         )
     return path
@@ -273,12 +286,86 @@ def list_templates(
     return items
 
 
+def snapshot_template(
+    template_id: int,
+    *,
+    reason: str = "update",
+    db_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """写入模板历史快照，用于留存与回滚。"""
+    cur = get_template(template_id, db_path=db_path)
+    if not cur:
+        return None
+    now = _now()
+    with connect(db_path) as conn:
+        cur_ins = conn.execute(
+            """
+            INSERT INTO template_history (template_id, snapshot_json, reason, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (int(template_id), _json_dumps(cur), reason or "update", now),
+        )
+        hid = cur_ins.lastrowid
+    return {"id": hid, "template_id": int(template_id), "reason": reason, "created_at": now, "snapshot": cur}
+
+
+def list_template_history(
+    template_id: int,
+    *,
+    limit: int = 30,
+    db_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, template_id, snapshot_json, reason, created_at
+            FROM template_history
+            WHERE template_id=?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (int(template_id), max(1, int(limit))),
+        ).fetchall()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        d["snapshot"] = _json_loads(d.pop("snapshot_json", None), {})
+        out.append(d)
+    return out
+
+
+def get_templates_by_ids(
+    ids: Iterable[int],
+    *,
+    db_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    id_list = [int(x) for x in ids if x is not None]
+    if not id_list:
+        return []
+    placeholders = ",".join("?" for _ in id_list)
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM templates WHERE id IN ({placeholders}) AND status!='deleted'",
+            id_list,
+        ).fetchall()
+    by_id = {_row_to_template(r)["id"]: _row_to_template(r) for r in rows}
+    # 保持入参顺序
+    return [by_id[i] for i in id_list if i in by_id]
+
+
 def update_template(
     template_id: int,
     fields: Dict[str, Any],
     db_path: Optional[Path] = None,
+    *,
+    keep_history: bool = True,
+    history_reason: str = "update",
 ) -> Optional[Dict[str, Any]]:
     init_db(db_path)
+    if keep_history and fields:
+        snapshot_template(template_id, reason=history_reason, db_path=db_path)
     allowed = {
         "source_title",
         "raw_text",
@@ -290,6 +377,8 @@ def update_template(
         "quality",
         "status",
         "source_url",
+        "source_platform",
+        "source_key",
     }
     sets: List[str] = []
     args: List[Any] = []

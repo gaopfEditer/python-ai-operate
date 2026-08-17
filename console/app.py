@@ -1659,14 +1659,29 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         return _json_bytes({"success": True, "total": len(items), "items": items})
 
     if path.startswith("/api/corpus/templates/") and method == "GET":
-        from corpus.db import get_template, init_db
+        from corpus.db import get_template, init_db, list_template_history
 
         init_db()
-        tid = path.split("/api/corpus/templates/", 1)[1].strip("/").split("/")[0]
+        parts = [p for p in path.split("/api/corpus/templates/", 1)[1].strip("/").split("/") if p]
+        if not parts:
+            return _json_bytes({"success": False, "error": "无效 id"}, 400)
         try:
-            item = get_template(int(tid))
+            tid = int(parts[0])
         except Exception:
-            item = None
+            return _json_bytes({"success": False, "error": "无效 id"}, 400)
+        if len(parts) > 1 and parts[1] == "history":
+            try:
+                limit = int((query.get("limit") or ["30"])[0])
+            except Exception:
+                limit = 30
+            return _json_bytes(
+                {
+                    "success": True,
+                    "items": list_template_history(tid, limit=limit),
+                    "template_id": tid,
+                }
+            )
+        item = get_template(tid)
         if not item:
             return _json_bytes({"success": False, "error": "模板不存在"}, 404)
         return _json_bytes({"success": True, "item": item})
@@ -1712,21 +1727,28 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return _json_bytes({"success": False, "error": "无效 id"}, 400)
         action = str(body.get("action") or (parts[1] if len(parts) > 1 else "update")).strip().lower()
         if action in ("update", "edit", "patch"):
-            item = update_template(tid, body)
+            item = update_template(tid, body, history_reason="manual_edit")
             if not item:
                 return _json_bytes({"success": False, "error": "模板不存在"}, 404)
             return _json_bytes({"success": True, "item": item})
         if action in ("archive",):
             item = archive_template(tid)
             return _json_bytes({"success": True, "item": item})
+        if action in ("restore", "unarchive"):
+            item = update_template(tid, {"status": "active"}, history_reason="restore")
+            return _json_bytes({"success": True, "item": item})
         if action in ("delete", "remove"):
             ok = delete_template(tid, hard=bool(body.get("hard")))
             return _json_bytes({"success": ok, "deleted": ok, "id": tid})
         if action in ("rate_good", "good"):
-            item = update_template(tid, {"quality": "good", "weight": float((get_template(tid) or {}).get("weight") or 1) + 0.3})
+            item = update_template(
+                tid,
+                {"quality": "good", "weight": float((get_template(tid) or {}).get("weight") or 1) + 0.3},
+                history_reason="rate_good",
+            )
             return _json_bytes({"success": True, "item": item})
         if action in ("rate_bad", "bad"):
-            item = update_template(tid, {"quality": "bad"})
+            item = update_template(tid, {"quality": "bad"}, history_reason="rate_bad")
             return _json_bytes({"success": True, "item": item})
         if action in ("add_tags",):
             cur = get_template(tid)
@@ -1737,7 +1759,41 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             for t in extra:
                 if t and t not in tags:
                     tags.append(str(t))
-            item = update_template(tid, {"tags": tags})
+            item = update_template(tid, {"tags": tags}, history_reason="add_tags")
+            return _json_bytes({"success": True, "item": item})
+        if action in ("restore_history", "rollback"):
+            from corpus.db import list_template_history
+
+            hid = body.get("history_id")
+            hist = list_template_history(tid, limit=100)
+            snap = None
+            for h in hist:
+                if hid is None or int(h.get("id") or 0) == int(hid):
+                    snap = h.get("snapshot") or {}
+                    if hid is not None:
+                        break
+            if not snap:
+                return _json_bytes({"success": False, "error": "历史快照不存在"}, 404)
+            fields = {
+                k: snap.get(k)
+                for k in (
+                    "pattern",
+                    "emotion",
+                    "tension",
+                    "keywords",
+                    "hooks",
+                    "tags",
+                    "weight",
+                    "quality",
+                    "status",
+                    "source_title",
+                    "raw_text",
+                    "factors",
+                    "provenance",
+                )
+                if snap.get(k) is not None
+            }
+            item = update_template(tid, fields, history_reason=f"rollback:{hid or 'latest'}")
             return _json_bytes({"success": True, "item": item})
         return _json_bytes({"success": False, "error": f"未知操作: {action}"}, 400)
 
@@ -1797,20 +1853,71 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         return _json_bytes(result, status)
 
     if path == "/api/corpus/generate" and method == "POST":
-        from corpus.generate import regenerate_from_template
+        from corpus.generate import compose_from_templates, regenerate_from_template
+        from corpus.lab import lab_compose
 
-        try:
-            tid = int(body.get("template_id"))
-        except Exception:
-            return _json_bytes({"success": False, "error": "缺少 template_id"}, 400)
-        result = regenerate_from_template(
-            template_id=tid,
-            topic=str(body.get("topic") or "").strip(),
-            platform_style=str(body.get("platform_style") or body.get("style") or "通用"),
-            extra_prompt=str(body.get("prompt") or body.get("extra_prompt") or ""),
-            bump_weight=bool(body.get("bump_weight", True)),
-        )
-        # 可选：同步保存为文章，便于发布
+        # Post Lab 多版本模式
+        if body.get("lab") or body.get("mode") == "lab" or body.get("variants"):
+            ids = body.get("template_ids") if isinstance(body.get("template_ids"), list) else []
+            tid_list = []
+            for x in ids:
+                try:
+                    tid_list.append(int(x))
+                except Exception:
+                    pass
+            if body.get("template_id") is not None and not tid_list:
+                try:
+                    tid_list = [int(body.get("template_id"))]
+                except Exception:
+                    pass
+            result = lab_compose(
+                template_ids=tid_list,
+                topic=str(body.get("topic") or "").strip(),
+                formula_id=str(body.get("formula") or body.get("formula_id") or "contrarian"),
+                platform_style=str(body.get("platform_style") or body.get("style") or "X/Twitter"),
+                extra_prompt=str(body.get("prompt") or body.get("extra_prompt") or ""),
+                variant_count=int(body.get("variant_count") or 3),
+                bump_weight=bool(body.get("bump_weight", True)),
+            )
+            status = 200 if result.get("success") else 400
+            return _json_bytes(result, status)
+
+        ids = body.get("template_ids")
+        tid_list = []
+        if isinstance(ids, list) and ids:
+            for x in ids:
+                try:
+                    tid_list.append(int(x))
+                except Exception:
+                    pass
+        elif body.get("template_id") is not None:
+            try:
+                tid_list = [int(body.get("template_id"))]
+            except Exception:
+                tid_list = []
+        if not tid_list:
+            return _json_bytes({"success": False, "error": "缺少 template_id / template_ids"}, 400)
+
+        topic = str(body.get("topic") or "").strip()
+        style = str(body.get("platform_style") or body.get("style") or "通用")
+        extra = str(body.get("prompt") or body.get("extra_prompt") or "")
+        bump = bool(body.get("bump_weight", True))
+        if len(tid_list) == 1:
+            result = regenerate_from_template(
+                template_id=tid_list[0],
+                topic=topic,
+                platform_style=style,
+                extra_prompt=extra,
+                bump_weight=bump,
+            )
+        else:
+            result = compose_from_templates(
+                template_ids=tid_list,
+                topic=topic,
+                platform_style=style,
+                extra_prompt=extra,
+                bump_weight=bump,
+            )
         if result.get("success") and body.get("save_article") and result.get("content"):
             saved = _save_article(
                 str(body.get("topic") or "语料再生成"),
@@ -1818,6 +1925,96 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 {"platform": body.get("platform_style") or "语料", "style": "爆款模板"},
             )
             result["saved_path"] = saved
+        status = 200 if result.get("success") else 400
+        return _json_bytes(result, status)
+
+    if path == "/api/corpus/lab/formulas" and method == "GET":
+        from corpus.lab import list_formulas
+
+        return _json_bytes({"success": True, "items": list_formulas()})
+
+    if path == "/api/corpus/lab/tweak" and method == "POST":
+        from corpus.lab import tweak_content
+
+        result = tweak_content(
+            content=str(body.get("content") or ""),
+            tweak_id=str(body.get("tweak") or body.get("tweak_id") or "sharper_hook"),
+            custom=str(body.get("custom") or ""),
+            topic=str(body.get("topic") or ""),
+        )
+        status = 200 if result.get("success") else 400
+        return _json_bytes(result, status)
+
+    if path == "/api/corpus/capture" and method == "POST":
+        from corpus.lab import quick_capture
+
+        result = quick_capture(
+            str(body.get("text") or body.get("content") or ""),
+            source_url=str(body.get("url") or body.get("href") or ""),
+        )
+        status = 200 if result.get("success") else 400
+        return _json_bytes(result, status)
+
+    if path == "/api/corpus/synthesize" and method == "POST":
+        from corpus.synthesize import pick_random_posts, synthesize_from_posts
+
+        mode = str(body.get("mode") or "specified").strip().lower()
+        posts = body.get("posts") if isinstance(body.get("posts"), list) else []
+        keys = body.get("keys") if isinstance(body.get("keys"), list) else []
+        refs = body.get("refs") if isinstance(body.get("refs"), list) else []
+        need_cache = bool(keys or refs) or mode in ("random", "sample")
+        if need_cache:
+            state = _load_posts_state()
+            pool = _flatten_posts(
+                state,
+                keyword=str(body.get("keyword") or ""),
+                platform=str(body.get("platform") or ""),
+                view=str(body.get("view") or "all"),
+                tag=str(body.get("tag") or ""),
+            )
+            if mode in ("random", "sample") and not keys and not refs:
+                try:
+                    n = int(body.get("count") or body.get("n") or 3)
+                except Exception:
+                    n = 3
+                posts = pick_random_posts(pool, n)
+            else:
+                if keys:
+                    want = {str(k) for k in keys}
+                    posts = [
+                        p
+                        for p in pool
+                        if str(p.get("key") or "") in want or str(p.get("href") or "") in want
+                    ]
+                for ref in refs:
+                    if not isinstance(ref, dict):
+                        continue
+                    found_plat, found_key, entry = _find_post_ref(
+                        state,
+                        platform_id=str(ref.get("platform_id") or ""),
+                        key=str(ref.get("key") or ""),
+                        href=str(ref.get("href") or ""),
+                    )
+                    if isinstance(entry, dict):
+                        posts.append(
+                            {
+                                "title": entry.get("title"),
+                                "raw": entry.get("content") or entry.get("raw"),
+                                "content": entry.get("content") or entry.get("raw"),
+                                "summary": entry.get("summary"),
+                                "platform_id": found_plat
+                                or ref.get("platform_id")
+                                or entry.get("platform_id"),
+                                "key": found_key or ref.get("key") or entry.get("key"),
+                                "href": entry.get("href"),
+                                "tags": entry.get("tags") or [],
+                            }
+                        )
+        result = synthesize_from_posts(
+            posts,
+            tags=body.get("tags") if isinstance(body.get("tags"), list) else [],
+            note=str(body.get("note") or ""),
+        )
         status = 200 if result.get("success") else 400
         return _json_bytes(result, status)
 
