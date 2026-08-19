@@ -8,7 +8,15 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence
 
-from corpus.db import create_generation, create_template, get_templates_by_ids, init_db, update_template
+from corpus.db import (
+    create_generation,
+    create_template,
+    get_generation,
+    get_templates_by_ids,
+    init_db,
+    update_generation,
+    update_template,
+)
 
 FORMULA_PRESETS: Dict[str, Dict[str, str]] = {
     "contrarian": {
@@ -462,4 +470,192 @@ def quick_capture(text: str, *, source_url: str = "") -> Dict[str, Any]:
         "narrative_type": narrative,
         "provider": provider,
         "message": f"已解析入库，标签：{' '.join('#' + t for t in tags[:3])}",
+    }
+
+
+def _snapshot_card_elements(tmpls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """留存灵感卡完整要素，而非只留短观点。"""
+    out: List[Dict[str, Any]] = []
+    for t in tmpls:
+        factors = t.get("factors") if isinstance(t.get("factors"), dict) else {}
+        raw = str(t.get("raw_text") or "")
+        out.append(
+            {
+                "id": t.get("id"),
+                "title": t.get("source_title") or "",
+                "hook": t.get("hooks") or factors.get("hook") or "",
+                "pattern": t.get("pattern") or "",
+                "emotion": t.get("emotion") or "",
+                "tension": t.get("tension") or "",
+                "keywords": list(t.get("keywords") or []),
+                "tags": list(t.get("tags") or []),
+                "core_concept": factors.get("core_concept") or "",
+                "narrative_type": factors.get("narrative_type") or "",
+                "use_case": factors.get("use_case") or "",
+                "raw_text": raw[:4000],
+                "factors": factors,
+            }
+        )
+    return out
+
+
+def feature_variant(
+    *,
+    content: str,
+    topic: str = "",
+    hook: str = "",
+    variant_id: str = "",
+    variant_label: str = "",
+    formula_id: str = "",
+    generation_id: Optional[int] = None,
+    template_ids: Optional[Sequence[int]] = None,
+    source_cards: Optional[List[Dict[str, Any]]] = None,
+    cot: Optional[List[str]] = None,
+    platform_style: str = "X/Twitter",
+    note: str = "",
+) -> Dict[str, Any]:
+    """
+    精选留存：完整正文 + 要素细节（Hook/句式/情绪/冲突/关键词/取材卡），
+    写入 generations（featured）并同步一张可检索的精选模板。
+    """
+    init_db()
+    content = (content or "").strip()
+    if not content:
+        return {"success": False, "error": "没有可留存的正文"}
+
+    hook = (hook or "").strip() or content.split("\n", 1)[0][:120]
+    topic = (topic or "").strip() or "精选变体"
+    now = datetime.now().isoformat(timespec="seconds")
+
+    tids: List[int] = []
+    for x in template_ids or []:
+        try:
+            tids.append(int(x))
+        except Exception:
+            pass
+    tmpls = get_templates_by_ids(tids) if tids else []
+    card_elements = source_cards if isinstance(source_cards, list) and source_cards else _snapshot_card_elements(tmpls)
+
+    elements = {
+        "hook": hook,
+        "topic": topic,
+        "variant_id": variant_id or "",
+        "variant_label": variant_label or "",
+        "formula": formula_id or "",
+        "platform_style": platform_style or "",
+        "note": (note or "").strip(),
+        "full_content": content,
+        "paragraphs": [p.strip() for p in re.split(r"\n+", content) if p.strip()],
+        "source_cards": card_elements,
+        "cot": [str(x) for x in (cot or [])][:12],
+        "featured_at": now,
+    }
+
+    featured_meta = {
+        "featured": True,
+        "featured_at": now,
+        "elements": elements,
+        "variant_id": variant_id or "",
+        "variant_label": variant_label or "",
+        "formula": formula_id or "",
+        "template_ids": [t.get("id") for t in tmpls] or tids,
+        "mode": "lab_feature",
+    }
+
+    gen: Optional[Dict[str, Any]] = None
+    if generation_id is not None:
+        try:
+            gid = int(generation_id)
+        except Exception:
+            gid = 0
+        if gid:
+            existing = get_generation(gid)
+            if existing:
+                gen = update_generation(
+                    gid,
+                    content=content,
+                    platform_style="featured",
+                    meta=featured_meta,
+                    merge_meta=True,
+                )
+
+    if gen is None:
+        primary_id = int(tmpls[0]["id"]) if tmpls else (tids[0] if tids else None)
+        gen = create_generation(
+            template_id=primary_id,
+            topic=topic,
+            content=content,
+            platform_style="featured",
+            path={
+                "steps": [
+                    {
+                        "layer": "feature",
+                        "mode": "lab_feature",
+                        "formula": formula_id,
+                        "template_ids": tids,
+                        "at": now,
+                    }
+                ]
+            },
+            meta=featured_meta,
+        )
+
+    # 精选卡：pattern / raw_text 存完整正文，便于日后复用细节而非短观点
+    title = (hook[:40] or f"{topic}-{variant_label or variant_id or '精选'}").strip()
+    keywords: List[str] = []
+    emotions: List[str] = []
+    tensions: List[str] = []
+    for c in card_elements:
+        for kw in c.get("keywords") or []:
+            if kw and kw not in keywords:
+                keywords.append(str(kw))
+        if c.get("emotion") and c["emotion"] not in emotions:
+            emotions.append(str(c["emotion"]))
+        if c.get("tension") and c["tension"] not in tensions:
+            tensions.append(str(c["tension"]))
+    tags = ["精选", "要素留存"]
+    if formula_id:
+        tags.append(str(formula_id))
+    if variant_label:
+        tags.append(str(variant_label)[:16])
+
+    template = create_template(
+        source_platform="featured",
+        source_key=f"featured-gen-{gen.get('id')}-{int(datetime.now().timestamp())}",
+        source_title=title,
+        raw_text=content,
+        pattern=content,
+        hooks=hook,
+        emotion=" · ".join(emotions)[:80] or "精选",
+        tension=" · ".join(tensions)[:120] or "",
+        keywords=keywords[:12],
+        tags=tags[:8],
+        quality="good",
+        status="active",
+        weight=1.2,
+        provenance={
+            "steps": [
+                {
+                    "layer": "feature",
+                    "generation_id": gen.get("id"),
+                    "formula": formula_id,
+                    "at": now,
+                }
+            ]
+        },
+        factors={
+            **elements,
+            "generation_id": gen.get("id"),
+            "core_concept": hook,
+            "narrative_type": formula_id or "精选留存",
+            "use_case": "适合完整成帖",
+        },
+    )
+
+    return {
+        "success": True,
+        "generation": gen,
+        "template": template,
+        "elements": elements,
+        "message": f"已精选留存 #{gen.get('id')}（完整正文 + 要素）",
     }

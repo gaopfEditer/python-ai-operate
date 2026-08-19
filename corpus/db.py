@@ -507,22 +507,85 @@ def get_generation(generation_id: int, db_path: Optional[Path] = None) -> Option
     return _row_to_generation(row) if row else None
 
 
+def update_generation(
+    generation_id: int,
+    *,
+    content: Optional[str] = None,
+    platform_style: Optional[str] = None,
+    path: Optional[Dict[str, Any]] = None,
+    meta: Optional[Dict[str, Any]] = None,
+    merge_meta: bool = True,
+    db_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """更新 generation；默认把 meta 与原有合并。"""
+    init_db(db_path)
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM generations WHERE id=?", (int(generation_id),)
+        ).fetchone()
+        if not row:
+            return None
+        cur_meta = _json_loads(row["meta_json"], {})
+        if not isinstance(cur_meta, dict):
+            cur_meta = {}
+        new_meta = cur_meta
+        if meta is not None:
+            new_meta = {**cur_meta, **meta} if merge_meta else dict(meta)
+        sets: List[str] = []
+        args: List[Any] = []
+        if content is not None:
+            sets.append("content=?")
+            args.append(content)
+        if platform_style is not None:
+            sets.append("platform_style=?")
+            args.append(platform_style)
+        if path is not None:
+            sets.append("path_json=?")
+            args.append(_json_dumps(path))
+        if meta is not None:
+            sets.append("meta_json=?")
+            args.append(_json_dumps(new_meta))
+        if not sets:
+            return _row_to_generation(row)
+        args.append(int(generation_id))
+        conn.execute(
+            f"UPDATE generations SET {', '.join(sets)} WHERE id=?",
+            args,
+        )
+        row = conn.execute(
+            "SELECT * FROM generations WHERE id=?", (int(generation_id),)
+        ).fetchone()
+    return _row_to_generation(row) if row else None
+
+
 def list_generations(
     *,
     template_id: Optional[int] = None,
+    featured_only: bool = False,
     limit: int = 30,
     db_path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     init_db(db_path)
+    lim = max(1, int(limit))
     with connect(db_path) as conn:
+        clauses: List[str] = []
+        args: List[Any] = []
         if template_id is not None:
-            rows = conn.execute(
-                "SELECT * FROM generations WHERE template_id=? ORDER BY id DESC LIMIT ?",
-                (int(template_id), max(1, int(limit))),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM generations ORDER BY id DESC LIMIT ?",
-                (max(1, int(limit)),),
-            ).fetchall()
+            clauses.append("template_id=?")
+            args.append(int(template_id))
+        if featured_only:
+            # SQLite json_extract：true / 1 / "true"
+            clauses.append(
+                "("
+                "json_extract(meta_json, '$.featured') = 1 "
+                "OR lower(coalesce(json_extract(meta_json, '$.featured'), '')) = 'true' "
+                "OR platform_style = 'featured'"
+                ")"
+            )
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        args.append(lim)
+        rows = conn.execute(
+            f"SELECT * FROM generations{where} ORDER BY id DESC LIMIT ?",
+            args,
+        ).fetchall()
     return [_row_to_generation(r) for r in rows]

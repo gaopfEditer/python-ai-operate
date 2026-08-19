@@ -513,7 +513,7 @@ function switchTab(name) {
   if (name === "later") loadLibrary("later");
   if (name === "archived") loadLibrary("archived");
   if (name === "tags") loadLibrary("tags");
-  if (name === "corpus") { loadLabFormulas(); loadCorpus(); }
+  if (name === "corpus") { loadLabFormulas(); loadCorpus(); loadGenerations(); }
 }
 
 async function refreshHealth() {
@@ -624,14 +624,6 @@ async function loadLibrary(kind) {
     await loadPosts("", "", "tags", "all", tag);
   }
 }
-
-const LAYER_LABEL = {
-  collect: "采集",
-  deconstruct: "拆解",
-  store: "入库",
-  generate: "再生成",
-};
-
 
 const LAYER_LABEL = {
   collect: "采集",
@@ -1099,42 +1091,134 @@ async function loadGenerations() {
   const box = $("#corpusGenList");
   if (!box) return;
   try {
-    const data = await api("/api/corpus/generations?limit=8");
+    const data = await api("/api/corpus/generations?featured=1&limit=20");
     const items = data.items || [];
     state.corpusGenerations = items;
     if (!items.length) {
-      box.innerHTML = "";
+      box.innerHTML = `<p class="lab-hist-empty muted">还没有精选。在版本预览点「★ 精选留存」可保存完整正文与要素细节。</p>`;
       return;
     }
-    box.innerHTML =
-      `<h4 class="lab-hist-title">最近生成</h4>` +
-      items
-        .map(
-          (g) => `<button type="button" class="lab-hist-item" data-gen-use="${escapeAttr(String(g.id))}">
-            <strong>${escapeHtml((g.topic || "").slice(0, 24))}</strong>
-            <span>${escapeHtml(String(g.content || "").slice(0, 60))}</span>
-          </button>`
-        )
-        .join("");
-    box.querySelectorAll("[data-gen-use]").forEach((btn) => {
+    box.innerHTML = items
+      .map((g) => {
+        const el = g.meta?.elements || {};
+        const label =
+          g.meta?.variant_label || el.variant_label || g.meta?.variant_id || "精选";
+        const hook = el.hook || String(g.content || "").split("\n")[0] || "";
+        const cards = Array.isArray(el.source_cards) ? el.source_cards : [];
+        const chips = [];
+        if (el.formula) chips.push(`配方:${el.formula}`);
+        if (g.meta?.variant_id) chips.push(`变体${g.meta.variant_id}`);
+        cards.slice(0, 3).forEach((c) => {
+          if (c.emotion) chips.push(c.emotion);
+          if (c.tension) chips.push(String(c.tension).slice(0, 16));
+          (c.keywords || []).slice(0, 2).forEach((k) => chips.push(k));
+        });
+        const uniqChips = [...new Set(chips)].slice(0, 8);
+        const cardBits = cards
+          .slice(0, 3)
+          .map(
+            (c) =>
+              `<div class="lab-hist-card">
+                <strong>${escapeHtml(c.title || c.hook || `#${c.id}`)}</strong>
+                <span>${escapeHtml((c.pattern || c.raw_text || "").slice(0, 120))}</span>
+                <em>${escapeHtml([c.emotion, c.tension].filter(Boolean).join(" · "))}</em>
+              </div>`
+          )
+          .join("");
+        return `<article class="lab-hist-item" data-gen-id="${escapeAttr(String(g.id))}">
+          <button type="button" class="lab-hist-sum" data-gen-toggle="${escapeAttr(String(g.id))}">
+            <span class="lab-hist-badge">★ ${escapeHtml(String(label))}</span>
+            <strong>${escapeHtml((g.topic || "").slice(0, 28))}</strong>
+            <span class="lab-hist-hook">${escapeHtml(hook.slice(0, 80))}</span>
+            <span class="lab-hist-meta muted">#${g.id} · ${(g.created_at || "").slice(0, 16)}</span>
+          </button>
+          <div class="lab-hist-detail" hidden data-gen-detail="${escapeAttr(String(g.id))}">
+            <div class="lab-hist-chips">${uniqChips
+              .map((c) => `<span class="chip">${escapeHtml(String(c))}</span>`)
+              .join("")}</div>
+            ${cardBits ? `<div class="lab-hist-cards">${cardBits}</div>` : ""}
+            <pre class="lab-hist-body">${escapeHtml(g.content || "")}</pre>
+            <div class="lab-hist-actions">
+              <button type="button" class="btn ghost xs" data-gen-use="${escapeAttr(String(g.id))}">载入预览</button>
+              <button type="button" class="btn ghost xs" data-gen-copy="${escapeAttr(String(g.id))}">复制全文</button>
+            </div>
+          </div>
+        </article>`;
+      })
+      .join("");
+
+    box.querySelectorAll("[data-gen-toggle]").forEach((btn) => {
       btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-gen-toggle");
+        const detail = box.querySelector(`[data-gen-detail="${id}"]`);
+        if (!detail) return;
+        detail.hidden = !detail.hidden;
+        btn.classList.toggle("open", !detail.hidden);
+      });
+    });
+    box.querySelectorAll("[data-gen-use]").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
         const g = (state.corpusGenerations || []).find(
           (x) => Number(x.id) === Number(btn.getAttribute("data-gen-use"))
         );
         if (!g) return;
+        const el = g.meta?.elements || {};
         state.labActiveVariant = {
-          id: "H",
-          label: g.meta?.variant_label || "历史",
+          id: g.meta?.variant_id || "★",
+          label: g.meta?.variant_label || el.variant_label || "精选历史",
           content: g.content,
-          hook: String(g.content || "").split("\n")[0],
+          hook: el.hook || String(g.content || "").split("\n")[0],
+          generation_id: g.id,
+          featured: true,
         };
         state.lastCreate = { title: g.topic || "", content: g.content || "", path: "" };
         renderLabVariants([state.labActiveVariant], 0);
+        toast("已载入精选全文", "ok");
+      });
+    });
+    box.querySelectorAll("[data-gen-copy]").forEach((btn) => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const g = (state.corpusGenerations || []).find(
+          (x) => Number(x.id) === Number(btn.getAttribute("data-gen-copy"))
+        );
+        if (!g?.content) return;
+        try {
+          await navigator.clipboard.writeText(g.content);
+          toast("已复制全文", "ok");
+        } catch (e) {
+          toast("复制失败", "error");
+        }
       });
     });
   } catch (e) {
-    /* ignore */
+    box.innerHTML = `<p class="muted">精选历史加载失败</p>`;
   }
+}
+
+function collectTrayElements() {
+  const ids = new Set([...(state.corpusSelected || [])].map(Number));
+  return (state.corpusItems || [])
+    .filter((t) => ids.has(Number(t.id)))
+    .map((t) => {
+      const factors = t.factors && typeof t.factors === "object" ? t.factors : {};
+      return {
+        id: t.id,
+        title: t.source_title || "",
+        hook: t.hooks || factors.hook || "",
+        pattern: t.pattern || "",
+        emotion: t.emotion || "",
+        tension: t.tension || "",
+        keywords: t.keywords || [],
+        tags: t.tags || [],
+        core_concept: factors.core_concept || "",
+        narrative_type: factors.narrative_type || "",
+        use_case: factors.use_case || "",
+        raw_text: String(t.raw_text || "").slice(0, 4000),
+        factors,
+      };
+    });
 }
 
 async function loadTemplateHistory(templateId) {
@@ -1167,18 +1251,30 @@ function renderLabVariants(variants, activeIdx) {
   box.innerHTML = variants
     .map((v, i) => {
       const on = i === idx ? " on" : "";
-      return `<article class="lab-variant${on}" data-vidx="${i}">
-        <header><span class="lab-vid">${escapeHtml(v.id || String.fromCharCode(65 + i))}</span>
-        <strong>${escapeHtml(v.label || "变体")}</strong></header>
+      const starred = v.featured ? " starred" : "";
+      return `<article class="lab-variant${on}${starred}" data-vidx="${i}">
+        <header>
+          <span class="lab-vid">${escapeHtml(v.id || String.fromCharCode(65 + i))}</span>
+          <strong>${escapeHtml(v.label || "变体")}</strong>
+          <button type="button" class="lab-vstar" data-feature-idx="${i}" title="精选留存完整正文与要素">★</button>
+        </header>
         <p class="lab-vhook">${escapeHtml(v.hook || "")}</p>
         <pre class="lab-vbody">${escapeHtml(v.content || "")}</pre>
       </article>`;
     })
     .join("");
   box.querySelectorAll(".lab-variant").forEach((el) => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-feature-idx]")) return;
       const i = Number(el.getAttribute("data-vidx"));
       renderLabVariants(state.labVariants, i);
+    });
+  });
+  box.querySelectorAll("[data-feature-idx]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const i = Number(btn.getAttribute("data-feature-idx"));
+      labSaveFeatured(i);
     });
   });
   if ($("#labResultBar")) $("#labResultBar").hidden = false;
@@ -1237,6 +1333,7 @@ async function runCorpusRegen() {
       return;
     }
     renderLabCot(data.cot || []);
+    state.labCot = data.cot || [];
     renderLabVariants(data.variants || [], 0);
     renderPathView(data.path || {});
     setStatus(
@@ -1294,31 +1391,44 @@ async function labCopyMarkdown() {
   }
 }
 
-async function labSaveFeatured() {
-  const v = state.labActiveVariant;
-  if (!v?.content) return;
-  const data = await api("/api/corpus/templates", {
+async function labSaveFeatured(variantIdx) {
+  const variants = state.labVariants || [];
+  let v = state.labActiveVariant;
+  if (variantIdx != null && variants[variantIdx]) {
+    v = variants[variantIdx];
+    state.labActiveVariant = v;
+  }
+  if (!v?.content) {
+    toast("请先选一个变体", "error");
+    return;
+  }
+  const data = await api("/api/corpus/lab/feature", {
     method: "POST",
     body: JSON.stringify({
-      source_platform: "featured",
-      source_key: `featured-${Date.now()}`,
-      source_title: (v.hook || v.label || "精选").slice(0, 40),
-      pattern: v.hook || v.content.slice(0, 80),
-      raw_text: v.content,
-      hooks: v.hook || "",
-      emotion: "精选",
-      tags: ["精选", "生成"],
-      quality: "good",
-      status: "active",
+      content: v.content,
+      hook: v.hook || "",
+      topic: $("#regenTopic")?.value.trim() || v.label || "精选变体",
+      variant_id: v.id || "",
+      variant_label: v.label || "",
+      formula: state.labFormula || "",
+      generation_id: v.generation_id || null,
+      template_ids: [...(state.corpusSelected || [])],
+      source_cards: collectTrayElements(),
+      platform_style: $("#regenStyle")?.value.trim() || "X/Twitter",
+      cot: state.labCot || [],
     }),
   });
   if (data.success) {
-    toast(`已存精选 #${data.item?.id}`, "ok");
+    v.featured = true;
+    v.generation_id = data.generation?.id || v.generation_id;
+    const idx = variants.indexOf(v);
+    renderLabVariants(variants.length ? variants : [v], idx >= 0 ? idx : 0);
+    toast(data.message || `已精选留存 #${data.generation?.id}`, "ok");
+    await loadGenerations();
     await loadCorpus();
-  } else toast(data.error || "保存失败", "error");
+  } else toast(data.error || "留存失败", "error");
 }
 
-async function runXgrowthViral() {
 async function runXgrowthViral() {
   const btn = $("#btnXgrowthRun");
   const limit = Number($("#xgrowthLimit")?.value || 8);
@@ -2110,6 +2220,7 @@ function bind() {
     renderCorpusItems(state.corpusItems || []);
   });
   $("#btnLoadGenerations")?.addEventListener("click", () => loadGenerations());
+  $("#btnLoadFeatured")?.addEventListener("click", () => loadGenerations());
   $("#labCaptureForm")?.addEventListener("submit", runLabCapture);
   $("#btnLabCopyMd")?.addEventListener("click", () => labCopyMarkdown());
   $("#btnLabRegen")?.addEventListener("click", () => runCorpusRegen());

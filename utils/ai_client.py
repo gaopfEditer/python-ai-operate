@@ -248,6 +248,7 @@ class QwenClient:
 # 全局客户端实例
 _qwen_client: Optional[QwenClient] = None
 _ollama_client: Optional["OllamaClient"] = None
+_deepseek_client: Optional["DeepSeekClient"] = None
 
 
 def get_qwen_client() -> QwenClient:
@@ -256,6 +257,148 @@ def get_qwen_client() -> QwenClient:
     if _qwen_client is None:
         _qwen_client = QwenClient()
     return _qwen_client
+
+
+class DeepSeekClient:
+    """DeepSeek API 客户端（OpenAI 兼容 chat/completions）"""
+
+    def __init__(self, config_path: Optional[str] = None):
+        if config_path is None:
+            project_root = Path(__file__).parent.parent
+            config_path = project_root / "config" / "config.yaml"
+        self.config_path = Path(config_path)
+        self._load_config()
+
+    def _load_config(self):
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+            ds = (config.get("ai") or {}).get("deepseek") or {}
+            self.api_key = str(ds.get("api_key") or "").strip()
+            self.api_endpoint = str(
+                ds.get("api_endpoint")
+                or "https://api.deepseek.com/chat/completions"
+            ).strip()
+            self.model = str(ds.get("model") or "deepseek-chat").strip()
+            self.temperature = float(ds.get("temperature", 0.7))
+            self.max_tokens = int(ds.get("max_tokens", 2000))
+            self.timeout = int(ds.get("timeout", 90))
+            self.enable = bool(ds.get("enable", True)) and bool(self.api_key)
+            if not self.api_key:
+                logger.warning("DeepSeek API Key 未配置，DeepSeek 功能将不可用")
+                self.enable = False
+        except Exception as e:
+            logger.error(f"加载 DeepSeek 配置失败: {e}")
+            self.enable = False
+            self.api_key = ""
+            self.api_endpoint = "https://api.deepseek.com/chat/completions"
+            self.model = "deepseek-chat"
+            self.temperature = 0.7
+            self.max_tokens = 2000
+            self.timeout = 90
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        if not self.enable:
+            return {
+                "success": False,
+                "content": "",
+                "error": "DeepSeek 未启用或 API Key 未配置",
+                "usage": {},
+                "provider": "deepseek",
+                "model": getattr(self, "model", "deepseek-chat"),
+            }
+        messages: List[Dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        data = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+        }
+        for k, v in kwargs.items():
+            if k not in data:
+                data[k] = v
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            resp = session.post(
+                self.api_endpoint,
+                headers=headers,
+                json=data,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            result = resp.json() if resp.content else {}
+            content = ""
+            choices = result.get("choices") if isinstance(result, dict) else None
+            if isinstance(choices, list) and choices:
+                msg = choices[0].get("message") if isinstance(choices[0], dict) else {}
+                if isinstance(msg, dict):
+                    content = str(msg.get("content") or "")
+            usage = result.get("usage") if isinstance(result, dict) else {}
+            if content and content.strip():
+                return {
+                    "success": True,
+                    "content": content.strip(),
+                    "error": "",
+                    "usage": usage if isinstance(usage, dict) else {},
+                    "provider": "deepseek",
+                    "model": self.model,
+                }
+            return {
+                "success": False,
+                "content": "",
+                "error": f"DeepSeek 空响应: {json.dumps(result, ensure_ascii=False)[:400]}",
+                "usage": {},
+                "provider": "deepseek",
+                "model": self.model,
+            }
+        except requests.exceptions.RequestException as e:
+            err_body = ""
+            try:
+                if getattr(e, "response", None) is not None:
+                    err_body = (e.response.text or "")[:300]
+            except Exception:
+                pass
+            logger.error(f"DeepSeek API 请求失败: {e} {err_body}")
+            return {
+                "success": False,
+                "content": "",
+                "error": f"DeepSeek 请求失败: {e}" + (f" | {err_body}" if err_body else ""),
+                "usage": {},
+                "provider": "deepseek",
+                "model": self.model,
+            }
+        except Exception as e:
+            logger.error(f"调用 DeepSeek 失败: {e}")
+            return {
+                "success": False,
+                "content": "",
+                "error": f"DeepSeek 调用失败: {e}",
+                "usage": {},
+                "provider": "deepseek",
+                "model": self.model,
+            }
+
+
+def get_deepseek_client() -> DeepSeekClient:
+    global _deepseek_client
+    if _deepseek_client is None:
+        _deepseek_client = DeepSeekClient()
+    return _deepseek_client
 
 
 class OllamaClient:
@@ -440,23 +583,41 @@ def get_ollama_client() -> OllamaClient:
 class PreferAIClient:
     """
     统一 AI 客户端：按 config.ai.prefer 路由。
-    默认 ollama_first —— 先用本地 gemma-uncensored 等，失败再千问。
+    支持 deepseek / ollama / qwen 及 *_first 级联。
     """
 
     @property
     def enable(self) -> bool:
+        d = get_deepseek_client()
+        if d.enable:
+            return True
         o = get_ollama_client()
-        q = get_qwen_client()
         if o.enable and o.reachable():
             return True
+        q = get_qwen_client()
         return bool(q.enable)
 
     @property
     def provider_hint(self) -> str:
+        prefer = "deepseek_first"
+        try:
+            project_root = Path(__file__).parent.parent
+            with open(project_root / "config" / "config.yaml", "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            prefer = str((cfg.get("ai") or {}).get("prefer") or prefer).strip().lower()
+        except Exception:
+            pass
+        d = get_deepseek_client()
         o = get_ollama_client()
+        q = get_qwen_client()
+        if prefer in ("deepseek", "deepseek_first") and d.enable:
+            return f"deepseek:{d.model}"
+        if prefer in ("ollama", "ollama_first") and o.enable and o.reachable() and o.has_model():
+            return f"ollama:{o.model}"
+        if d.enable:
+            return f"deepseek:{d.model}"
         if o.enable and o.reachable() and o.has_model():
             return f"ollama:{o.model}"
-        q = get_qwen_client()
         if q.enable:
             return f"qwen:{q.model}"
         return "none"
@@ -482,7 +643,7 @@ _prefer_client: Optional[PreferAIClient] = None
 
 
 def get_ai_client() -> PreferAIClient:
-    """获取优先 Ollama、回退千问的统一客户端。"""
+    """获取统一 AI 客户端。"""
     global _prefer_client
     if _prefer_client is None:
         _prefer_client = PreferAIClient()
@@ -494,18 +655,26 @@ def generate_text(
     system_prompt: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, Any]:
-    """优先本地 Ollama，失败再回退千问（ai.prefer 可控）。"""
-    prefer = "ollama_first"
+    """
+    按 config.ai.prefer 路由：
+    - deepseek_first：DeepSeek → Ollama → 千问
+    - ollama_first：Ollama → DeepSeek → 千问
+    - deepseek / ollama / qwen：仅该通道
+    """
+    prefer = "deepseek_first"
     try:
         project_root = Path(__file__).parent.parent
         with open(project_root / "config" / "config.yaml", "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
-        prefer = str((cfg.get("ai") or {}).get("prefer") or "ollama_first").strip().lower()
+        prefer = str((cfg.get("ai") or {}).get("prefer") or "deepseek_first").strip().lower()
     except Exception:
         pass
 
     def _ollama():
         return get_ollama_client().generate(prompt, system_prompt=system_prompt, **kwargs)
+
+    def _deepseek():
+        return get_deepseek_client().generate(prompt, system_prompt=system_prompt, **kwargs)
 
     def _qwen():
         r = get_qwen_client().generate(prompt, system_prompt=system_prompt, **kwargs)
@@ -513,15 +682,32 @@ def generate_text(
             r.setdefault("provider", "qwen")
         return r
 
+    if prefer == "deepseek":
+        return _deepseek()
     if prefer == "qwen":
         return _qwen()
     if prefer == "ollama":
         return _ollama()
 
-    # ollama_first
-    r = _ollama()
+    if prefer == "ollama_first":
+        r = _ollama()
+        if r.get("success"):
+            return r
+        logger.warning(f"Ollama 不可用，回退 DeepSeek: {r.get('error')}")
+        r2 = _deepseek()
+        if r2.get("success"):
+            return r2
+        logger.warning(f"DeepSeek 不可用，回退千问: {r2.get('error')}")
+        return _qwen()
+
+    # deepseek_first（默认）
+    r = _deepseek()
     if r.get("success"):
         return r
-    logger.warning(f"Ollama 不可用，回退千问: {r.get('error')}")
+    logger.warning(f"DeepSeek 不可用，回退 Ollama: {r.get('error')}")
+    r2 = _ollama()
+    if r2.get("success"):
+        return r2
+    logger.warning(f"Ollama 不可用，回退千问: {r2.get('error')}")
     return _qwen()
 

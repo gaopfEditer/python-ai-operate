@@ -1945,6 +1945,40 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         status = 200 if result.get("success") else 400
         return _json_bytes(result, status)
 
+    if path == "/api/corpus/lab/feature" and method == "POST":
+        from corpus.lab import feature_variant
+
+        tids = []
+        raw_ids = body.get("template_ids") if isinstance(body.get("template_ids"), list) else []
+        for x in raw_ids:
+            try:
+                tids.append(int(x))
+            except Exception:
+                pass
+        gid = body.get("generation_id")
+        try:
+            gid_int = int(gid) if gid is not None and str(gid).strip() != "" else None
+        except Exception:
+            gid_int = None
+        cards = body.get("source_cards") if isinstance(body.get("source_cards"), list) else None
+        cot = body.get("cot") if isinstance(body.get("cot"), list) else None
+        result = feature_variant(
+            content=str(body.get("content") or ""),
+            topic=str(body.get("topic") or ""),
+            hook=str(body.get("hook") or ""),
+            variant_id=str(body.get("variant_id") or body.get("id") or ""),
+            variant_label=str(body.get("variant_label") or body.get("label") or ""),
+            formula_id=str(body.get("formula") or body.get("formula_id") or ""),
+            generation_id=gid_int,
+            template_ids=tids,
+            source_cards=cards,
+            cot=[str(x) for x in (cot or [])],
+            platform_style=str(body.get("platform_style") or body.get("style") or "X/Twitter"),
+            note=str(body.get("note") or ""),
+        )
+        status = 200 if result.get("success") else 400
+        return _json_bytes(result, status)
+
     if path == "/api/corpus/capture" and method == "POST":
         from corpus.lab import quick_capture
 
@@ -2032,8 +2066,15 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             limit = int((query.get("limit") or ["30"])[0])
         except Exception:
             limit = 30
+        featured_flag = str((query.get("featured") or [""])[0]).lower()
+        featured_only = featured_flag in ("1", "true", "yes", "featured")
         return _json_bytes(
-            {"success": True, "items": list_generations(template_id=tid, limit=limit)}
+            {
+                "success": True,
+                "items": list_generations(
+                    template_id=tid, featured_only=featured_only, limit=limit
+                ),
+            }
         )
 
     if path == "/api/corpus/taxonomy" and method == "GET":
