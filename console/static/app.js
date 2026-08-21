@@ -514,6 +514,8 @@ function switchTab(name) {
   if (name === "archived") loadLibrary("archived");
   if (name === "tags") loadLibrary("tags");
   if (name === "corpus") { loadLabFormulas(); loadCorpus(); loadGenerations(); }
+  if (name === "signals") { loadSignalsPanel(); }
+  if (name === "tweetcards") { loadTweetCards(); }
 }
 
 async function refreshHealth() {
@@ -2664,6 +2666,380 @@ function bind() {
       setStatus($("#publishStatus"), String(e), "error");
     }
   });
+
+  $("#btnSigSaveCfg")?.addEventListener("click", () => saveSignalsConfig());
+  $("#btnSigRun")?.addEventListener("click", () => runSignalsCrawl());
+  $("#btnSigPushOnly")?.addEventListener("click", () => pushSignalsOnly());
+  $("#btnSigRefresh")?.addEventListener("click", () => loadSignalCards());
+  $("#sigFilterTrade")?.addEventListener("change", () => loadSignalCards());
+
+  $("#btnTcIngest")?.addEventListener("click", () => runTweetCardIngest());
+  $("#btnTcRefresh")?.addEventListener("click", () => loadTweetCards());
+  $("#tcKeyword")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadTweetCards();
+  });
+}
+
+async function loadSignalsPanel() {
+  try {
+    const data = await api("/api/signals/config");
+    const cfg = data.config || {};
+    if ($("#sigListUrl")) {
+      $("#sigListUrl").value = cfg.list_url || `https://x.com/i/lists/${cfg.list_id || ""}`;
+    }
+    if ($("#sigCutoffHours") && cfg.cutoff_hours != null) {
+      $("#sigCutoffHours").value = cfg.cutoff_hours;
+    }
+    if ($("#sigMaxTweets") && cfg.max_tweets != null) {
+      $("#sigMaxTweets").value = cfg.max_tweets;
+    }
+    if ($("#sigSkipNonTrade")) $("#sigSkipNonTrade").checked = !!cfg.skip_non_trade;
+    if ($("#sigPushEnabled")) {
+      $("#sigPushEnabled").checked = cfg.push_enabled !== false;
+    }
+    renderSigWindows(data.windows || []);
+    const ch = data.channels || {};
+    const hint = $("#sigChannelsHint");
+    if (hint) {
+      const mapped = ch.mapped_count || 0;
+      const en = ch.enabled === false ? "关闭" : "开启";
+      hint.textContent = `Cards API ${en} · 已映射 ${mapped} 个用户 · 已推送 ${data.pushed_count || 0} · ${ch.path || "config/signals_channels.yaml"}`;
+    }
+    const n = data.card_count || 0;
+    const badge = $("#countSignals");
+    if (badge) badge.textContent = String(n);
+  } catch (e) {
+    /* ignore */
+  }
+  await loadSignalCards();
+}
+
+function renderSigWindows(windows) {
+  const box = $("#sigWindows");
+  if (!box) return;
+  if (!windows || !windows.length) {
+    box.textContent = "暂无记录（跑完一轮后会写入，下次默认只拉新区间）";
+    return;
+  }
+  box.innerHTML = windows
+    .slice(0, 6)
+    .map((w) => {
+      const from = String(w.from || "").slice(0, 19);
+      const to = String(w.to || "").slice(0, 19);
+      return `<div>#${escapeHtml(String(w.list_id || ""))} · ${escapeHtml(from)} → ${escapeHtml(to)} · 解析 ${w.parsed || 0}/${w.fetched || 0}</div>`;
+    })
+    .join("");
+}
+
+async function saveSignalsConfig() {
+  try {
+    const data = await api("/api/signals/config", {
+      method: "POST",
+      body: JSON.stringify({
+        list_url: $("#sigListUrl")?.value.trim() || "",
+        cutoff_hours: Number($("#sigCutoffHours")?.value || 24),
+        max_tweets: Number($("#sigMaxTweets")?.value || 40),
+        skip_non_trade: !!$("#sigSkipNonTrade")?.checked,
+        push_enabled: !!$("#sigPushEnabled")?.checked,
+      }),
+    });
+    if (data.success) {
+      toast("配置已保存", "ok");
+      if (data.config?.list_url && $("#sigListUrl")) {
+        $("#sigListUrl").value = data.config.list_url;
+      }
+    } else toast(data.error || "保存失败", "error");
+  } catch (e) {
+    toast(String(e), "error");
+  }
+}
+
+async function pushSignalsOnly() {
+  const btn = $("#btnSigPushOnly");
+  if (btn) btn.disabled = true;
+  setStatus($("#sigStatus"), "推送已存卡片…");
+  try {
+    const data = await api("/api/signals/push", {
+      method: "POST",
+      body: JSON.stringify({
+        force: !!$("#sigForcePush")?.checked,
+        only_trade: !!$("#sigFilterTrade")?.checked || !!$("#sigSkipNonTrade")?.checked,
+        limit: 80,
+      }),
+    });
+    setStatus(
+      $("#sigStatus"),
+      `推送完成：成功 ${data.pushed || 0} · 跳过 ${data.skipped || 0} · 失败 ${data.failed || 0}`,
+      data.failed ? "error" : "ok"
+    );
+    toast(`推送 ${data.pushed || 0} 条`, data.failed ? "error" : "ok");
+    await loadSignalsPanel();
+  } catch (e) {
+    setStatus($("#sigStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runSignalsCrawl() {
+  const btn = $("#btnSigRun");
+  if (btn) btn.disabled = true;
+  setStatus($("#sigStatus"), "提交任务…");
+  try {
+    await saveSignalsConfig();
+    const start = await api("/api/signals/run", {
+      method: "POST",
+      body: JSON.stringify({
+        list_url: $("#sigListUrl")?.value.trim() || "",
+        cutoff_hours: Number($("#sigCutoffHours")?.value || 24),
+        max_tweets: Number($("#sigMaxTweets")?.value || 40),
+        skip_non_trade: !!$("#sigSkipNonTrade")?.checked,
+        ignore_windows: !!$("#sigIgnoreWindows")?.checked,
+        reparse_seen: !!$("#sigReparseSeen")?.checked,
+        push: !!$("#sigPushEnabled")?.checked,
+        force_push: !!$("#sigForcePush")?.checked,
+      }),
+    });
+    if (!start.success || !start.job_id) {
+      setStatus($("#sigStatus"), start.error || "启动失败", "error");
+      return;
+    }
+    const jobId = start.job_id;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const data = await api(`/api/jobs/${jobId}`);
+      const job = data.job || {};
+      setStatus($("#sigStatus"), job.message || job.status || "运行中…");
+      if (job.status === "done" || job.status === "error") {
+        const result = job.result || {};
+        setStatus(
+          $("#sigStatus"),
+          job.status === "done"
+            ? result.message || job.message || "完成"
+            : job.message || "失败",
+          job.status === "done" ? "ok" : "error"
+        );
+        if (job.status === "done") {
+          toast(result.message || "列表信号已更新", "ok");
+          await loadSignalsPanel();
+        }
+        break;
+      }
+    }
+  } catch (e) {
+    setStatus($("#sigStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadSignalCards() {
+  const box = $("#sigCards");
+  if (!box) return;
+  const onlyTrade = !!$("#sigFilterTrade")?.checked;
+  try {
+    const data = await api(
+      `/api/signals/cards?limit=80${onlyTrade ? "&trade=1" : ""}`
+    );
+    renderSigWindows(data.windows || []);
+    const items = data.items || [];
+    const badge = $("#countSignals");
+    if (badge) badge.textContent = String(items.length);
+    if (!items.length) {
+      box.innerHTML = `<p class="muted">暂无卡片。确认 Chrome 已开调试口并登录 X 后，点「开始抓取解析」。</p>`;
+      return;
+    }
+    box.innerHTML = items
+      .map((c) => {
+        const sig = c.signal || {};
+        const trade = !!sig.has_trade_signal;
+        const dir = String(sig.direction || "unknown").toLowerCase();
+        const coins = (sig.coins || [])
+          .map((x) => `<span class="sig-coin">${escapeHtml(String(x))}</span>`)
+          .join("");
+        const levels = [];
+        if ((sig.entries || []).length) {
+          levels.push(`<div><b>入场</b>${escapeHtml((sig.entries || []).join(" / "))}</div>`);
+        }
+        if ((sig.take_profits || []).length) {
+          levels.push(`<div><b>止盈</b>${escapeHtml((sig.take_profits || []).join(" / "))}</div>`);
+        }
+        if (sig.stop_loss) {
+          levels.push(`<div><b>止损</b>${escapeHtml(String(sig.stop_loss))}</div>`);
+        }
+        if (sig.leverage) {
+          levels.push(`<div><b>杠杆</b>${escapeHtml(String(sig.leverage))}</div>`);
+        }
+        if (sig.timeframe) {
+          levels.push(`<div><b>周期</b>${escapeHtml(String(sig.timeframe))}</div>`);
+        }
+        const imgs = (c.images || [])
+          .map((im) => {
+            const src = im.rel
+              ? `/api/signals/media?rel=${encodeURIComponent(im.rel)}`
+              : im.url || "";
+            if (!src) return "";
+            return `<a href="${escapeAttr(im.url || src)}" target="_blank" rel="noopener"><img src="${escapeAttr(src)}" alt="${escapeAttr(im.alt || "")}" loading="lazy" /></a>`;
+          })
+          .join("");
+        return `<article class="sig-card${trade ? " is-trade" : " is-noise"}">
+          <div class="sig-card-top">
+            <span class="sig-dir ${escapeAttr(dir)}">${escapeHtml(dir)}</span>
+            ${coins}
+            <span class="sig-author">${escapeHtml(c.author || "")}</span>
+            <span class="sig-time">${escapeHtml(String(c.time_label || c.created_at || "").slice(0, 19))}</span>
+          </div>
+          <p class="sig-summary">${escapeHtml(sig.summary || c.text || "").slice(0, 220)}</p>
+          ${levels.length ? `<div class="sig-levels">${levels.join("")}</div>` : ""}
+          ${sig.image_notes ? `<p class="muted" style="margin:0;font-size:.74rem">图注：${escapeHtml(String(sig.image_notes).slice(0, 160))}</p>` : ""}
+          ${imgs ? `<div class="sig-imgs">${imgs}</div>` : ""}
+          <pre class="sig-text">${escapeHtml(c.text || "")}</pre>
+          <div class="sig-card-foot">
+            <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">原帖</a>
+            <span class="sig-conf">${trade ? "信号" : "非交易"} · conf ${escapeHtml(String(sig.confidence ?? ""))} · ${escapeHtml(String(sig.provider || ""))}</span>
+          </div>
+        </article>`;
+      })
+      .join("");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
+  }
+}
+
+function fmtCount(n) {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v) || v <= 0) return "0";
+  if (v >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (v >= 1e3) return (v / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(Math.round(v));
+}
+
+async function loadTweetCards() {
+  const box = $("#tcCards");
+  if (!box) return;
+  const kw = $("#tcKeyword")?.value.trim() || "";
+  try {
+    const data = await api(
+      `/api/tweet-cards?limit=60${kw ? `&keyword=${encodeURIComponent(kw)}` : ""}`
+    );
+    const items = data.items || [];
+    const badge = $("#countTweetCards");
+    if (badge) badge.textContent = String((data.stats && data.stats.total) || items.length);
+    if (!items.length) {
+      box.innerHTML = `<p class="muted">暂无卡片。粘贴推特链接后点「解析入库」。</p>`;
+      return;
+    }
+    box.innerHTML = items
+      .map((c) => {
+        const avatar = c.author_avatar
+          ? `<img class="tc-avatar" src="${escapeAttr(c.author_avatar)}" alt="" loading="lazy" />`
+          : `<div class="tc-avatar" aria-hidden="true"></div>`;
+        const tags = [
+          c.emotion ? `<span class="tc-tag emo">${escapeHtml(c.emotion)}</span>` : "",
+          c.category ? `<span class="tc-tag cat">${escapeHtml(c.category)}</span>` : "",
+          ...(c.tags || []).map((t) => `<span class="tc-tag">#${escapeHtml(String(t))}</span>`),
+        ].join("");
+        const points = (c.core_points || [])
+          .map((p) => `<li>${escapeHtml(String(p))}</li>`)
+          .join("");
+        const imgs = (c.images || [])
+          .map(
+            (u) =>
+              `<a href="${escapeAttr(u)}" target="_blank" rel="noopener"><img src="${escapeAttr(u)}" alt="" loading="lazy" /></a>`
+          )
+          .join("");
+        return `<article class="tc-card" data-tid="${escapeAttr(String(c.tweet_id || ""))}">
+          <div class="tc-head">
+            ${avatar}
+            <div class="tc-author">
+              <strong>${escapeHtml(c.author_name || c.author_handle || "未知")}</strong>
+              <span>@${escapeHtml(c.author_handle || "")}</span>
+            </div>
+          </div>
+          <p class="tc-summary">${escapeHtml(c.summary || (c.text || "").slice(0, 60))}</p>
+          ${points ? `<ul class="tc-points">${points}</ul>` : ""}
+          <div class="tc-tags">${tags}</div>
+          <div class="tc-metrics">
+            <span>赞 <b>${fmtCount(c.likes)}</b></span>
+            <span>评 <b>${fmtCount(c.replies)}</b></span>
+            <span>转 <b>${fmtCount(c.retweets)}</b></span>
+            <span>藏 <b>${fmtCount(c.bookmarks)}</b></span>
+            <span>浏 <b>${fmtCount(c.views)}</b></span>
+          </div>
+          ${imgs ? `<div class="tc-imgs">${imgs}</div>` : ""}
+          <pre class="tc-body">${escapeHtml(c.text || "")}</pre>
+          <div class="tc-foot">
+            <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">打开原帖</a>
+            <button type="button" class="btn ghost xs" data-tc-del="${escapeAttr(String(c.tweet_id || ""))}">删除</button>
+            <span class="muted">${escapeHtml(String(c.source || ""))} · ${escapeHtml(String(c.updated_at || "").slice(0, 16))}</span>
+          </div>
+        </article>`;
+      })
+      .join("");
+    box.querySelectorAll("[data-tc-del]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const tid = btn.getAttribute("data-tc-del");
+        if (!tid || !confirm(`删除卡片 ${tid}？`)) return;
+        try {
+          await api(`/api/tweet-cards/${encodeURIComponent(tid)}`, { method: "DELETE" });
+          toast("已删除", "ok");
+          await loadTweetCards();
+        } catch (e) {
+          toast(String(e), "error");
+        }
+      });
+    });
+  } catch (e) {
+    box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
+  }
+}
+
+async function runTweetCardIngest() {
+  const raw = $("#tcInput")?.value.trim() || "";
+  if (!raw) {
+    toast("请先粘贴推特链接", "error");
+    return;
+  }
+  const btn = $("#btnTcIngest");
+  if (btn) btn.disabled = true;
+  setStatus($("#tcStatus"), "提交解析…");
+  try {
+    const start = await api("/api/tweet-cards/ingest", {
+      method: "POST",
+      body: JSON.stringify({ text: raw }),
+    });
+    if (!start.success || !start.job_id) {
+      setStatus($("#tcStatus"), start.error || "启动失败", "error");
+      return;
+    }
+    const jobId = start.job_id;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const data = await api(`/api/jobs/${jobId}`);
+      const job = data.job || {};
+      setStatus($("#tcStatus"), job.message || job.status || "运行中…");
+      if (job.status === "done" || job.status === "error") {
+        const result = job.result || {};
+        setStatus(
+          $("#tcStatus"),
+          job.status === "done"
+            ? result.message || job.message || "完成"
+            : job.message || "失败",
+          job.status === "done" ? "ok" : "error"
+        );
+        if (job.status === "done") {
+          toast(result.message || "已入库", "ok");
+          if ($("#tcInput")) $("#tcInput").value = "";
+          await loadTweetCards();
+        }
+        break;
+      }
+    }
+  } catch (e) {
+    setStatus($("#tcStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function boot() {

@@ -1,0 +1,29 @@
+# X List 交易信号 → Cards API 推送配置
+#
+# 推特用户名（不含 @）映射到频道展示信息。
+# 解析出增量卡片后，会按下方 API 推送；已推送的 tweet_id 不会重复发。
+
+cards_api:
+  enabled: true
+  base_url: "http://127.0.0.1:3851"
+  path: "/api/v1/cards"
+  api_key: "your-secret-key"
+  # 仅推送 AI 判定为交易信号的卡片
+  only_trade_signals: true
+  # 写入 Discord 时间线；单卡可覆盖
+  inject_channel_message: true
+  timeout_sec: 15
+
+# 无映射时的默认频道
+default_channel:
+  channelId: "api"
+  channelName: "未映射推特源"
+  channelAvatar: ""
+
+# 推特 handle（小写、无 @）→ 频道
+# 之后你按实际用户补全即可，例如：
+# junzhang:
+#   channelId: "1234567890123456789"
+#   channelName: "军长频道"
+#   channelAvatar: "https://example.com/avatar.png"
+channels: {}

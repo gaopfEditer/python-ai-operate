@@ -15,7 +15,7 @@
       <div>
         <p class="eyebrow">TRENDRADAR</p>
         <h1 class="brand">Console</h1>
-        <p class="brand-sub">资讯获取 · Post Lab · Prompt 创作 · CDP 发布</p>
+        <p class="brand-sub">资讯 · 推文卡片 · 列表信号 · Post Lab</p>
         <div class="signal" aria-hidden="true"></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="功能分区">
@@ -25,6 +25,8 @@
         <button class="tab" type="button" role="tab" data-tab="tags" aria-selected="false">标签 <span class="tab-count" id="countTagged">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false">历史缓存</button>
         <button class="tab" type="button" role="tab" data-tab="corpus" aria-selected="false">Post Lab <span class="tab-count" id="countCorpus">0</span></button>
+        <button class="tab" type="button" role="tab" data-tab="signals" aria-selected="false">列表信号 <span class="tab-count" id="countSignals">0</span></button>
+        <button class="tab" type="button" role="tab" data-tab="tweetcards" aria-selected="false">推文卡片 <span class="tab-count" id="countTweetCards">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
         <button class="tab" type="button" role="tab" data-tab="publish" aria-selected="false">CDP 发布</button>
       </nav>
@@ -470,6 +472,93 @@
         </div>
         <div id="publishCacheList" class="card-list queue-list"></div>
         <pre id="publishResult" class="preview-body muted"></pre>
+      </section>
+
+      <section id="panel-signals" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h2>X 列表交易信号</h2>
+          <p>配置推特 List → CDP 抓取贴文（含图）→ AI 识别币种 / 方向 / 止盈止损。默认翻到 24h 内，并记录已爬时间段防重复。</p>
+        </div>
+        <div class="sig-config form-grid">
+          <label class="field full">
+            <span>列表链接或 ID</span>
+            <input id="sigListUrl" type="text" placeholder="https://x.com/i/lists/2088443239435215337" value="https://x.com/i/lists/2088443239435215337" />
+          </label>
+          <label class="field">
+            <span>截至时间（小时）</span>
+            <input id="sigCutoffHours" type="number" min="1" max="336" value="24" />
+          </label>
+          <label class="field">
+            <span>最多条数</span>
+            <input id="sigMaxTweets" type="number" min="5" max="120" value="40" />
+          </label>
+          <label class="field check">
+            <input id="sigSkipNonTrade" type="checkbox" />
+            <span>只留有交易信号的卡片</span>
+          </label>
+          <label class="field check">
+            <input id="sigIgnoreWindows" type="checkbox" />
+            <span>忽略已爬时间段（整段重扫）</span>
+          </label>
+          <label class="field check">
+            <input id="sigReparseSeen" type="checkbox" />
+            <span>重新解析已见贴文</span>
+          </label>
+          <label class="field check">
+            <input id="sigPushEnabled" type="checkbox" checked />
+            <span>解析后推送 Cards API</span>
+          </label>
+          <label class="field check">
+            <input id="sigForcePush" type="checkbox" />
+            <span>强制重推（忽略已推送）</span>
+          </label>
+          <div class="field full">
+            <span class="muted" id="sigChannelsHint">频道映射：config/signals_channels.yaml</span>
+          </div>
+          <div class="field" style="justify-content:end;flex-direction:row;gap:8px;align-items:end">
+            <button id="btnSigSaveCfg" class="btn ghost" type="button">保存配置</button>
+            <button id="btnSigPushOnly" class="btn ghost" type="button">仅推送已存卡片</button>
+            <button id="btnSigRun" class="btn primary" type="button">开始抓取解析</button>
+          </div>
+        </div>
+        <p id="sigStatus" class="status"></p>
+        <div class="sig-meta">
+          <div>
+            <h3 class="sig-sub">已爬时间段</h3>
+            <div id="sigWindows" class="sig-windows muted">暂无记录</div>
+          </div>
+          <div class="toolbar" style="margin:0;justify-content:flex-end">
+            <label class="field check" style="margin:0">
+              <input id="sigFilterTrade" type="checkbox" />
+              <span>仅显示交易卡</span>
+            </label>
+            <button id="btnSigRefresh" class="btn ghost" type="button">刷新卡片</button>
+          </div>
+        </div>
+        <div id="sigCards" class="sig-cards"></div>
+      </section>
+
+      <section id="panel-tweetcards" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h2>推文卡片</h2>
+          <p>粘贴 X/Twitter 链接（可多行）→ FxTwitter 拉取全文/配图/互动 → AI 摘要与标签 → 卡片库。</p>
+        </div>
+        <div class="tc-compose">
+          <label class="field full">
+            <span>推特链接（每行一条，或一段里多个 URL）</span>
+            <textarea id="tcInput" rows="4" placeholder="https://x.com/user/status/1234567890"></textarea>
+          </label>
+          <div class="toolbar" style="margin:0">
+            <button id="btnTcIngest" class="btn primary" type="button">解析入库</button>
+            <button id="btnTcRefresh" class="btn ghost" type="button">刷新</button>
+            <label class="field grow" style="margin:0">
+              <span>搜索</span>
+              <input id="tcKeyword" type="search" placeholder="作者 / 摘要 / 标签" />
+            </label>
+          </div>
+          <p id="tcStatus" class="status"></p>
+        </div>
+        <div id="tcCards" class="tc-cards"></div>
       </section>
     </main>
   </div>

@@ -2423,6 +2423,238 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
         return _json_bytes({"success": False, "error": f"未知操作: {action}"}, 404)
 
+    # ——— X List 交易信号 ———
+    if path == "/api/signals/config" and method == "GET":
+        from signals.push import channels_summary
+        from signals.store import get_config, load_state
+
+        st = load_state()
+        return _json_bytes(
+            {
+                "success": True,
+                "config": get_config(),
+                "windows": (st.get("windows") or [])[:12],
+                "card_count": len(st.get("cards") or []),
+                "seen_count": len(st.get("seen_tweet_ids") or []),
+                "pushed_count": len(st.get("pushed_tweet_ids") or []),
+                "channels": channels_summary(),
+            }
+        )
+
+    if path == "/api/signals/config" and method == "POST":
+        from signals.store import save_config
+
+        cfg = save_config(body if isinstance(body, dict) else {})
+        return _json_bytes({"success": True, "config": cfg})
+
+    if path == "/api/signals/channels" and method == "GET":
+        from signals.push import channels_summary, load_channels_config
+
+        return _json_bytes(
+            {
+                "success": True,
+                "summary": channels_summary(),
+                "config": load_channels_config(),
+            }
+        )
+
+    if path == "/api/signals/push" and method == "POST":
+        """手动把已存卡片增量/强制推送到 Cards API。"""
+        from signals.push import push_cards_batch
+        from signals.store import list_cards
+
+        force = bool(body.get("force"))
+        only_trade = body.get("only_trade")
+        items = list_cards(
+            list_id=str(body.get("list_id") or ""),
+            only_trade=bool(only_trade) if only_trade is not None else False,
+            limit=int(body.get("limit") or 80),
+        )
+        # 若指定 tweet_ids
+        ids = body.get("tweet_ids") if isinstance(body.get("tweet_ids"), list) else None
+        if ids:
+            idset = {str(x) for x in ids}
+            items = [c for c in items if str(c.get("tweet_id") or "") in idset]
+        result = push_cards_batch(items, force=force)
+        return _json_bytes({"success": True, **result})
+
+    if path == "/api/signals/cards" and method == "GET":
+        from signals.store import list_cards, load_state
+
+        try:
+            limit = int((query.get("limit") or ["80"])[0])
+        except Exception:
+            limit = 80
+        only_trade = str((query.get("trade") or [""])[0]).lower() in ("1", "true", "yes")
+        lid = (query.get("list_id") or [""])[0]
+        items = list_cards(list_id=lid, only_trade=only_trade, limit=limit)
+        st = load_state()
+        return _json_bytes(
+            {
+                "success": True,
+                "items": items,
+                "windows": (st.get("windows") or [])[:8],
+                "config": st.get("config") or {},
+                "pushed_count": len(st.get("pushed_tweet_ids") or []),
+            }
+        )
+
+    if path == "/api/signals/run" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+
+        def _progress(msg: str) -> None:
+            _set_job(job_id, message=str(msg or "")[:300])
+
+        def _worker() -> None:
+            _set_job(
+                job_id,
+                status="running",
+                type="signals_list",
+                message="开始抓取列表…",
+                started_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            try:
+                from signals.pipeline import run_list_signal_pipeline
+
+                push_flag = body.get("push")
+                if push_flag is None:
+                    push_flag = body.get("push_enabled")
+                result = run_list_signal_pipeline(
+                    list_id=str(body.get("list_id") or body.get("list_url") or ""),
+                    cutoff_hours=body.get("cutoff_hours"),
+                    max_tweets=body.get("max_tweets"),
+                    ignore_windows=bool(body.get("ignore_windows")),
+                    skip_non_trade=body.get("skip_non_trade"),
+                    reparse_seen=bool(body.get("reparse_seen")),
+                    push=None if push_flag is None else bool(push_flag),
+                    force_push=bool(body.get("force_push")),
+                    progress=_progress,
+                )
+                _set_job(
+                    job_id,
+                    status="done" if result.get("success") else "error",
+                    message=result.get("message") or result.get("error") or "完成",
+                    result={
+                        k: result.get(k)
+                        for k in (
+                            "list_id",
+                            "list_url",
+                            "fetched",
+                            "candidates",
+                            "parsed",
+                            "skipped",
+                            "window",
+                            "cutoff_hours",
+                            "floor",
+                            "push",
+                            "message",
+                            "error",
+                        )
+                        if k in result
+                    },
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+
+        _set_job(job_id, status="queued", type="signals_list", message="排队中…")
+        threading.Thread(target=_worker, daemon=True).start()
+        return _json_bytes({"success": True, "job_id": job_id})
+
+    if path == "/api/signals/media" and method == "GET":
+        import mimetypes
+
+        from signals.store import resolve_media
+
+        rel = (query.get("rel") or [""])[0].strip()
+        try:
+            fpath = resolve_media(rel)
+            if not fpath.is_file():
+                return _json_bytes({"success": False, "error": "文件不存在"}, 404)
+            data = fpath.read_bytes()
+            ctype = mimetypes.guess_type(str(fpath))[0] or "application/octet-stream"
+            return data, 200, ctype
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    # ——— 推文卡片（粘贴链接解析） ———
+    if path == "/api/tweet-cards" and method == "GET":
+        from tweet_cards.pipeline import list_tweet_cards
+
+        try:
+            limit = int((query.get("limit") or ["40"])[0])
+        except Exception:
+            limit = 40
+        keyword = (query.get("keyword") or [""])[0]
+        return _json_bytes(list_tweet_cards(limit=limit, keyword=keyword))
+
+    if path == "/api/tweet-cards/ingest" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+        raw = str(body.get("text") or body.get("url") or body.get("input") or "")
+
+        def _progress(msg: str) -> None:
+            _set_job(job_id, message=str(msg or "")[:300])
+
+        def _worker() -> None:
+            _set_job(
+                job_id,
+                status="running",
+                type="tweet_cards_ingest",
+                message="开始解析推文…",
+                started_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            try:
+                from tweet_cards.pipeline import ingest_tweet_input
+
+                result = ingest_tweet_input(raw, progress=_progress)
+                _set_job(
+                    job_id,
+                    status="done" if result.get("success") else "error",
+                    message=result.get("message") or result.get("error") or "完成",
+                    result={
+                        k: result.get(k)
+                        for k in (
+                            "ok_count",
+                            "fail_count",
+                            "failed",
+                            "cards",
+                            "stats",
+                            "message",
+                            "error",
+                        )
+                        if k in result
+                    },
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+
+        _set_job(job_id, status="queued", type="tweet_cards_ingest", message="排队中…")
+        threading.Thread(target=_worker, daemon=True).start()
+        return _json_bytes({"success": True, "job_id": job_id})
+
+    if path.startswith("/api/tweet-cards/") and method == "DELETE":
+        from tweet_cards.store import delete_card
+
+        tid = path[len("/api/tweet-cards/") :].strip("/")
+        if not tid:
+            return _json_bytes({"success": False, "error": "缺少 tweet_id"}, 400)
+        ok = delete_card(tid)
+        return _json_bytes(
+            {"success": ok, "error": None if ok else "未找到"},
+            200 if ok else 404,
+        )
+
     return _json_bytes({"success": False, "error": f"未知接口: {path}"}, 404)
 
 
