@@ -197,8 +197,24 @@ code {
 .field.check {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding-top: 22px;
+  min-width: 0;
+}
+.field.check input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+.field.check span {
+  flex: 0 1 auto;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  cursor: pointer;
 }
 .field span { font-size: 0.82rem; color: var(--muted); }
 
@@ -1401,6 +1417,16 @@ input:focus, textarea:focus, select:focus {
 
 /* X List 交易信号 */
 .sig-config { margin-bottom: 8px; }
+.sig-action-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
 .sig-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1408,6 +1434,31 @@ input:focus, textarea:focus, select:focus {
   justify-content: space-between;
   align-items: flex-start;
   margin: 12px 0;
+}
+.sig-meta-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 6px;
+}
+.sig-meta-head .sig-sub {
+  margin: 0;
+}
+.sig-windows-toggle {
+  margin: 0;
+}
+.sig-card-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  justify-content: flex-end;
+}
+#sigCards.sig-hide-kol .sig-author,
+#sigCards.sig-hide-kol .sig-channel-id,
+#sigCards.sig-hide-kol .sig-handle {
+  display: none !important;
 }
 .sig-sub {
   margin: 0 0 6px;
@@ -1465,7 +1516,30 @@ input:focus, textarea:focus, select:focus {
   font-weight: 600;
 }
 .sig-author { font-size: .8rem; font-weight: 600; }
-.sig-time { margin-left: auto; font-size: .7rem; color: var(--muted); font-family: var(--mono); }
+.sig-author .sig-handle {
+  font-weight: 500;
+  color: var(--muted);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: .72rem;
+  margin-left: 4px;
+}
+.sig-channel-id {
+  font-size: .68rem;
+  color: var(--muted);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  max-width: 9.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sig-time {
+  margin-left: auto;
+  font-size: .68rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .sig-summary { margin: 0; font-size: .86rem; line-height: 1.45; }
 .sig-levels {
   display: grid;
@@ -1509,6 +1583,52 @@ input:focus, textarea:focus, select:focus {
 }
 .sig-card-foot a { font-size: .76rem; }
 .sig-conf { font-size: .68rem; color: var(--muted); margin-left: auto; }
+
+.sig-run-log {
+  margin: 8px 0 14px;
+  padding: 10px 12px;
+  max-height: 280px;
+  overflow: auto;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: .72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+}
+.sig-test-box {
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.02);
+}
+.sig-test-box.is-hidden {
+  display: none !important;
+}
+.sig-test-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.sig-test-head .sig-sub {
+  margin: 0;
+}
+.sig-test-grid {
+  margin: 0;
+}
+.btn.danger {
+  color: #991b1b;
+  border-color: rgba(153, 27, 27, 0.35);
+  background: rgba(254, 226, 226, 0.55);
+}
+.btn.danger:hover:not(:disabled) {
+  background: rgba(254, 202, 202, 0.85);
+}
 
 /* 推文卡片 */
 .tc-compose {
@@ -1617,4 +1737,28 @@ input:focus, textarea:focus, select:focus {
   margin-top: auto;
 }
 .tc-foot .muted { margin-left: auto; font-size: .68rem; font-family: var(--mono); }
+
+.tc-cards.tc-privacy-on .tc-avatar img {
+  display: none;
+}
+.tc-cards.tc-privacy-on .tc-avatar {
+  background: #d8d4cc;
+  position: relative;
+}
+.tc-cards.tc-privacy-on .tc-avatar::after {
+  content: "?";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: #888;
+  font-weight: 600;
+}
+.tc-privacy-id {
+  font-family: var(--mono);
+  font-size: .68rem;
+  color: var(--muted);
+}
 

@@ -203,7 +203,7 @@ def run_xgrowth_viral_pipeline(
     except Exception as e:
         return {
             "success": False,
-            "error": f"无法连接 Chrome CDP，请先用 --remote-debugging-port=9222 启动: {e}",
+            "error": f"无法连接 Chrome CDP，请先用 --remote-debugging-port=9223 启动: {e}",
         }
 
     client = None

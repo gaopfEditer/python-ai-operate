@@ -2426,26 +2426,82 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
     # ——— X List 交易信号 ———
     if path == "/api/signals/config" and method == "GET":
         from signals.push import channels_summary
+        from signals.schedule import describe_schedule, estimate_daily_runs
         from signals.store import get_config, load_state
+        from signals.cycle_watcher import status as cycle_status
+        from signals.watcher import status as watch_status
 
         st = load_state()
+        cfg = get_config()
         return _json_bytes(
             {
                 "success": True,
-                "config": get_config(),
+                "config": cfg,
                 "windows": (st.get("windows") or [])[:12],
                 "card_count": len(st.get("cards") or []),
                 "seen_count": len(st.get("seen_tweet_ids") or []),
                 "pushed_count": len(st.get("pushed_tweet_ids") or []),
                 "channels": channels_summary(),
+                "schedule": describe_schedule(),
+                "daily_estimate": estimate_daily_runs(
+                    str(cfg.get("deep_sleep_mode") or "sleep")
+                ),
+                "watch": watch_status(),
+                "cycle": cycle_status(),
             }
         )
 
     if path == "/api/signals/config" and method == "POST":
+        from signals.cycle_watcher import set_cycle, start_cycle_watcher
         from signals.store import save_config
+        from signals.watcher import set_watch, start_watcher
 
         cfg = save_config(body if isinstance(body, dict) else {})
+        # 同步监听开关
+        if "watch_enabled" in (body or {}) or "deep_sleep_mode" in (body or {}):
+            set_watch(
+                bool(cfg.get("watch_enabled")),
+                deep_sleep_mode=str(cfg.get("deep_sleep_mode") or "sleep"),
+            )
+        elif cfg.get("watch_enabled"):
+            start_watcher(force=True)
+        if "cycle_enabled" in (body or {}):
+            set_cycle(bool(cfg.get("cycle_enabled")))
+        elif cfg.get("cycle_enabled"):
+            start_cycle_watcher(force=True)
         return _json_bytes({"success": True, "config": cfg})
+
+    if path == "/api/signals/cycle" and method == "GET":
+        from signals.cycle_watcher import status as cycle_status
+
+        return _json_bytes({"success": True, "cycle": cycle_status()})
+
+    if path == "/api/signals/cycle" and method == "POST":
+        from signals.cycle_watcher import set_cycle, status as cycle_status
+
+        enabled = bool(body.get("enabled", body.get("cycle_enabled", False)))
+        st = set_cycle(enabled)
+        return _json_bytes({"success": True, "cycle": st or cycle_status()})
+
+    if path == "/api/signals/watch" and method == "GET":
+        from signals.schedule import describe_schedule
+        from signals.watcher import status as watch_status
+
+        return _json_bytes(
+            {
+                "success": True,
+                "watch": watch_status(),
+                "schedule": describe_schedule(),
+            }
+        )
+
+    if path == "/api/signals/watch" and method == "POST":
+        from signals.watcher import set_watch, status as watch_status
+
+        enabled = bool(body.get("enabled", body.get("watch_enabled", False)))
+        mode = body.get("deep_sleep_mode")
+        st = set_watch(enabled, deep_sleep_mode=mode)
+        return _json_bytes({"success": True, "watch": st or watch_status()})
 
     if path == "/api/signals/channels" and method == "GET":
         from signals.push import channels_summary, load_channels_config
@@ -2478,7 +2534,56 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         result = push_cards_batch(items, force=force)
         return _json_bytes({"success": True, **result})
 
+    if path == "/api/signals/push-test" and method == "POST":
+        """用测试数据验证频道映射 → Cards API（不写已推送库）。"""
+        from signals.push import push_test_message
+
+        result = push_test_message(
+            handle=str(body.get("handle") or body.get("author") or ""),
+            channel_id=str(body.get("channelId") or body.get("channel_id") or ""),
+            channel_name=str(body.get("channelName") or body.get("channel_name") or ""),
+            body=str(body.get("body") or ""),
+            dry_run=bool(body.get("dry_run")),
+            all_mapped=bool(body.get("all_mapped")),
+        )
+        if not result.get("success") and not result.get("dry_run"):
+            try:
+                from utils.stdio_encoding import safe_print, sanitize_for_console
+                import json as _json
+
+                safe_print("=" * 60)
+                safe_print(" [signals-test] 测试推送失败")
+                for it in result.get("items") or []:
+                    if it.get("success"):
+                        continue
+                    safe_print(
+                        f" · {it.get('channelName')} ({it.get('channelId')}) "
+                        f"@{it.get('handle') or '-'}"
+                    )
+                    safe_print(
+                        f"   原因: {sanitize_for_console(it.get('error_detail') or it.get('error') or '?')}"
+                    )
+                    req = it.get("request") or {}
+                    safe_print(f"   URL: {req.get('url') or it.get('url') or '?'}")
+                    safe_print(
+                        f"   Headers: {sanitize_for_console(_json.dumps(req.get('headers') or {}, ensure_ascii=False))}"
+                    )
+                    safe_print(
+                        f"   Body: {sanitize_for_console(_json.dumps(it.get('payload') or req.get('body') or {}, ensure_ascii=False, indent=2))}"
+                    )
+                    resp = it.get("response")
+                    if resp:
+                        safe_print(
+                            f"   Response: {sanitize_for_console(_json.dumps(resp, ensure_ascii=False))}"
+                        )
+                safe_print("=" * 60)
+            except Exception:
+                pass
+        code = 200 if result.get("success") else 400
+        return _json_bytes({"success": bool(result.get("success")), **result}, code)
+
     if path == "/api/signals/cards" and method == "GET":
+        from signals.push import enrich_card_channel, load_channels_config
         from signals.store import list_cards, load_state
 
         try:
@@ -2487,7 +2592,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             limit = 80
         only_trade = str((query.get("trade") or [""])[0]).lower() in ("1", "true", "yes")
         lid = (query.get("list_id") or [""])[0]
-        items = list_cards(list_id=lid, only_trade=only_trade, limit=limit)
+        cfg_ch = load_channels_config()
+        items = [
+            enrich_card_channel(c, cfg_ch)
+            for c in list_cards(list_id=lid, only_trade=only_trade, limit=limit)
+        ]
         st = load_state()
         return _json_bytes(
             {
@@ -2496,21 +2605,64 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 "windows": (st.get("windows") or [])[:8],
                 "config": st.get("config") or {},
                 "pushed_count": len(st.get("pushed_tweet_ids") or []),
+                "channels": {
+                    "mappings": [
+                        {
+                            "handle": k,
+                            "channelId": (v or {}).get("channelId"),
+                            "channelName": (v or {}).get("channelName"),
+                        }
+                        for k, v in (cfg_ch.get("channels") or {}).items()
+                        if isinstance(v, dict)
+                    ]
+                },
             }
         )
 
     if path == "/api/signals/run" and method == "POST":
         job_id = uuid.uuid4().hex[:12]
 
+        from signals.control import RunControl, register, unregister
+
+        ctl = register(job_id, RunControl(job_id))
+        log_buf: List[str] = []
+
         def _progress(msg: str) -> None:
-            _set_job(job_id, message=str(msg or "")[:300])
+            text = str(msg or "")[:800]
+            try:
+                from utils.stdio_encoding import safe_print, sanitize_for_console
+
+                safe_print(f" [signals] {sanitize_for_console(text)}")
+            except Exception:
+                print(f"[signals] {text}", flush=True)
+            log_buf.append(text)
+            if len(log_buf) > 400:
+                del log_buf[:120]
+            st = ctl.status()
+            _set_job(
+                job_id,
+                status="paused" if st == "paused" else "running",
+                message=text[:300],
+                logs=list(log_buf[-120:]),
+                control_status=st,
+            )
 
         def _worker() -> None:
+            try:
+                from utils.stdio_encoding import safe_print
+
+                safe_print("=" * 60)
+                safe_print(" [signals] 列表交易信号 · 开始")
+                safe_print("=" * 60)
+            except Exception:
+                pass
             _set_job(
                 job_id,
                 status="running",
                 type="signals_list",
                 message="开始抓取列表…",
+                logs=[],
+                control_status="running",
                 started_at=datetime.now().isoformat(timespec="seconds"),
             )
             try:
@@ -2529,11 +2681,21 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                     push=None if push_flag is None else bool(push_flag),
                     force_push=bool(body.get("force_push")),
                     progress=_progress,
+                    control=ctl,
                 )
+                aborted = bool(result.get("aborted"))
+                if aborted:
+                    final_status = "cancelled"
+                elif result.get("success"):
+                    final_status = "done"
+                else:
+                    final_status = "error"
                 _set_job(
                     job_id,
-                    status="done" if result.get("success") else "error",
+                    status=final_status,
                     message=result.get("message") or result.get("error") or "完成",
+                    logs=list(log_buf[-120:]),
+                    control_status=ctl.status(),
                     result={
                         k: result.get(k)
                         for k in (
@@ -2549,22 +2711,71 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                             "push",
                             "message",
                             "error",
+                            "aborted",
+                            "item_logs",
                         )
                         if k in result
                     },
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
+                try:
+                    from utils.stdio_encoding import safe_print
+
+                    safe_print("-" * 60)
+                    safe_print(
+                        f" [signals] 结束 · {result.get('message') or result.get('error') or final_status}"
+                    )
+                    safe_print("=" * 60)
+                except Exception:
+                    pass
             except Exception as e:
                 _set_job(
                     job_id,
                     status="error",
                     message=str(e),
+                    logs=list(log_buf[-120:]),
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
+                try:
+                    from utils.stdio_encoding import safe_print
 
-        _set_job(job_id, status="queued", type="signals_list", message="排队中…")
+                    safe_print(f" [signals] 失败: {e}")
+                    safe_print("=" * 60)
+                except Exception:
+                    pass
+            finally:
+                unregister(job_id)
+
+        _set_job(
+            job_id,
+            status="queued",
+            type="signals_list",
+            message="排队中…",
+            logs=[],
+            control_status="running",
+        )
         threading.Thread(target=_worker, daemon=True).start()
         return _json_bytes({"success": True, "job_id": job_id})
+
+    if path == "/api/signals/control" and method == "POST":
+        from signals.control import control_action, get as get_sig_ctl
+
+        action = str(body.get("action") or "").strip().lower()
+        job_id = str(body.get("job_id") or "").strip()
+        out = control_action(job_id, action)
+        if not out.get("success"):
+            return _json_bytes(out, 400)
+        jid = str(out.get("job_id") or job_id)
+        ctl = get_sig_ctl(jid)
+        st = (ctl.status() if ctl else out.get("status")) or ""
+        if jid:
+            if st == "paused":
+                _set_job(jid, status="paused", control_status="paused", message="已暂停")
+            elif action in ("resume", "continue"):
+                _set_job(jid, status="running", control_status="running", message="已继续")
+            elif action in ("stop", "cancel", "abort"):
+                _set_job(jid, control_status="stopped", message="正在终止…")
+        return _json_bytes(out)
 
     if path == "/api/signals/media" and method == "GET":
         import mimetypes
@@ -2792,6 +3003,22 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
         init_corpus_db()
     except Exception as e:
         safe_print(f" 语料库初始化跳过: {e}")
+    watch_on = False
+    cycle_on = False
+    try:
+        from signals.cycle_watcher import start_cycle_watcher
+        from signals.store import get_config as _sig_cfg
+        from signals.watcher import start_watcher
+
+        _sc = _sig_cfg() or {}
+        watch_on = bool(_sc.get("watch_enabled"))
+        cycle_on = bool(_sc.get("cycle_enabled"))
+        if watch_on:
+            start_watcher(force=True)
+        if cycle_on:
+            start_cycle_watcher(force=True)
+    except Exception as e:
+        safe_print(f" 列表信号监听初始化跳过: {e}")
     _free_port(port, log=safe_print)
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"
@@ -2799,13 +3026,24 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = T
     safe_print(" TrendRadar Console")
     safe_print("=" * 60)
     safe_print(f" 地址: {url}")
-    safe_print(" 功能: 资讯获取 / 语料库(xgrowth热榜拆解) / Prompt 创作 / CDP 发布(定时队列)")
-    safe_print(" 抓取日志: 页面点「开始抓取」后，本窗口会打印 [Crawl] 进度")
+    safe_print(" 功能: 资讯获取 / 列表信号(分时CDP) / 语料库 / Prompt 创作 / CDP 发布")
+    try:
+        from utils.crawl_cdp import resolve_crawl_debugger_url
+
+        cdp_host = resolve_crawl_debugger_url()
+    except Exception:
+        cdp_host = "127.0.0.1:9223"
+    safe_print(f" 抓取 CDP: {cdp_host}（可改 config crawler.x_cdp.debugger_url 或 CDP_DEBUGGER_URL）")
+    safe_print(" 抓取日志: 资讯「开始抓取」→ [Crawl]；列表信号 → [signals]（含发帖人/正文/时间/是否交易信号）")
     if restored:
         active = sum(1 for t in _CRAWL_TASKS.values() if t.get("enabled"))
         safe_print(f" 周期任务库: 已恢复 {restored} 条（运行中 {active}）")
     if queue_n:
         safe_print(f" 发布队列: 已恢复 {queue_n} 条（到点自动发）")
+    if watch_on:
+        safe_print(" 列表信号: 分时自动监听已开启（北京时间阶梯频率）")
+    if cycle_on:
+        safe_print(" 列表信号: 周期抓取已开启（5–15 分钟随机间隔，首次最多 8h）")
     safe_print(" 按 Ctrl+C 停止")
     safe_print("=" * 60)
     if open_browser:

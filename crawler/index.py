@@ -276,7 +276,7 @@ def load_config():
         "PLATFORMS": config_data["platforms"],
         "X_CDP": {
             "ENABLED": bool(x_cdp_config.get("enabled", False)),
-            "DEBUGGER_URL": str(x_cdp_config.get("debugger_url", "127.0.0.1:9222")),
+            "DEBUGGER_URL": str(x_cdp_config.get("debugger_url", "127.0.0.1:9223")),
             "FOLLOWING_URL": str(x_cdp_config.get("following_url", "https://x.com/home?filter=following")),
             "FOR_YOU_URL": str(x_cdp_config.get("for_you_url", "https://x.com/home")),
             "HOT_URL": str(x_cdp_config.get("hot_url", "https://x.com/explore/tabs/trending")),
@@ -677,7 +677,7 @@ class DataFetcher:
             return self._x_driver
 
         x_cfg = CONFIG.get("X_CDP", {})
-        debugger_url = x_cfg.get("DEBUGGER_URL", "127.0.0.1:9222")
+        debugger_url = x_cfg.get("DEBUGGER_URL", "127.0.0.1:9223")
         options = webdriver.ChromeOptions()
         options.add_experimental_option("debuggerAddress", debugger_url)
         self._x_driver = webdriver.Chrome(options=options)

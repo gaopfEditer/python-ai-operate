@@ -24,9 +24,11 @@ SYSTEM = """你是加密货币/合约交易信号解析器。根据推文正文�
   "image_notes": "从图里读到的价位/箭头/标注（没有则空字符串）"
 }
 规则：
+- has_trade_signal=true 必须同时满足：① 明确币种代码 coins 非空；② 明确做多/做空 direction 为 long 或 short。仅有「做多/做空」口语但无币种 → false。
 - 无明确交易意图则 has_trade_signal=false，其余尽量填空。
 - coins 用常见代码大写（BTC/ETH/SOL…），中文名也映射成代码。
-- direction：做多/long/买入→long；做空/short/卖出→short；观望→watch；震荡/中性→flat。
+- direction：做多/long/买入/点火/拉满/跟了/冲→long；做空/short/卖出→short；观望→watch；震荡/中性→flat。
+- 口语里提到「多了xxx」「跟了xxx」时，xxx 常为币种代码（如 zama→ZAMA）。
 - 价位原样保留，不要臆造没有的数字。
 """
 
@@ -48,6 +50,19 @@ def _extract_json(text: str) -> Dict[str, Any]:
         return {}
 
 
+def _normalize_trade_signal(data: Dict[str, Any]) -> Dict[str, Any]:
+    """推送/入库判定：必须同时有币种 + 做多/做空方向。"""
+    coins = [str(c).upper() for c in (data.get("coins") or []) if str(c).strip()][:8]
+    direction = str(data.get("direction") or "unknown").lower()
+    if direction not in ("long", "short", "flat", "watch", "unknown"):
+        direction = "unknown"
+    ready = bool(coins) and direction in ("long", "short")
+    data["coins"] = coins
+    data["direction"] = direction
+    data["has_trade_signal"] = bool(data.get("has_trade_signal")) and ready
+    return data
+
+
 def _heuristic(text: str) -> Dict[str, Any]:
     """AI 失败时的弱规则兜底。"""
     t = text or ""
@@ -64,9 +79,17 @@ def _heuristic(text: str) -> Dict[str, Any]:
         c = m.group(1).upper()
         if c not in coins and c.isalpha():
             coins.append(c)
+    for m in re.finditer(r"多了\s*([A-Za-z]{2,12})", t, re.I):
+        c = m.group(1).upper()
+        if c not in coins:
+            coins.append(c)
+    for m in re.finditer(r"#([A-Za-z]{2,12})\b", t):
+        c = m.group(1).upper()
+        if c not in coins:
+            coins.append(c)
     direction = "unknown"
     low = t.lower()
-    if re.search(r"做多|long|看多|买入|多单", low, re.I):
+    if re.search(r"做多|long|看多|买入|多单|点火|拉满|跟了|冲了|上了", low, re.I):
         direction = "long"
     elif re.search(r"做空|short|看空|卖出|空单", low, re.I):
         direction = "short"
@@ -80,21 +103,23 @@ def _heuristic(text: str) -> Dict[str, Any]:
         or bool(sl_m)
         or bool(re.search(r"止盈|止损|入场|开多|开空", t))
     )
-    return {
-        "has_trade_signal": has,
-        "coins": coins[:8],
-        "direction": direction,
-        "entries": [],
-        "take_profits": tps[:5],
-        "stop_loss": sl_m.group(1) if sl_m else "",
-        "leverage": "",
-        "timeframe": "",
-        "invalidation": "",
-        "confidence": 0.35 if has else 0.1,
-        "summary": (t[:120] + ("…" if len(t) > 120 else "")),
-        "image_notes": "",
-        "provider": "heuristic",
-    }
+    return _normalize_trade_signal(
+        {
+            "has_trade_signal": has,
+            "coins": coins[:8],
+            "direction": direction,
+            "entries": [],
+            "take_profits": tps[:5],
+            "stop_loss": sl_m.group(1) if sl_m else "",
+            "leverage": "",
+            "timeframe": "",
+            "invalidation": "",
+            "confidence": 0.35 if has else 0.1,
+            "summary": (t[:120] + ("…" if len(t) > 120 else "")),
+            "image_notes": "",
+            "provider": "heuristic",
+        }
+    )
 
 
 def analyze_tweet_signal(
@@ -150,7 +175,7 @@ def analyze_tweet_signal(
                 }
                 if out["direction"] not in ("long", "short", "flat", "watch", "unknown"):
                     out["direction"] = "unknown"
-                return out
+                return _normalize_trade_signal(out)
     except Exception as e:
         provider = f"error:{e}"
 

@@ -5,7 +5,8 @@ server:
   port: 8790
 
 cdp:
-  debugger_url: "127.0.0.1:9222"
+  # 与主站抓取一致；主配置 crawler.x_cdp.debugger_url / 环境变量 CDP_DEBUGGER_URL 优先
+  debugger_url: "127.0.0.1:9223"
   wait_ms: 2500
   scroll_rounds: 8
   scroll_step: 900

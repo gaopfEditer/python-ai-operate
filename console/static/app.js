@@ -2669,12 +2669,53 @@ function bind() {
 
   $("#btnSigSaveCfg")?.addEventListener("click", () => saveSignalsConfig());
   $("#btnSigRun")?.addEventListener("click", () => runSignalsCrawl());
+  $("#btnSigPause")?.addEventListener("click", () => signalsControl("pause"));
+  $("#btnSigResume")?.addEventListener("click", () => signalsControl("resume"));
+  $("#btnSigStop")?.addEventListener("click", () => signalsControl("stop"));
+  setSigControlButtons({ running: false, paused: false });
   $("#btnSigPushOnly")?.addEventListener("click", () => pushSignalsOnly());
   $("#btnSigRefresh")?.addEventListener("click", () => loadSignalCards());
   $("#sigFilterTrade")?.addEventListener("change", () => loadSignalCards());
+  $("#sigShowAllWindows")?.addEventListener("change", () => renderSigWindows(_sigWindowsCache));
+  const sigHideKol = $("#sigHideKol");
+  if (sigHideKol) {
+    sigHideKol.checked = localStorage.getItem("sigHideKol") === "1";
+    applySigKolVisibility();
+    sigHideKol.addEventListener("change", () => {
+      localStorage.setItem("sigHideKol", sigHideKol.checked ? "1" : "0");
+      applySigKolVisibility();
+    });
+  }
+  $("#btnSigTestPreview")?.addEventListener("click", () => sendSignalsTest({ dryRun: true }));
+  $("#btnSigTestSend")?.addEventListener("click", () => sendSignalsTest({ dryRun: false }));
+  $("#sigTestHandle")?.addEventListener("change", () => fillSigTestDefaultsFromHandle());
+  $("#sigTestBody")?.addEventListener("input", () => {
+    if ($("#sigTestBody")) $("#sigTestBody").dataset.touched = "1";
+  });
+  const sigHideTest = $("#sigHideTest");
+  if (sigHideTest) {
+    sigHideTest.checked = localStorage.getItem("sigHideTest") === "1";
+    applySigTestVisibility();
+    sigHideTest.addEventListener("change", () => applySigTestVisibility(true));
+  }
+  $("#btnSigHideTest")?.addEventListener("click", () => {
+    const cb = $("#sigHideTest");
+    if (!cb) return;
+    cb.checked = true;
+    applySigTestVisibility(true);
+  });
+  $("#btnSigCycle")?.addEventListener("click", () => toggleSigCycle());
 
   $("#btnTcIngest")?.addEventListener("click", () => runTweetCardIngest());
   $("#btnTcRefresh")?.addEventListener("click", () => loadTweetCards());
+  const tcPrivacy = $("#tcHideSensitive");
+  if (tcPrivacy) {
+    tcPrivacy.checked = localStorage.getItem("tcHideSensitive") === "1";
+    tcPrivacy.addEventListener("change", () => {
+      localStorage.setItem("tcHideSensitive", tcPrivacy.checked ? "1" : "0");
+      loadTweetCards();
+    });
+  }
   $("#tcKeyword")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") loadTweetCards();
   });
@@ -2697,14 +2738,29 @@ async function loadSignalsPanel() {
     if ($("#sigPushEnabled")) {
       $("#sigPushEnabled").checked = cfg.push_enabled !== false;
     }
+    if ($("#sigWatchEnabled")) $("#sigWatchEnabled").checked = !!cfg.watch_enabled;
+    if ($("#sigCycleEnabled")) $("#sigCycleEnabled").checked = !!cfg.cycle_enabled;
+    if ($("#sigDeepMode") && cfg.deep_sleep_mode) {
+      $("#sigDeepMode").value = cfg.deep_sleep_mode === "patrol" ? "patrol" : "sleep";
+    }
     renderSigWindows(data.windows || []);
+    renderSigSchedule(data.schedule || [], data.watch || {}, data.daily_estimate || {});
+    renderSigCycle(data.cycle || {}, cfg);
+    updateSigCycleButton(data.cycle || {}, cfg);
     const ch = data.channels || {};
     const hint = $("#sigChannelsHint");
     if (hint) {
       const mapped = ch.mapped_count || 0;
       const en = ch.enabled === false ? "关闭" : "开启";
-      hint.textContent = `Cards API ${en} · 已映射 ${mapped} 个用户 · 已推送 ${data.pushed_count || 0} · ${ch.path || "config/signals_channels.yaml"}`;
+      const maps = (ch.mappings || [])
+        .slice(0, 8)
+        .map((m) => `${m.handle || ""}→${m.channelName || "?"}(${m.channelId || "?"})`)
+        .join(" · ");
+      hint.textContent =
+        `Cards API ${en} · 已映射 ${mapped} 个用户 · 已推送 ${data.pushed_count || 0} · ${ch.path || "config/signals_channels.yaml"}` +
+        (maps ? ` · ${maps}` : "");
     }
+    fillSigTestHandleSelect(ch.mappings || []);
     const n = data.card_count || 0;
     const badge = $("#countSignals");
     if (badge) badge.textContent = String(n);
@@ -2714,21 +2770,145 @@ async function loadSignalsPanel() {
   await loadSignalCards();
 }
 
+function applySigTestVisibility(fromUser) {
+  const cb = $("#sigHideTest");
+  const box = $("#sigTestBox");
+  const btn = $("#btnSigHideTest");
+  if (!box) return;
+  const hide = fromUser && cb ? !!cb.checked : localStorage.getItem("sigHideTest") === "1";
+  if (cb) cb.checked = hide;
+  localStorage.setItem("sigHideTest", hide ? "1" : "0");
+  box.classList.toggle("is-hidden", hide);
+  box.style.display = hide ? "none" : "";
+  if (btn) btn.textContent = hide ? "显示" : "隐藏";
+}
+
+function updateSigCycleButton(cycle, cfg) {
+  const btn = $("#btnSigCycle");
+  const cb = $("#sigCycleEnabled");
+  const on = !!(cycle?.cycle_enabled ?? cfg?.cycle_enabled);
+  if (cb) cb.checked = on;
+  if (!btn) return;
+  btn.textContent = on ? "关闭周期抓取" : "开启周期抓取";
+  btn.classList.toggle("primary", !on);
+  btn.classList.toggle("ghost", on);
+}
+
+async function toggleSigCycle() {
+  const btn = $("#btnSigCycle");
+  if (btn) btn.disabled = true;
+  try {
+    let on = !!$("#sigCycleEnabled")?.checked;
+    try {
+      const cur = await api("/api/signals/config");
+      on = !!(cur.config?.cycle_enabled);
+    } catch (_) {
+      /* use checkbox */
+    }
+    const data = await api("/api/signals/cycle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: !on }),
+    });
+    if (!data.success) {
+      toast(data.error || "操作失败", "error");
+      return;
+    }
+    const cycle = data.cycle || {};
+    updateSigCycleButton(cycle, { cycle_enabled: cycle.cycle_enabled });
+    renderSigCycle(cycle, { cycle_enabled: cycle.cycle_enabled, last_crawl_at: cycle.last_crawl_at });
+    toast(cycle.cycle_enabled ? "周期抓取已开启（5–15 分钟）" : "周期抓取已关闭", "ok");
+  } catch (e) {
+    toast(String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderSigCycle(cycle, cfg) {
+  const hint = $("#sigCycleHint");
+  if (!hint) return;
+  const on = !!(cycle.cycle_enabled ?? cfg.cycle_enabled);
+  const last = String(cycle.last_crawl_at || cfg.last_crawl_at || "").slice(0, 19);
+  if (!on) {
+    hint.textContent = last
+      ? `周期抓取未开启 · 上次爬取 ${last}`
+      : "周期抓取未开启 · 勾选后保存即按 5–15 分钟随机间隔增量抓取（首次最多 8h）";
+    hint.className = "status";
+    return;
+  }
+  const wait = cycle.next_wait_seconds;
+  const next = String(cycle.next_run_at || "").slice(0, 19);
+  const running = cycle.running ? " · 抓取中" : "";
+  const lastRun = cycle.last_run_at ? ` · 上轮 ${String(cycle.last_run_at).slice(0, 19)}` : "";
+  const waitTxt =
+    wait != null ? ` · 约 ${Math.round(wait / 60)} 分后触发` : "";
+  hint.textContent = `周期抓取中${running}${waitTxt} · 下次 ${next || "—"}${lastRun}${
+    last ? ` · 上次完成 ${last}` : ""
+  }`;
+  hint.className = "status ok";
+}
+
+function renderSigSchedule(schedule, watch, estimate) {
+  const box = $("#sigScheduleTable");
+  const hint = $("#sigWatchHint");
+  const next = watch.next || {};
+  const on = !!watch.watch_enabled;
+  if (hint) {
+    if (!on) {
+      hint.textContent = "分时监听未开启 · 勾选后保存即可按北京时间自动扫列表";
+      hint.className = "status";
+    } else if (next.sleeping) {
+      hint.textContent = `监听中 · 当前休眠 · ${next.reason || ""} · 下次 ${String(next.next_run_at || "").slice(0, 19)}`;
+      hint.className = "status";
+    } else {
+      const est = estimate.approx_runs != null ? ` · 估全天 ~${estimate.approx_runs} 次` : "";
+      hint.textContent = `监听中 · ${next.slot_label || next.slot_id || ""} · 约 ${next.wait_minutes || "?"} 分后触发 · 下次 ${String(next.next_run_at || "").slice(0, 19)}${est}`;
+      hint.className = "status ok";
+    }
+  }
+  if (!box) return;
+  const cur = watch.slot_id || next.slot_id || "";
+  box.innerHTML = (schedule || [])
+    .map((r) => {
+      const onRow = r.id === cur ? " · ← 当前" : "";
+      return `<div>${escapeHtml(r.range)} · ${escapeHtml(r.label)} · ${escapeHtml(r.interval)} ${escapeHtml(r.weight || "")}${onRow}</div>`;
+    })
+    .join("");
+}
+
+let _sigWindowsCache = [];
+
+function formatSigWindowLine(w) {
+  const from = String(w.from || "").slice(0, 19);
+  const to = String(w.to || "").slice(0, 19);
+  return `#${escapeHtml(String(w.list_id || ""))} · ${escapeHtml(from)} → ${escapeHtml(to)} · 解析 ${w.parsed || 0}/${w.fetched || 0}`;
+}
+
+function applySigKolVisibility() {
+  const box = $("#sigCards");
+  const hide = localStorage.getItem("sigHideKol") === "1";
+  const cb = $("#sigHideKol");
+  if (cb) cb.checked = hide;
+  if (box) box.classList.toggle("sig-hide-kol", hide);
+}
+
 function renderSigWindows(windows) {
   const box = $("#sigWindows");
   if (!box) return;
-  if (!windows || !windows.length) {
+  _sigWindowsCache = Array.isArray(windows) ? windows.slice() : [];
+  if (!_sigWindowsCache.length) {
     box.textContent = "暂无记录（跑完一轮后会写入，下次默认只拉新区间）";
     return;
   }
-  box.innerHTML = windows
-    .slice(0, 6)
-    .map((w) => {
-      const from = String(w.from || "").slice(0, 19);
-      const to = String(w.to || "").slice(0, 19);
-      return `<div>#${escapeHtml(String(w.list_id || ""))} · ${escapeHtml(from)} → ${escapeHtml(to)} · 解析 ${w.parsed || 0}/${w.fetched || 0}</div>`;
-    })
-    .join("");
+  const showAll = !!$("#sigShowAllWindows")?.checked;
+  const rows = showAll ? _sigWindowsCache : _sigWindowsCache.slice(0, 1);
+  box.innerHTML = rows.map((w) => `<div>${formatSigWindowLine(w)}</div>`).join("");
+  if (!showAll && _sigWindowsCache.length > 1) {
+    box.insertAdjacentHTML(
+      "beforeend",
+      `<div class="muted" style="margin-top:4px">另有 ${_sigWindowsCache.length - 1} 条历史记录 · 勾选「查看全部」展开</div>`
+    );
+  }
 }
 
 async function saveSignalsConfig() {
@@ -2741,13 +2921,21 @@ async function saveSignalsConfig() {
         max_tweets: Number($("#sigMaxTweets")?.value || 40),
         skip_non_trade: !!$("#sigSkipNonTrade")?.checked,
         push_enabled: !!$("#sigPushEnabled")?.checked,
+        watch_enabled: !!$("#sigWatchEnabled")?.checked,
+        cycle_enabled: !!$("#sigCycleEnabled")?.checked,
+        deep_sleep_mode: $("#sigDeepMode")?.value || "sleep",
       }),
     });
     if (data.success) {
-      toast("配置已保存", "ok");
+      const cfg = data.config || {};
+      let msg = "配置已保存";
+      if (cfg.watch_enabled) msg += " · 分时监听已开";
+      if (cfg.cycle_enabled) msg += " · 周期抓取已开";
+      toast(msg, "ok");
       if (data.config?.list_url && $("#sigListUrl")) {
         $("#sigListUrl").value = data.config.list_url;
       }
+      await loadSignalsPanel();
     } else toast(data.error || "保存失败", "error");
   } catch (e) {
     toast(String(e), "error");
@@ -2781,10 +2969,231 @@ async function pushSignalsOnly() {
   }
 }
 
+let _sigTestMappings = [];
+
+function fillSigTestHandleSelect(mappings) {
+  const sel = $("#sigTestHandle");
+  if (!sel) return;
+  const prev = sel.value;
+  _sigTestMappings = Array.isArray(mappings) ? mappings : [];
+  const opts = [
+    `<option value="">（手动 / 默认频道）</option>`,
+    ..._sigTestMappings.map((m) => {
+      const h = String(m.handle || "");
+      const label = `${m.channelName || "?"} · @${h} · ${m.channelId || "?"}`;
+      return `<option value="${escapeAttr(h)}">${escapeHtml(label)}</option>`;
+    }),
+  ];
+  sel.innerHTML = opts.join("");
+  if (prev && [...sel.options].some((o) => o.value === prev)) {
+    sel.value = prev;
+  } else if (_sigTestMappings.length) {
+    sel.value = String(_sigTestMappings[0].handle || "");
+  }
+  fillSigTestDefaultsFromHandle();
+}
+
+function fillSigTestDefaultsFromHandle() {
+  const handle = $("#sigTestHandle")?.value || "";
+  const m = _sigTestMappings.find((x) => String(x.handle) === handle);
+  const body = $("#sigTestBody");
+  if (!body || body.dataset.touched === "1") return;
+  if (m) {
+    body.placeholder = `[测试] ${m.channelName || handle} · BTC 做多，关注支撑`;
+  }
+}
+
+function collectSigTestPayload(extra = {}) {
+  const handle = $("#sigTestHandle")?.value.trim() || "";
+  return {
+    handle,
+    body: $("#sigTestBody")?.value.trim() || "",
+    all_mapped: !!$("#sigTestAllMapped")?.checked,
+    ...extra,
+  };
+}
+
+function sigDirectionLabel(dir) {
+  const key = String(dir || "unknown").toLowerCase();
+  const map = {
+    long: "做多",
+    short: "做空",
+    flat: "中性",
+    watch: "观望",
+    unknown: "未知",
+    做多: "做多",
+    做空: "做空",
+    中性: "中性",
+    观望: "观望",
+    未知: "未知",
+  };
+  return map[key] || map.unknown;
+}
+
+function formatSigTestSignal(sig) {
+  if (!sig || typeof sig !== "object") return "";
+  const coins = (sig.coins || []).join(",") || "-";
+  const dir = sigDirectionLabel(sig.direction);
+  const flag = sig.has_trade_signal ? "有交易信号" : "无交易信号";
+  const parts = [`AI解析: ${flag}`, `币种=${coins}`, `方向=${dir}`];
+  if ((sig.entries || []).length) parts.push(`入场=${(sig.entries || []).join("/")}`);
+  if ((sig.take_profits || []).length) parts.push(`止盈=${(sig.take_profits || []).join("/")}`);
+  if (sig.stop_loss) parts.push(`止损=${sig.stop_loss}`);
+  if (sig.leverage) parts.push(`杠杆=${sig.leverage}`);
+  if (sig.summary) parts.push(`摘要=${sig.summary}`);
+  if (sig.provider) parts.push(`解析=${sig.provider === "heuristic" ? "规则解析" : "AI 解析"}`);
+  return parts.join(" · ");
+}
+
+function formatSigTestItemLog(it) {
+  const head = `${it.success ? "OK" : "FAIL"} · ${it.channelName || "?"} (${it.channelId || "?"}) · @${it.handle || "-"}`;
+  const sigLine = formatSigTestSignal(it.signal);
+  if (it.dry_run) {
+    return `${head}\n${sigLine}\n${JSON.stringify(it.payload || {}, null, 2)}`;
+  }
+  const lines = [head];
+  if (sigLine) lines.push(sigLine);
+  if (!it.success) {
+    lines.push(`原因: ${it.error_detail || it.error || "未知错误"} (status=${it.status ?? "?"})`);
+    const req = it.request || {};
+    lines.push(`请求 URL: ${req.url || it.url || "?"}`);
+    lines.push(`请求 Headers: ${JSON.stringify(req.headers || {}, null, 2)}`);
+    lines.push(`请求 Body:\n${JSON.stringify(it.payload || req.body || {}, null, 2)}`);
+    if (it.response) {
+      lines.push(`响应:\n${JSON.stringify(it.response, null, 2)}`);
+    }
+    return lines.join("\n");
+  }
+  lines.push(`status=${it.status || 200}`);
+  if (it.response) {
+    lines.push(JSON.stringify(it.response, null, 2));
+  }
+  return lines.join("\n");
+}
+
+async function sendSignalsTest({ dryRun = false } = {}) {
+  const previewBtn = $("#btnSigTestPreview");
+  const sendBtn = $("#btnSigTestSend");
+  if (previewBtn) previewBtn.disabled = true;
+  if (sendBtn) sendBtn.disabled = true;
+  const forceDry = dryRun || !!$("#sigTestDryRun")?.checked;
+  const bodyText = $("#sigTestBody")?.value.trim() || "";
+  if (!bodyText) {
+    toast("请填写推文正文", "error");
+    if (previewBtn) previewBtn.disabled = false;
+    if (sendBtn) sendBtn.disabled = false;
+    return;
+  }
+  setStatus($("#sigTestStatus"), forceDry ? "AI 解析并生成预览…" : "AI 解析并发送…");
+  const log = $("#sigTestLog");
+  try {
+    const data = await api("/api/signals/push-test", {
+      method: "POST",
+      body: JSON.stringify(
+        collectSigTestPayload({
+          dry_run: forceDry,
+        })
+      ),
+    });
+    const lines = (data.items || []).map((it) => formatSigTestItemLog(it));
+    if (log) {
+      log.hidden = false;
+      log.textContent = lines.join("\n\n") || JSON.stringify(data, null, 2);
+    }
+    const ok = !!data.success;
+    const firstFail = (data.items || []).find((it) => !it.success);
+    setStatus(
+      $("#sigTestStatus"),
+      forceDry
+        ? `预览 ${data.previewed || (data.items || []).length} 条`
+        : ok
+          ? `发送完成：成功 ${data.sent || 0} · 失败 ${data.failed || 0}`
+          : `发送失败：${firstFail?.error_detail || firstFail?.error || "见下方日志"}`,
+      ok ? "ok" : "error"
+    );
+    toast(
+      forceDry ? "已生成测试 payload" : ok ? `测试推送成功 ${data.sent || 0}` : "测试推送失败，见日志",
+      ok ? "ok" : "error"
+    );
+  } catch (e) {
+    setStatus($("#sigTestStatus"), String(e), "error");
+    if (log) {
+      log.hidden = false;
+      log.textContent = String(e);
+    }
+  } finally {
+    if (previewBtn) previewBtn.disabled = false;
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+let _sigActiveJobId = "";
+
+function setSigControlButtons({ running = false, paused = false } = {}) {
+  const pause = $("#btnSigPause");
+  const resume = $("#btnSigResume");
+  const stop = $("#btnSigStop");
+  const run = $("#btnSigRun");
+  if (run) run.disabled = running;
+  if (pause) {
+    pause.disabled = !running || paused;
+    pause.hidden = paused;
+  }
+  if (resume) {
+    resume.disabled = !running || !paused;
+    resume.hidden = !paused;
+  }
+  if (stop) stop.disabled = !running;
+}
+
+function renderSigRunLog(lines) {
+  const pre = $("#sigRunLog");
+  if (!pre) return;
+  const arr = Array.isArray(lines) ? lines : [];
+  if (!arr.length) {
+    pre.hidden = true;
+    pre.textContent = "";
+    return;
+  }
+  pre.hidden = false;
+  pre.textContent = arr.join("\n");
+  pre.scrollTop = pre.scrollHeight;
+}
+
+async function signalsControl(action) {
+  if (!_sigActiveJobId) {
+    toast("没有进行中的任务", "error");
+    return;
+  }
+  try {
+    const data = await api("/api/signals/control", {
+      method: "POST",
+      body: JSON.stringify({ job_id: _sigActiveJobId, action }),
+    });
+    if (!data.success) {
+      toast(data.error || "操作失败", "error");
+      return;
+    }
+    if (action === "pause") {
+      setSigControlButtons({ running: true, paused: true });
+      setStatus($("#sigStatus"), "已暂停");
+    } else if (action === "resume") {
+      setSigControlButtons({ running: true, paused: false });
+      setStatus($("#sigStatus"), "已继续");
+    } else if (action === "stop") {
+      setStatus($("#sigStatus"), "正在终止…");
+    }
+  } catch (e) {
+    toast(String(e), "error");
+  }
+}
+
 async function runSignalsCrawl() {
   const btn = $("#btnSigRun");
   if (btn) btn.disabled = true;
   setStatus($("#sigStatus"), "提交任务…");
+  renderSigRunLog([]);
+  setSigControlButtons({ running: false, paused: false });
   try {
     await saveSignalsConfig();
     const start = await api("/api/signals/run", {
@@ -2805,22 +3214,37 @@ async function runSignalsCrawl() {
       return;
     }
     const jobId = start.job_id;
+    _sigActiveJobId = jobId;
+    setSigControlButtons({ running: true, paused: false });
     for (;;) {
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 1200));
       const data = await api(`/api/jobs/${jobId}`);
       const job = data.job || {};
-      setStatus($("#sigStatus"), job.message || job.status || "运行中…");
-      if (job.status === "done" || job.status === "error") {
+      renderSigRunLog(job.logs || []);
+      const paused = job.status === "paused" || job.control_status === "paused";
+      setSigControlButtons({
+        running: !["done", "error", "cancelled"].includes(job.status),
+        paused,
+      });
+      setStatus(
+        $("#sigStatus"),
+        paused ? `已暂停 · ${job.message || ""}` : job.message || job.status || "运行中…"
+      );
+      if (["done", "error", "cancelled"].includes(job.status)) {
         const result = job.result || {};
+        const ok = job.status === "done" || job.status === "cancelled";
         setStatus(
           $("#sigStatus"),
-          job.status === "done"
-            ? result.message || job.message || "完成"
-            : job.message || "失败",
-          job.status === "done" ? "ok" : "error"
+          result.message || job.message || (job.status === "cancelled" ? "已终止" : "完成"),
+          ok ? "ok" : "error"
         );
-        if (job.status === "done") {
-          toast(result.message || "列表信号已更新", "ok");
+        if (ok) {
+          toast(
+            job.status === "cancelled"
+              ? result.message || "已终止"
+              : result.message || "列表信号已更新",
+            "ok"
+          );
           await loadSignalsPanel();
         }
         break;
@@ -2829,8 +3253,51 @@ async function runSignalsCrawl() {
   } catch (e) {
     setStatus($("#sigStatus"), String(e), "error");
   } finally {
+    _sigActiveJobId = "";
+    setSigControlButtons({ running: false, paused: false });
     if (btn) btn.disabled = false;
   }
+}
+
+function formatDateFullCST(d) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const g = (type) => parts.find((p) => p.type === type)?.value || "00";
+  return `${g("year")}-${g("month")}-${g("day")} ${g("hour")}:${g("minute")}:${g("second")} +08:00`;
+}
+
+function sigCardTimeMs(c) {
+  const raw = c.created_at || c.parsed_at || c.display_time || c.time_label || "";
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function stripSigTimePrefix(text) {
+  return String(text || "").replace(/^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s*/, "").trim();
+}
+
+function formatSigCardTime(c) {
+  const disp = String(c.display_time || "").trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(disp)) {
+    return disp.replace(/ \+\d{4}$/, "").slice(0, 19);
+  }
+  const raw = c.created_at || c.parsed_at || c.time_label || "";
+  if (raw && raw !== "未知") {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) {
+      return formatDateFullCST(d).replace(/ \+08:00$/, "");
+    }
+    return String(raw);
+  }
+  return formatDateFullCST(new Date()).replace(/ \+08:00$/, "");
 }
 
 async function loadSignalCards() {
@@ -2842,7 +3309,7 @@ async function loadSignalCards() {
       `/api/signals/cards?limit=80${onlyTrade ? "&trade=1" : ""}`
     );
     renderSigWindows(data.windows || []);
-    const items = data.items || [];
+    const items = (data.items || []).slice().sort((a, b) => sigCardTimeMs(b) - sigCardTimeMs(a));
     const badge = $("#countSignals");
     if (badge) badge.textContent = String(items.length);
     if (!items.length) {
@@ -2853,7 +3320,8 @@ async function loadSignalCards() {
       .map((c) => {
         const sig = c.signal || {};
         const trade = !!sig.has_trade_signal;
-        const dir = String(sig.direction || "unknown").toLowerCase();
+        const dirKey = String(sig.direction || "unknown").toLowerCase();
+        const dir = sigDirectionLabel(sig.direction);
         const coins = (sig.coins || [])
           .map((x) => `<span class="sig-coin">${escapeHtml(String(x))}</span>`)
           .join("");
@@ -2882,25 +3350,37 @@ async function loadSignalCards() {
             return `<a href="${escapeAttr(im.url || src)}" target="_blank" rel="noopener"><img src="${escapeAttr(src)}" alt="${escapeAttr(im.alt || "")}" loading="lazy" /></a>`;
           })
           .join("");
+        const chMap = c.channel || {};
+        const authorHandle = String(c.author || "").replace(/^@/, "");
+        const authorLabel = chMap.channelName
+          ? `${chMap.channelName} <span class="sig-handle">@${escapeHtml(authorHandle)}</span>`
+          : escapeHtml(c.author || "");
+        const channelMeta = chMap.channelId
+          ? `<span class="sig-channel-id" title="Cards channelId">#${escapeHtml(String(chMap.channelId))}</span>`
+          : "";
+        const timeLabel = formatSigCardTime(c);
+        const summaryText = stripSigTimePrefix(sig.summary || c.text || "");
         return `<article class="sig-card${trade ? " is-trade" : " is-noise"}">
           <div class="sig-card-top">
-            <span class="sig-dir ${escapeAttr(dir)}">${escapeHtml(dir)}</span>
+            <span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>
             ${coins}
-            <span class="sig-author">${escapeHtml(c.author || "")}</span>
-            <span class="sig-time">${escapeHtml(String(c.time_label || c.created_at || "").slice(0, 19))}</span>
+            <span class="sig-author">${authorLabel}</span>
+            ${channelMeta}
+            <span class="sig-time" title="发帖时间">${escapeHtml(timeLabel)}</span>
           </div>
-          <p class="sig-summary">${escapeHtml(sig.summary || c.text || "").slice(0, 220)}</p>
+          <p class="sig-summary">${escapeHtml(summaryText).slice(0, 240)}</p>
           ${levels.length ? `<div class="sig-levels">${levels.join("")}</div>` : ""}
           ${sig.image_notes ? `<p class="muted" style="margin:0;font-size:.74rem">图注：${escapeHtml(String(sig.image_notes).slice(0, 160))}</p>` : ""}
           ${imgs ? `<div class="sig-imgs">${imgs}</div>` : ""}
-          <pre class="sig-text">${escapeHtml(c.text || "")}</pre>
+          <pre class="sig-text">${escapeHtml(stripSigTimePrefix(c.text || ""))}</pre>
           <div class="sig-card-foot">
             <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">原帖</a>
-            <span class="sig-conf">${trade ? "信号" : "非交易"} · conf ${escapeHtml(String(sig.confidence ?? ""))} · ${escapeHtml(String(sig.provider || ""))}</span>
+            <span class="sig-conf">${trade ? "信号" : "非交易"} · 置信度 ${escapeHtml(String(sig.confidence ?? ""))} · ${escapeHtml(sig.provider === "heuristic" ? "规则解析" : "AI 解析")}</span>
           </div>
         </article>`;
       })
       .join("");
+    applySigKolVisibility();
   } catch (e) {
     box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
   }
@@ -2914,9 +3394,30 @@ function fmtCount(n) {
   return String(Math.round(v));
 }
 
+function isTcPrivacyOn() {
+  return !!$("#tcHideSensitive")?.checked || localStorage.getItem("tcHideSensitive") === "1";
+}
+
+function tcAuthorView(c) {
+  if (!isTcPrivacyOn()) {
+    return {
+      name: c.author_name || c.author_handle || "未知",
+      handle: c.author_handle ? `@${c.author_handle}` : "",
+      avatar: c.author_avatar || "",
+    };
+  }
+  return {
+    name: "已隐藏用户",
+    handle: "@••••••",
+    avatar: "",
+  };
+}
+
 async function loadTweetCards() {
   const box = $("#tcCards");
   if (!box) return;
+  const privacy = isTcPrivacyOn();
+  box.classList.toggle("tc-privacy-on", privacy);
   const kw = $("#tcKeyword")?.value.trim() || "";
   try {
     const data = await api(
@@ -2931,8 +3432,9 @@ async function loadTweetCards() {
     }
     box.innerHTML = items
       .map((c) => {
-        const avatar = c.author_avatar
-          ? `<img class="tc-avatar" src="${escapeAttr(c.author_avatar)}" alt="" loading="lazy" />`
+        const author = tcAuthorView(c);
+        const avatar = author.avatar
+          ? `<img class="tc-avatar" src="${escapeAttr(author.avatar)}" alt="" loading="lazy" />`
           : `<div class="tc-avatar" aria-hidden="true"></div>`;
         const tags = [
           c.emotion ? `<span class="tc-tag emo">${escapeHtml(c.emotion)}</span>` : "",
@@ -2948,12 +3450,13 @@ async function loadTweetCards() {
               `<a href="${escapeAttr(u)}" target="_blank" rel="noopener"><img src="${escapeAttr(u)}" alt="" loading="lazy" /></a>`
           )
           .join("");
-        return `<article class="tc-card" data-tid="${escapeAttr(String(c.tweet_id || ""))}">
+        const tid = String(c.tweet_id || "");
+        return `<article class="tc-card"${privacy ? "" : ` data-tid="${escapeAttr(tid)}"`}>
           <div class="tc-head">
             ${avatar}
             <div class="tc-author">
-              <strong>${escapeHtml(c.author_name || c.author_handle || "未知")}</strong>
-              <span>@${escapeHtml(c.author_handle || "")}</span>
+              <strong>${escapeHtml(author.name)}</strong>
+              <span>${escapeHtml(author.handle)}</span>
             </div>
           </div>
           <p class="tc-summary">${escapeHtml(c.summary || (c.text || "").slice(0, 60))}</p>
@@ -2969,8 +3472,8 @@ async function loadTweetCards() {
           ${imgs ? `<div class="tc-imgs">${imgs}</div>` : ""}
           <pre class="tc-body">${escapeHtml(c.text || "")}</pre>
           <div class="tc-foot">
-            <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">打开原帖</a>
-            <button type="button" class="btn ghost xs" data-tc-del="${escapeAttr(String(c.tweet_id || ""))}">删除</button>
+            ${privacy ? `<span class="muted">原帖链接已隐藏</span>` : `<a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">打开原帖</a>`}
+            <button type="button" class="btn ghost xs" data-tc-del="${escapeAttr(tid)}">删除</button>
             <span class="muted">${escapeHtml(String(c.source || ""))} · ${escapeHtml(String(c.updated_at || "").slice(0, 16))}</span>
           </div>
         </article>`;
@@ -2979,7 +3482,7 @@ async function loadTweetCards() {
     box.querySelectorAll("[data-tc-del]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const tid = btn.getAttribute("data-tc-del");
-        if (!tid || !confirm(`删除卡片 ${tid}？`)) return;
+        if (!tid || !confirm(privacy ? "删除这条卡片？" : `删除卡片 ${tid}？`)) return;
         try {
           await api(`/api/tweet-cards/${encodeURIComponent(tid)}`, { method: "DELETE" });
           toast("已删除", "ok");
@@ -3060,6 +3563,10 @@ async function boot() {
   setInterval(loadPublishQueue, 20000);
   setInterval(refreshStats, 30000);
   setInterval(refreshCorpusStats, 45000);
+  setInterval(() => {
+    const panel = $("#panel-signals");
+    if (panel && !panel.hidden) loadSignalsPanel();
+  }, 30000);
 }
 
 boot();

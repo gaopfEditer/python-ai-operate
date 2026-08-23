@@ -29,8 +29,13 @@ _bg: Optional["BackgroundTarget"] = None
 
 
 def get_debugger_url() -> str:
-    cfg = store.load_config()
-    return str((cfg.get("cdp") or {}).get("debugger_url") or "127.0.0.1:9222")
+    try:
+        from utils.crawl_cdp import resolve_crawl_debugger_url
+
+        return resolve_crawl_debugger_url()
+    except Exception:
+        cfg = store.load_config()
+        return str((cfg.get("cdp") or {}).get("debugger_url") or "127.0.0.1:9223")
 
 
 def silent_enabled() -> bool:

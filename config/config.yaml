@@ -40,14 +40,14 @@ crawler:
   # 资讯获取：仅保留正文含足够中文的帖子（X / Reddit / Telegram）
   only_chinese: true
   # X.com CDP 抓取（可选）
-  # 使用前先启动 Chrome：
-  #   chrome.exe --remote-debugging-port=9222 --user-data-dir="D:\chrome-cdp-profile"
+  # 使用前先启动 Chrome（默认端口 9223，可改；也可用环境变量 CDP_DEBUGGER_URL）：
+  #   chrome --remote-debugging-port=9223 --user-data-dir="$HOME/chrome-cdp-crawl"
   # 并在 platforms 中添加:
   #   - id: "x-cdp"
   #     name: "X 热门推荐"
   x_cdp:
     enabled: true
-    debugger_url: "127.0.0.1:9222"
+    debugger_url: "127.0.0.1:9223"
     # 关注流（核心信息源）
     following_url: "https://x.com/home?filter=following"
     # 推荐流（For You）

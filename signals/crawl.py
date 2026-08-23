@@ -7,10 +7,10 @@ import re
 import time
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from signals.store import media_root, parse_dt, parse_list_id
+from signals.tweet_log import fmt_tweet_line
 
 ProgressCb = Optional[Callable[[str], None]]
 
@@ -76,33 +76,23 @@ return out;
 
 
 def _log(cb: ProgressCb, msg: str) -> None:
-    print(f"[signals] {msg}")
+    """有 progress 时交给控制台统一打印，避免重复。"""
     if cb:
         try:
             cb(msg)
+            return
         except Exception:
             pass
+    print(f"[signals] {msg}", flush=True)
 
 
 def _debugger_host() -> str:
     try:
-        import yaml
+        from utils.crawl_cdp import resolve_crawl_debugger_url
 
-        cfg_path = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-        x = ((cfg.get("crawler") or {}).get("x_cdp") or {})
-        host = str(x.get("debugger_url") or "").strip()
-        if host:
-            return host
+        return resolve_crawl_debugger_url()
     except Exception:
-        pass
-    try:
-        from allnews_mornitor.cdp_browser import get_debugger_url
-
-        return get_debugger_url()
-    except Exception:
-        return "127.0.0.1:9222"
+        return "127.0.0.1:9223"
 
 
 def download_image(url: str, tweet_id: str, index: int) -> Dict[str, Any]:
@@ -146,9 +136,11 @@ def crawl_list_timeline(
     max_tweets: int = 40,
     max_scroll: int = 18,
     progress: ProgressCb = None,
+    should_abort: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """
     静默 CDP 打开列表页，滚动直到推文时间早于 since 或达到上限。
+    should_abort: 返回 True 时提前结束滚动。
     """
     from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
 
@@ -158,6 +150,12 @@ def crawl_list_timeline(
     url = f"https://x.com/i/lists/{lid}"
     max_tweets = max(1, min(int(max_tweets or 40), 120))
     max_scroll = max(3, min(int(max_scroll or 18), 40))
+
+    def _aborted() -> bool:
+        try:
+            return bool(should_abort and should_abort())
+        except Exception:
+            return False
 
     # 临时覆盖 allnews debugger（BackgroundTarget 用其 get_debugger_url）
     host = _debugger_host()
@@ -182,7 +180,7 @@ def crawl_list_timeline(
         except Exception as e:
             return {
                 "success": False,
-                "error": f"无法连接 Chrome CDP（{host}），请先 --remote-debugging-port=9222: {e}",
+                "error": f"无法连接 Chrome CDP（{host}），请先 --remote-debugging-port=9223: {e}",
                 "items": [],
             }
 
@@ -193,8 +191,15 @@ def crawl_list_timeline(
         time.sleep(3.2)
 
         by_id: Dict[str, Dict[str, Any]] = {}
+        seen_log: set = set()
+        page_seen = 0
+        page_kept = 0
+        page_old = 0
         reached_old = False
         for round_i in range(max_scroll):
+            if _aborted():
+                _log(progress, "抓取已终止（滚动中）")
+                break
             try:
                 raw = page.eval_js(LIST_FEED_JS) or []
             except Exception as e:
@@ -203,6 +208,7 @@ def crawl_list_timeline(
             if not isinstance(raw, list):
                 raw = []
             oldest_in_batch = None
+            new_in_round = 0
             for it in raw:
                 if not isinstance(it, dict):
                     continue
@@ -210,28 +216,59 @@ def crawl_list_timeline(
                 if not tid:
                     continue
                 created = parse_dt(str(it.get("created_at") or ""))
+                if created is not None and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+                too_old = bool(created and created < since_cmp)
                 if created:
                     if oldest_in_batch is None or created < oldest_in_batch:
                         oldest_in_batch = created
-                    if created < since:
+                    if too_old:
                         reached_old = True
-                        continue
+
+                if tid not in seen_log:
+                    seen_log.add(tid)
+                    page_seen += 1
+                    new_in_round += 1
+                    if too_old:
+                        page_old += 1
+                        _log(
+                            progress,
+                            f"[页面] #{page_seen} 过旧跳过 · {fmt_tweet_line(it)}",
+                        )
+                    else:
+                        page_kept += 1
+                        _log(
+                            progress,
+                            f"[页面] #{page_seen} 纳入候选 · {fmt_tweet_line(it)}",
+                        )
+
+                if too_old:
+                    continue
                 if tid not in by_id:
                     by_id[tid] = it
             _log(
                 progress,
-                f"滚动 {round_i + 1}/{max_scroll} · 累计 {len(by_id)} 条"
-                + (f" · 最旧 {oldest_in_batch.isoformat()}" if oldest_in_batch else ""),
+                f"滚动 {round_i + 1}/{max_scroll} · 窗口内累计 {len(by_id)} · 页面见过 {page_seen}"
+                f"（新 {new_in_round}）"
+                + (f" · 本批最旧 {oldest_in_batch.isoformat()}" if oldest_in_batch else ""),
             )
             if len(by_id) >= max_tweets:
                 break
             if reached_old and len(by_id) >= 3:
+                break
+            # 全是过旧且已滚几屏：停止
+            if reached_old and len(by_id) == 0 and round_i >= 2:
+                _log(progress, "页面可见帖均早于时间窗，停止继续滚动")
                 break
             try:
                 page.eval_js("window.scrollBy(0, 1400); return true;")
             except Exception:
                 break
             time.sleep(1.15)
+            if _aborted():
+                _log(progress, "抓取已终止（滚动中）")
+                break
 
         items = list(by_id.values())
 
@@ -241,12 +278,18 @@ def crawl_list_timeline(
 
         items.sort(key=_key, reverse=True)
         items = items[:max_tweets]
+        _log(
+            progress,
+            f"抓取结束：窗口内 {len(items)} 条 · 页面见过 {page_seen}（过旧 {page_old}）",
+        )
         return {
             "success": True,
             "list_id": lid,
             "url": url,
             "items": items,
             "count": len(items),
+            "page_seen": page_seen,
+            "page_old": page_old,
         }
     except Exception as e:
         return {"success": False, "error": str(e), "items": []}

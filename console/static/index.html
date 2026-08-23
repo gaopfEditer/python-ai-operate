@@ -477,7 +477,7 @@
       <section id="panel-signals" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>X 列表交易信号</h2>
-          <p>配置推特 List → CDP 抓取贴文（含图）→ AI 识别币种 / 方向 / 止盈止损。默认翻到 24h 内，并记录已爬时间段防重复。</p>
+          <p>配置推特 List → 按<strong>北京时间</strong>分时频率 CDP 抓取 → AI 识别币种/方向/止盈止损。高峰 3–5 分钟，凌晨可休眠。</p>
         </div>
         <div class="sig-config form-grid">
           <label class="field full">
@@ -491,6 +491,21 @@
           <label class="field">
             <span>最多条数</span>
             <input id="sigMaxTweets" type="number" min="5" max="120" value="40" />
+          </label>
+          <label class="field check">
+            <input id="sigWatchEnabled" type="checkbox" />
+            <span>分时自动监听（北京时间阶梯频率）</span>
+          </label>
+          <label class="field check">
+            <input id="sigCycleEnabled" type="checkbox" />
+            <span>周期抓取（5–15 分钟随机间隔）</span>
+          </label>
+          <label class="field">
+            <span>凌晨 01:30–07:30</span>
+            <select id="sigDeepMode">
+              <option value="sleep" selected>完全休眠（等到 07:30）</option>
+              <option value="patrol">巡检（30–60 分钟）</option>
+            </select>
           </label>
           <label class="field check">
             <input id="sigSkipNonTrade" type="checkbox" />
@@ -515,22 +530,79 @@
           <div class="field full">
             <span class="muted" id="sigChannelsHint">频道映射：config/signals_channels.yaml</span>
           </div>
-          <div class="field" style="justify-content:end;flex-direction:row;gap:8px;align-items:end">
+          <label class="field check full" id="sigHideTestWrap">
+            <input id="sigHideTest" type="checkbox" />
+            <span>隐藏测试消息（Cards API）</span>
+          </label>
+          <div class="field full sig-test-box" id="sigTestBox">
+            <div class="sig-test-head">
+              <h3 class="sig-sub">测试消息（Cards API）</h3>
+              <button id="btnSigHideTest" class="btn ghost btn-sm" type="button">隐藏</button>
+            </div>
+            <p class="muted" style="margin:0 0 8px;font-size:.78rem">
+              选映射博主 + 粘贴推文正文即可。币种/方向/止盈止损由 AI 从正文解析（与真实列表信号一致），用于验证是否推到正确频道；不会写入已推送库。
+            </p>
+            <div class="form-grid sig-test-grid">
+              <label class="field">
+                <span>映射博主</span>
+                <select id="sigTestHandle"></select>
+              </label>
+              <label class="field full">
+                <span>推文正文（必填）</span>
+                <textarea id="sigTestBody" rows="4" placeholder="例：多了zama，隐私板块跟了ZEC，下跌后反弹第一个新高的隐私币，我来点火吧，不加杠杆了，1x拉满。"></textarea>
+              </label>
+              <label class="field check">
+                <input id="sigTestDryRun" type="checkbox" />
+                <span>仅预览 payload（不发送）</span>
+              </label>
+              <label class="field check">
+                <input id="sigTestAllMapped" type="checkbox" />
+                <span>对映射表全部频道各发一条</span>
+              </label>
+              <div class="field" style="justify-content:end;flex-direction:row;gap:8px;align-items:end">
+                <button id="btnSigTestPreview" class="btn ghost" type="button">预览解析</button>
+                <button id="btnSigTestSend" class="btn primary" type="button">发送测试</button>
+              </div>
+            </div>
+            <p id="sigTestStatus" class="status" style="margin:8px 0 0"></p>
+            <pre id="sigTestLog" class="sig-run-log" hidden></pre>
+          </div>
+          <div class="field full">
+            <p id="sigCycleHint" class="status" style="margin:0">周期抓取未开启</p>
+            <p id="sigWatchHint" class="status" style="margin:0">分时监听未开启</p>
+            <div id="sigScheduleTable" class="sig-windows muted"></div>
+          </div>
+          <div class="field full sig-action-bar">
             <button id="btnSigSaveCfg" class="btn ghost" type="button">保存配置</button>
+            <button id="btnSigCycle" class="btn ghost" type="button">开启周期抓取</button>
             <button id="btnSigPushOnly" class="btn ghost" type="button">仅推送已存卡片</button>
-            <button id="btnSigRun" class="btn primary" type="button">开始抓取解析</button>
+            <button id="btnSigRun" class="btn primary" type="button">立即抓取一轮</button>
+            <button id="btnSigPause" class="btn ghost" type="button" disabled>暂停</button>
+            <button id="btnSigResume" class="btn ghost" type="button" disabled hidden>继续</button>
+            <button id="btnSigStop" class="btn danger" type="button" disabled>终止</button>
           </div>
         </div>
         <p id="sigStatus" class="status"></p>
+        <pre id="sigRunLog" class="sig-run-log" hidden></pre>
         <div class="sig-meta">
-          <div>
-            <h3 class="sig-sub">已爬时间段</h3>
+          <div class="sig-meta-windows">
+            <div class="sig-meta-head">
+              <h3 class="sig-sub">已爬时间段</h3>
+              <label class="field check sig-windows-toggle">
+                <input id="sigShowAllWindows" type="checkbox" />
+                <span>查看全部</span>
+              </label>
+            </div>
             <div id="sigWindows" class="sig-windows muted">暂无记录</div>
           </div>
-          <div class="toolbar" style="margin:0;justify-content:flex-end">
+          <div class="toolbar sig-card-toolbar">
             <label class="field check" style="margin:0">
               <input id="sigFilterTrade" type="checkbox" />
               <span>仅显示交易卡</span>
+            </label>
+            <label class="field check" style="margin:0">
+              <input id="sigHideKol" type="checkbox" />
+              <span>隐藏 KOL 名称</span>
             </label>
             <button id="btnSigRefresh" class="btn ghost" type="button">刷新卡片</button>
           </div>
@@ -548,10 +620,14 @@
             <span>推特链接（每行一条，或一段里多个 URL）</span>
             <textarea id="tcInput" rows="4" placeholder="https://x.com/user/status/1234567890"></textarea>
           </label>
-          <div class="toolbar" style="margin:0">
+          <div class="toolbar" style="margin:0;flex-wrap:wrap">
             <button id="btnTcIngest" class="btn primary" type="button">解析入库</button>
             <button id="btnTcRefresh" class="btn ghost" type="button">刷新</button>
-            <label class="field grow" style="margin:0">
+            <label class="field check" style="margin:0">
+              <input id="tcHideSensitive" type="checkbox" />
+              <span>隐藏敏感信息</span>
+            </label>
+            <label class="field grow" style="margin:0;min-width:180px">
               <span>搜索</span>
               <input id="tcKeyword" type="search" placeholder="作者 / 摘要 / 标签" />
             </label>
@@ -562,6 +638,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260823e"></script>
 </body>
 </html>

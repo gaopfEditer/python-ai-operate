@@ -54,6 +54,16 @@ def _empty_state() -> Dict[str, Any]:
             "max_tweets": 40,
             "skip_non_trade": False,
             "push_enabled": True,
+            # 分时自动监听（北京时间阶梯频率）
+            "watch_enabled": False,
+            # 周期抓取：5–15 分钟随机间隔
+            "cycle_enabled": False,
+            "last_crawl_at": "",
+            "first_crawl_hours": 8,
+            "cycle_min_minutes": 5,
+            "cycle_max_minutes": 15,
+            # deep 时段：sleep=完全休眠到 07:30；patrol=30–60 分钟巡检
+            "deep_sleep_mode": "sleep",
         },
         "windows": [],
         "seen_tweet_ids": [],
@@ -131,6 +141,21 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
         cfg["skip_non_trade"] = bool(patch["skip_non_trade"])
     if "push_enabled" in patch:
         cfg["push_enabled"] = bool(patch["push_enabled"])
+    if "watch_enabled" in patch:
+        cfg["watch_enabled"] = bool(patch["watch_enabled"])
+    if "cycle_enabled" in patch:
+        cfg["cycle_enabled"] = bool(patch["cycle_enabled"])
+    if "last_crawl_at" in patch:
+        cfg["last_crawl_at"] = str(patch.get("last_crawl_at") or "")
+    for key in ("first_crawl_hours", "cycle_min_minutes", "cycle_max_minutes"):
+        if key in patch and patch[key] is not None:
+            try:
+                cfg[key] = int(patch[key])
+            except Exception:
+                pass
+    if "deep_sleep_mode" in patch:
+        mode = str(patch.get("deep_sleep_mode") or "sleep").strip().lower()
+        cfg["deep_sleep_mode"] = mode if mode in ("sleep", "patrol") else "sleep"
     state["config"] = cfg
     save_state(state)
     return cfg
@@ -246,6 +271,15 @@ def parse_dt(raw: str) -> Optional[datetime]:
         return None
 
 
+def _card_sort_ts(card: Dict[str, Any]) -> datetime:
+    """卡片排序用时间戳：优先发帖时间，其次解析时间。"""
+    for key in ("created_at", "parsed_at", "display_time"):
+        dt = parse_dt(str(card.get(key) or ""))
+        if dt is not None:
+            return dt
+    return datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
 def list_cards(
     *,
     list_id: str = "",
@@ -262,9 +296,9 @@ def list_cards(
         if only_trade and not sig.get("has_trade_signal"):
             continue
         out.append(c)
-        if len(out) >= max(1, int(limit)):
-            break
-    return out
+    out.sort(key=_card_sort_ts, reverse=True)
+    cap = max(1, int(limit))
+    return out[:cap]
 
 
 def is_seen(tweet_id: str) -> bool:
