@@ -12,10 +12,21 @@ const state = {
   corpusSelected: new Set(),
   corpusItems: [],
   labFormula: "contrarian",
+  labProfile: "general",
   labTagFilter: "",
   labVariants: [],
   labActiveVariant: null,
 };
+
+/** CDP 发布页展示顺序与默认全选 */
+const PUBLISH_PLATFORM_ORDER = [
+  { id: "binance_square", name: "币安广场" },
+  { id: "okx", name: "OKX" },
+  { id: "bitget", name: "Bitget" },
+  { id: "reddit", name: "Reddit" },
+  { id: "x", name: "X / Twitter" },
+];
+const PUBLISH_PLATFORM_DEFAULT_IDS = PUBLISH_PLATFORM_ORDER.map((p) => p.id);
 
 function platformMeta(pid) {
   const id = String(pid || "").toLowerCase();
@@ -641,6 +652,30 @@ const LAB_FORMULAS_FALLBACK = [
   { id: "checklist", label: "硬核极简清单", emoji: "🛠️", blurb: "痛点 → 3点建议 → 落地指令" },
 ];
 
+const LAB_PROFILES_FALLBACK = [
+  {
+    id: "general",
+    label: "通用短贴",
+    emoji: "📝",
+    blurb: "归纳可复用提示词 + A/B/C 三版短贴",
+    variant_hint: "A 刺眼 · B 干货 · C 故事",
+  },
+  {
+    id: "technical",
+    label: "行情/宏观技术分析",
+    emoji: "📊",
+    blurb: "技术面 · 宏观 · 交易计划（美联储/数据）",
+    variant_hint: "A 技术面 · B 宏观 · C 交易计划",
+  },
+  {
+    id: "longform_video",
+    label: "结构化长文·转视频",
+    emoji: "🎬",
+    blurb: "口播大纲 · 分镜 · 完整视频稿",
+    variant_hint: "A 口播大纲 · B 分镜 · C 完整稿",
+  },
+];
+
 function updateLabSteps() {
   const steps = document.querySelectorAll("#labSteps [data-step]");
   if (!steps.length) return;
@@ -726,11 +761,64 @@ function renderLabFormulas(items) {
 
 async function loadLabFormulas() {
   try {
-    const data = await api("/api/corpus/lab/formulas");
-    renderLabFormulas(data.items || LAB_FORMULAS_FALLBACK);
+    const [formulas, profiles] = await Promise.all([
+      api("/api/corpus/lab/formulas"),
+      api("/api/corpus/lab/profiles"),
+    ]);
+    renderLabFormulas(formulas.items || LAB_FORMULAS_FALLBACK);
+    renderLabProfiles(profiles.items || LAB_PROFILES_FALLBACK);
   } catch (e) {
     renderLabFormulas(LAB_FORMULAS_FALLBACK);
+    renderLabProfiles(LAB_PROFILES_FALLBACK);
   }
+}
+
+function renderLabProfiles(items) {
+  const box = $("#labProfiles");
+  if (!box) return;
+  const list = items && items.length ? items : LAB_PROFILES_FALLBACK;
+  if (!state.labProfile) state.labProfile = list[0].id;
+  box.innerHTML = list
+    .map((p) => {
+      const on = state.labProfile === p.id ? " on" : "";
+      return `<button type="button" class="lab-profile${on}" data-profile="${escapeAttr(p.id)}" title="${escapeAttr(p.blurb || "")}">
+        <strong>${escapeHtml((p.emoji || "") + " " + (p.label || p.id))}</strong>
+        <span>${escapeHtml(p.blurb || "")}</span>
+      </button>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-profile]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.labProfile = btn.getAttribute("data-profile");
+      box.querySelectorAll(".lab-profile").forEach((b) => b.classList.toggle("on", b === btn));
+      syncLabProfileHint(list);
+    });
+  });
+  syncLabProfileHint(list);
+}
+
+function syncLabProfileHint(list) {
+  const hint = $("#labProfileHint");
+  const variantHint = $("#labVariantHint");
+  const profiles = list || LAB_PROFILES_FALLBACK;
+  const p = profiles.find((x) => x.id === state.labProfile) || profiles[0];
+  if (hint && p) hint.textContent = p.blurb || "";
+  if (variantHint && p?.variant_hint) variantHint.textContent = p.variant_hint;
+}
+
+function renderLabPromptSnippets(snippets) {
+  const box = $("#labPromptSnippetsBox");
+  const list = $("#labPromptSnippets");
+  if (!box || !list) return;
+  const arr = Array.isArray(snippets) ? snippets.filter(Boolean) : [];
+  if (!arr.length) {
+    box.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  box.open = true;
+  list.innerHTML = arr.map((s) => `<li>${escapeHtml(String(s))}</li>`).join("");
 }
 
 function renderLabTagCloud(items) {
@@ -1282,9 +1370,10 @@ function renderLabVariants(variants, activeIdx) {
   if ($("#labResultBar")) $("#labResultBar").hidden = false;
   if ($("#labTweaks")) $("#labTweaks").hidden = false;
   const active = state.labActiveVariant;
+  const draft = labBuildPublishDraft(active);
   state.lastCreate = {
-    title: $("#regenTopic")?.value.trim() || "Post Lab",
-    content: active?.content || "",
+    title: draft?.title || $("#regenTopic")?.value.trim() || "Post Lab",
+    content: draft?.content || active?.content || "",
     path: "",
   };
   const out = $("#corpusRegenOut");
@@ -1316,7 +1405,8 @@ async function runCorpusRegen() {
   $("#btnCorpusRegen").disabled = true;
   setStatus($("#corpusRegenStatus"), "生成中…");
   showLabSkeleton(true);
-  renderLabCot(["读取灵感卡骨架…", "注入热点变量…", "分化 A刺眼 / B干货 / C故事…"]);
+  const prof = LAB_PROFILES_FALLBACK.find((x) => x.id === state.labProfile) || LAB_PROFILES_FALLBACK[0];
+  renderLabCot(["读取灵感卡骨架…", "注入热点变量…", `后处理：${prof.label}…`]);
   try {
     const data = await api("/api/corpus/generate", {
       method: "POST",
@@ -1325,6 +1415,7 @@ async function runCorpusRegen() {
         template_ids: ids,
         topic,
         formula: state.labFormula || "contrarian",
+        prompt_profile: state.labProfile || "general",
         platform_style: $("#regenStyle")?.value.trim() || "X/Twitter",
         prompt: $("#regenPrompt")?.value.trim() || "",
         variant_count: 3,
@@ -1336,6 +1427,8 @@ async function runCorpusRegen() {
     }
     renderLabCot(data.cot || []);
     state.labCot = data.cot || [];
+    if (data.prompt_profile?.variant_hint) syncLabProfileHint([data.prompt_profile]);
+    renderLabPromptSnippets(data.prompt_snippets || []);
     renderLabVariants(data.variants || [], 0);
     renderPathView(data.path || {});
     setStatus(
@@ -1391,6 +1484,81 @@ async function labCopyMarkdown() {
   } catch (e) {
     toast("复制失败", "error");
   }
+}
+
+function labBuildPublishDraft(variant) {
+  const v = variant || state.labActiveVariant;
+  if (!v?.content?.trim()) return null;
+  const topic = $("#regenTopic")?.value.trim() || "Post Lab";
+  const label = v.label || v.id || "变体";
+  const title = label.includes(topic) ? label : `${topic} · ${label}`;
+  const style = $("#regenStyle")?.value.trim() || "X/Twitter";
+  const prof =
+    LAB_PROFILES_FALLBACK.find((x) => x.id === state.labProfile) || LAB_PROFILES_FALLBACK[0];
+  const tags = [topic, prof?.label].filter(Boolean).join(", ");
+  return {
+    title,
+    content: v.content,
+    hook: v.hook || "",
+    label,
+    tags,
+    style,
+  };
+}
+
+function labPlatformHintFromStyle(_style) {
+  return [...PUBLISH_PLATFORM_DEFAULT_IDS];
+}
+
+function applyPublishPlatformHint(ids) {
+  const box = $("#publishPlatformChecks");
+  if (!box) return;
+  const want = new Set(ids?.length ? ids : PUBLISH_PLATFORM_DEFAULT_IDS);
+  box.querySelectorAll('input[type="checkbox"][data-platform]').forEach((el) => {
+    el.checked = want.has(el.value);
+  });
+}
+
+function labOpenPublishPreview() {
+  const draft = labBuildPublishDraft();
+  if (!draft) {
+    toast("请先生成并选中一条变体文案", "error");
+    return;
+  }
+  const dlg = $("#labPublishPreviewDialog");
+  if (!dlg) {
+    labSendToPublish(draft);
+    return;
+  }
+  const meta = $("#labPublishPreviewMeta");
+  const hook = $("#labPublishPreviewHook");
+  const body = $("#labPublishPreviewBody");
+  if (meta) meta.textContent = `${draft.title} · ${draft.style}`;
+  if (hook) {
+    hook.textContent = draft.hook || "";
+    hook.hidden = !draft.hook;
+  }
+  if (body) body.textContent = draft.content;
+  state.labPublishDraft = draft;
+  dlg.showModal();
+}
+
+async function labSendToPublish(draft) {
+  const d = draft || state.labPublishDraft || labBuildPublishDraft();
+  if (!d?.content) {
+    toast("无可用正文", "error");
+    return;
+  }
+  state.lastCreate = { title: d.title, content: d.content, path: "" };
+  if ($("#publishTitle")) $("#publishTitle").value = d.title;
+  if ($("#publishContent")) $("#publishContent").value = d.content;
+  if ($("#publishTags") && d.tags) $("#publishTags").value = d.tags;
+  await loadPublishPlatforms();
+  applyPublishPlatformHint(labPlatformHintFromStyle(d.style));
+  switchTab("publish");
+  $("#publishContent")?.focus();
+  toast("已带入 CDP 发布页，可选平台后发布", "ok");
+  state.labPublishDraft = null;
 }
 
 async function labSaveFeatured(variantIdx) {
@@ -1793,36 +1961,46 @@ function syncTaskUi() {
   loadTasks();
 }
 
-async function loadPublishPlatforms() {
-  const data = await api("/api/platforms/publish");
-  const sel = $("#publishPlatform");
-  sel.innerHTML = "";
-  const preferred = new Set(["x", "binance_square"]);
-  (data.platforms || []).forEach((p) => {
-    if (!p.enabled) return;
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = `${p.name} (${p.id})`;
-    if (preferred.has(p.id) || preferred.has(String(p.type || ""))) {
-      opt.selected = true;
-    }
-    sel.appendChild(opt);
-  });
-  if (!sel.options.length) {
-    ["x", "binance_square"].forEach((id) => {
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = id;
-      opt.selected = true;
-      sel.appendChild(opt);
-    });
+async function loadPublishPlatforms(selectedIds) {
+  const box = $("#publishPlatformChecks");
+  if (!box) return;
+  let apiPlatforms = [];
+  try {
+    const data = await api("/api/platforms/publish");
+    apiPlatforms = data.platforms || [];
+  } catch (_) {
+    /* 离线时用预设列表 */
   }
+  const byId = new Map();
+  apiPlatforms.forEach((p) => {
+    if (p?.id) byId.set(p.id, p);
+  });
+  PUBLISH_PLATFORM_ORDER.forEach((preset) => {
+    if (!byId.has(preset.id)) {
+      byId.set(preset.id, { id: preset.id, name: preset.name, enabled: true });
+    }
+  });
+  const selected = new Set(
+    selectedIds?.length ? selectedIds : PUBLISH_PLATFORM_DEFAULT_IDS
+  );
+  box.innerHTML = PUBLISH_PLATFORM_ORDER.map((preset) => {
+    const meta = byId.get(preset.id) || preset;
+    if (meta.enabled === false) return "";
+    const checked = selected.has(preset.id) ? " checked" : "";
+    const name = meta.name || preset.name;
+    return `<label class="publish-plat-check corpus-check">
+      <input type="checkbox" data-platform value="${escapeHtml(preset.id)}"${checked} />
+      <span>${escapeHtml(name)}</span>
+    </label>`;
+  }).join("");
 }
 
 function selectedPublishPlatforms() {
-  const sel = $("#publishPlatform");
-  if (!sel) return [];
-  return [...sel.selectedOptions].map((o) => o.value).filter(Boolean);
+  const box = $("#publishPlatformChecks");
+  if (!box) return [];
+  return [...box.querySelectorAll('input[type="checkbox"][data-platform]:checked')]
+    .map((el) => el.value)
+    .filter(Boolean);
 }
 
 function parseMediaPaths(raw) {
@@ -2230,14 +2408,12 @@ function bind() {
   document.querySelectorAll("#labTweaks [data-tweak]").forEach((btn) => {
     btn.addEventListener("click", () => runLabTweak(btn.getAttribute("data-tweak")));
   });
-  $("#btnCorpusToPublish")?.addEventListener("click", () => {
-    if (!state.lastCreate?.content) {
-      toast("请先融合创作并选择变体", "error");
-      return;
-    }
-    $("#publishTitle").value = state.lastCreate.title || "";
-    $("#publishContent").value = state.lastCreate.content || "";
-    switchTab("publish");
+  $("#btnLabPublishPreview")?.addEventListener("click", () => labOpenPublishPreview());
+  $("#labPublishPreviewForm")?.addEventListener("submit", (e) => {
+    if (e.submitter?.value !== "confirm") return;
+    e.preventDefault();
+    $("#labPublishPreviewDialog")?.close();
+    labSendToPublish();
   });
   $("#corpusEditForm")?.addEventListener("submit", (e) => {
     const submitter = e.submitter;
@@ -2601,13 +2777,7 @@ function bind() {
         if ($("#publishScheduleAt")) {
           $("#publishScheduleAt").value = toDatetimeLocalValue(it.scheduled_at);
         }
-        const sel = $("#publishPlatform");
-        if (sel) {
-          const want = new Set(it.platforms || []);
-          [...sel.options].forEach((o) => {
-            o.selected = want.has(o.value);
-          });
-        }
+        applyPublishPlatformHint(it.platforms || []);
         setStatus($("#publishStatus"), `已载入 ${id} 到编辑区`, "ok");
         return;
       }

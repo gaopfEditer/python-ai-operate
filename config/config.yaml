@@ -227,7 +227,7 @@ publish:
   # 是否启用发布功能
   enable: true
   # 默认发布的平台列表（使用平台ID，用逗号分隔）
-  default_platforms: "x,binance_square"
+  default_platforms: "binance_square,okx,bitget,reddit,x"
   # 是否使用无头模式（不显示浏览器）
   # 建议首次测试时设为false，可以看到浏览器操作过程，便于调试
   headless: false
@@ -251,6 +251,21 @@ publish:
       square_url: "https://www.binance.com/zh-CN/square"
       wait_sec: 8
       media_upload_wait: 25
+      enabled: true
+    - id: "okx"
+      name: "OKX"
+      type: "okx"
+      square_url: "https://www.okx.com/zh-hans/community"
+      enabled: true
+    - id: "bitget"
+      name: "Bitget"
+      type: "bitget"
+      square_url: "https://www.bitget.com/zh-CN/community"
+      enabled: true
+    - id: "reddit"
+      name: "Reddit"
+      type: "reddit"
+      compose_url: "https://www.reddit.com/submit"
       enabled: true
     - id: "typecho"
       name: "Typecho博客"

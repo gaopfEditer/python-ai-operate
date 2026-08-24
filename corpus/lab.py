@@ -66,6 +66,251 @@ def list_formulas() -> List[Dict[str, str]]:
     return [dict(v) for v in FORMULA_PRESETS.values()]
 
 
+PROMPT_PROFILES: Dict[str, Dict[str, Any]] = {
+    "general": {
+        "id": "general",
+        "label": "通用短贴",
+        "emoji": "📝",
+        "blurb": "归纳可复用提示词 + A/B/C 三版短贴（当前默认）",
+        "variant_hint": "A 刺眼 · B 干货 · C 故事",
+        "max_tokens": 2200,
+        "temperature": 0.8,
+        "output_extra": ["prompt_snippets"],
+        "system": """你是 Post Lab 通用短贴 Agent。根据热点、灵感卡骨架与叙事配方，产出 3 个短贴变体，并归纳可复用提示词。
+只输出 JSON，不要 markdown：
+{
+  "thinking": ["步骤1", "步骤2"],
+  "prompt_snippets": ["从卡片与主题归纳的可复用提示词/句式1", "句式2", "句式3"],
+  "variants": [
+    {"id": "A", "label": "情绪刺眼", "hook": "第一句", "content": "完整正文"},
+    {"id": "B", "label": "干货数据", "hook": "第一句", "content": "完整正文"},
+    {"id": "C", "label": "故事复盘", "hook": "第一句", "content": "完整正文"}
+  ]
+}
+固定分化：A 冲突颠覆认知；B 硬核推导/清单；C 第一人称经历。
+prompt_snippets：抽象句式，用【占位】，3~5 条，便于下次复用。
+规则：80~280 字/条；注入卡片 hook/pattern/tension；禁止照搬原文细节。""",
+    },
+    "technical": {
+        "id": "technical",
+        "label": "行情/宏观技术分析",
+        "emoji": "📊",
+        "blurb": "技术面快评 · 宏观事件解读 · 场景交易计划（含美联储/数据）",
+        "variant_hint": "A 技术面 · B 宏观 · C 交易计划",
+        "max_tokens": 2800,
+        "temperature": 0.65,
+        "output_extra": [],
+        "system": """你是 Post Lab 行情分析 Agent。针对热点（行情波动、美联储、CPI/非农、流动性、重大政策），结合灵感卡观点，产出 3 个分析变体。
+只输出 JSON：
+{
+  "thinking": ["步骤1", "步骤2"],
+  "variants": [
+    {"id": "A", "label": "技术面快评", "hook": "第一句", "content": "完整正文"},
+    {"id": "B", "label": "宏观解读", "hook": "第一句", "content": "完整正文"},
+    {"id": "C", "label": "场景交易计划", "hook": "第一句", "content": "完整正文"}
+  ]
+}
+固定分化：
+- A：关键位/趋势/量价/指标逻辑（可写支撑阻力、结构，但不给具体喊单）。
+- B：宏观事件 → 传导链 → 对 BTC/ETH/风险资产/美元/利率的影响（适合美联储、数据公布）。
+- C： bull/base/bear 三场景 + 观察位 + 失效条件 + 风险提示。
+规则：150~400 字/条；数字可合理推断但要像研究笔记；禁止保证收益、禁止「必涨必跌」。""",
+    },
+    "longform_video": {
+        "id": "longform_video",
+        "label": "结构化长文·转视频",
+        "emoji": "🎬",
+        "blurb": "口播大纲 · 分镜脚本 · 完整视频稿（后续可拆镜）",
+        "variant_hint": "A 口播大纲 · B 分镜 · C 完整稿",
+        "max_tokens": 4500,
+        "temperature": 0.75,
+        "output_extra": ["video_meta"],
+        "system": """你是 Post Lab 长文/视频脚本 Agent。根据热点与灵感卡，产出可转视频的 3 个结构化变体。
+只输出 JSON：
+{
+  "thinking": ["步骤1", "步骤2"],
+  "video_meta": {"duration_min": 8, "audience": "受众", "tone": "语气"},
+  "variants": [
+    {"id": "A", "label": "口播大纲", "hook": "开场 Hook", "content": "Markdown 大纲：Hook / 3段论点 / 金句 / CTA"},
+    {"id": "B", "label": "分镜脚本", "hook": "第一镜旁白", "content": "按场景编号：画面描述 + 旁白 + 字幕要点（至少 5 镜）"},
+    {"id": "C", "label": "完整视频稿", "hook": "开场 15 秒", "content": "可照读的完整口播稿，800~1500 字，段落清晰"}
+  ]
+}
+规则：三版围绕同一主题递进；B 必须可分镜；C 适合 6~12 分钟口播；保留卡片核心冲突但扩展论证。""",
+    },
+}
+
+
+def list_prompt_profiles() -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for p in PROMPT_PROFILES.values():
+        out.append(
+            {
+                "id": p["id"],
+                "label": p["label"],
+                "emoji": p.get("emoji") or "",
+                "blurb": p.get("blurb") or "",
+                "variant_hint": p.get("variant_hint") or "",
+            }
+        )
+    return out
+
+
+def get_prompt_profile(profile_id: str) -> Dict[str, Any]:
+    return dict(PROMPT_PROFILES.get(profile_id) or PROMPT_PROFILES["general"])
+
+
+def _build_cot(
+    tmpls: List[Dict[str, Any]],
+    topic: str,
+    formula: Dict[str, str],
+    profile: Dict[str, Any],
+) -> List[str]:
+    steps = []
+    if tmpls:
+        names = "、".join(
+            f"#{t.get('id')}「{(t.get('source_title') or t.get('emotion') or '卡')[:12]}」"
+            for t in tmpls[:3]
+        )
+        emos = " / ".join(sorted({str(t.get("emotion") or "").strip() for t in tmpls if t.get("emotion")}))
+        steps.append(f"提取 {names} 的情绪与骨架" + (f"（{emos}）" if emos else ""))
+    else:
+        steps.append("未选卡片，将仅按热点主题与叙事配方创作")
+    steps.append(f"将热点「{topic}」映射到冲突点：{(tmpls[0].get('tension') if tmpls else '') or '预期违背/成本落差'}")
+    steps.append(f"套用叙事配方「{formula.get('label')}」：{formula.get('blurb')}")
+    steps.append(f"后处理配置「{profile.get('label')}」→ {profile.get('variant_hint') or '三版本'}")
+    if profile.get("id") == "general":
+        steps.append("归纳 prompt_snippets 供下次复用")
+    elif profile.get("id") == "technical":
+        steps.append("分化：技术面 / 宏观传导 / 场景计划")
+    elif profile.get("id") == "longform_video":
+        steps.append("分化：口播大纲 / 分镜 / 完整视频稿")
+    else:
+        steps.append("并行生成 3 个叙事变体，供并排挑选")
+    return steps
+
+
+def _fallback_variants(
+    profile: Dict[str, Any],
+    topic: str,
+    tmpls: List[Dict[str, Any]],
+    formula: Dict[str, str],
+) -> List[Dict[str, Any]]:
+    hook0 = (tmpls[0].get("hooks") if tmpls else "") or f"关于{topic}，有个反直觉的点"
+    tension = (tmpls[0].get("tension") if tmpls else "预期与成本错位") or "预期与成本错位"
+    pid = profile.get("id") or "general"
+
+    if pid == "technical":
+        return [
+            {
+                "id": "A",
+                "label": "技术面快评",
+                "hook": f"{topic}：结构比情绪更重要",
+                "content": (
+                    f"「{topic}」当前更值得看结构而非单日涨跌。\n"
+                    f"关键位附近若放量失败，往往意味着 {(tmpls[0].get('emotion') if tmpls else '预期')} 被修正。\n"
+                    f"短线思路：等确认再动，别在消息尖刺里追。"
+                ),
+            },
+            {
+                "id": "B",
+                "label": "宏观解读",
+                "hook": f"若把 {topic} 放进流动性框架",
+                "content": (
+                    f"把「{topic}」放进利率/流动性框架：政策预期 → 美元/风险资产 → .crypto  beta。\n"
+                    f"数据或 Fed 口径若偏鹰，高 beta 往往先承压；偏鸽则反弹但需看持续性。\n"
+                    f"宏观不是直接喊单，而是定优先级。"
+                ),
+            },
+            {
+                "id": "C",
+                "label": "场景交易计划",
+                "hook": f"围绕 {topic} 的三场景推演",
+                "content": (
+                    f"围绕「{topic}」三场景：\n"
+                    f"1) 延续：趋势不破，回撤接多/空需带止损；\n"
+                    f"2) 震荡：区间内高抛低吸，缩小仓位；\n"
+                    f"3) 失效：关键位失守则认错，不扛单。\n"
+                    f"计划写在动手前，比盘中临时改口径更省成本。"
+                ),
+            },
+        ]
+
+    if pid == "longform_video":
+        return [
+            {
+                "id": "A",
+                "label": "口播大纲",
+                "hook": hook0,
+                "content": (
+                    f"## Hook\n{hook0}\n\n"
+                    f"## 段1 · 问题\n为什么「{topic}」现在被误解？{tension}\n\n"
+                    f"## 段2 · 拆解\n按「{formula.get('label')}」：{formula.get('blurb')}\n\n"
+                    f"## 段3 ·  takeaway\n给观众的 3 条可带走结论 + 关注/收藏 CTA"
+                ),
+            },
+            {
+                "id": "B",
+                "label": "分镜脚本",
+                "hook": "镜1：大字标题 + 旁白",
+                "content": (
+                    f"镜1 画面：标题卡「{topic}」｜旁白：{hook0}\n"
+                    f"镜2 画面：图表/新闻截图｜旁白：冲突点 {tension}\n"
+                    f"镜3 画面：三点列表动画｜旁白：核心论点展开\n"
+                    f"镜4 画面：案例/对比｜旁白：结合卡片洞察\n"
+                    f"镜5 画面：主持人总结｜旁白：风险提醒 + CTA"
+                ),
+            },
+            {
+                "id": "C",
+                "label": "完整视频稿",
+                "hook": hook0,
+                "content": (
+                    f"{hook0}\n\n"
+                    f"今天聊「{topic}」。很多人只盯着表面波动，但真正要理解的是 {tension}。\n\n"
+                    f"我会按三个部分讲清楚：先讲误区，再讲框架，最后讲你可以怎么验证。\n\n"
+                    f"（此处为兜底短稿，模型恢复后会生成 800+ 字完整口播稿。）\n\n"
+                    f"如果你也在跟踪这个主题，评论区说说你的观察。"
+                ),
+            },
+        ]
+
+    base = (
+        f"{hook0}\n\n"
+        f"大多数人谈「{topic}」只看到表面，真正的冲突是：{tension}。\n"
+        f"按「{formula.get('label')}」思路：{formula.get('blurb')}。\n"
+        f"可先从一件小事验证，再决定是否加码。"
+    )
+    return [
+        {"id": "A", "label": "情绪刺眼", "hook": hook0, "content": base},
+        {
+            "id": "B",
+            "label": "干货数据",
+            "hook": f"上周我被「{topic}」打脸了一次",
+            "content": (
+                f"上周我被「{topic}」打脸了一次。\n"
+                f"复盘后只留下三条：把假设写下来、小步验证、公开结果。\n"
+                f"同场的人如果也在踩坑，欢迎对照。"
+            ),
+        },
+        {
+            "id": "C",
+            "label": "故事复盘",
+            "hook": f"做「{topic}」前先问自己这 3 句",
+            "content": (
+                f"做「{topic}」前先问自己这 3 句：\n"
+                f"1) 真正要优化的指标是什么？\n"
+                f"2) 最小可验证动作是什么？\n"
+                f"3) 失败的止损线在哪？"
+            ),
+        },
+    ]
+
+
+# 兼容旧引用
+LAB_SYSTEM = PROMPT_PROFILES["general"]["system"]
+
+
 def _extract_json(text: str) -> Dict[str, Any]:
     raw = (text or "").strip()
     if not raw:
@@ -101,62 +346,29 @@ def _cards_brief(tmpls: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _build_cot(tmpls: List[Dict[str, Any]], topic: str, formula: Dict[str, str]) -> List[str]:
-    steps = []
-    if tmpls:
-        names = "、".join(
-            f"#{t.get('id')}「{(t.get('source_title') or t.get('emotion') or '卡')[:12]}」"
-            for t in tmpls[:3]
-        )
-        emos = " / ".join(sorted({str(t.get("emotion") or "").strip() for t in tmpls if t.get("emotion")}))
-        steps.append(f"提取 {names} 的情绪与骨架" + (f"（{emos}）" if emos else ""))
-    else:
-        steps.append("未选卡片，将仅按热点主题与叙事配方创作")
-    steps.append(f"将热点「{topic}」映射到冲突点：{(tmpls[0].get('tension') if tmpls else '') or '预期违背/成本落差'}")
-    steps.append(f"套用叙事配方「{formula.get('label')}」：{formula.get('blurb')}")
-    steps.append("并行生成 3 个叙事变体，供你并排挑选")
-    return steps
-
-
-LAB_SYSTEM = """你是短贴创作 Agent（Post Lab）。根据热点主题、灵感卡片叙事骨架与叙事配方，一次产出 3 个变体。
-只输出一个 JSON 对象，不要 markdown：
-{
-  "thinking": ["简短思考步骤1", "步骤2"],
-  "variants": [
-    {"id": "A", "label": "情绪刺眼", "hook": "第一句", "content": "完整正文"},
-    {"id": "B", "label": "干货数据", "hook": "第一句", "content": "完整正文"},
-    {"id": "C", "label": "故事复盘", "hook": "第一句", "content": "完整正文"}
-  ]
-}
-固定分化：
-- A：冲突与颠覆认知，情绪强、钩子刺眼。
-- B：硬核推导/行动清单，可含数据或步骤。
-- C：第一人称经历与教训，故事感。
-规则：围绕同一热点；注入卡片的 hook/pattern/tension；80~280 字；禁止照搬原文事件细节。
-"""
-
-
 def lab_compose(
     *,
     template_ids: Optional[Sequence[int]] = None,
     topic: str,
     formula_id: str = "contrarian",
+    prompt_profile_id: str = "general",
     platform_style: str = "X/Twitter",
     extra_prompt: str = "",
     variant_count: int = 3,
     bump_weight: bool = True,
 ) -> Dict[str, Any]:
-    """工作台一键融合：返回 CoT + 多版本。"""
+    """工作台一键融合：返回 CoT + 多版本（支持后处理提示词配置）。"""
     topic = (topic or "").strip()
     if not topic:
         return {"success": False, "error": "请填写热点主题"}
     formula = FORMULA_PRESETS.get(formula_id) or FORMULA_PRESETS["contrarian"]
+    profile = get_prompt_profile(prompt_profile_id)
     ids = [int(x) for x in (template_ids or []) if x is not None]
     tmpls = get_templates_by_ids(ids) if ids else []
-    # 允许无卡纯热点生成
-    cot = _build_cot(tmpls, topic, formula)
+    cot = _build_cot(tmpls, topic, formula, profile)
 
     user_prompt = (
+        f"后处理配置：{profile.get('label')} — {profile.get('blurb')}\n"
         f"平台风格：{platform_style or 'X/Twitter'}\n"
         f"热点主题：{topic}\n"
         f"叙事配方：{formula.get('label')} — {formula.get('recipe')}\n"
@@ -166,7 +378,7 @@ def lab_compose(
         user_prompt += "灵感卡片：\n" + _cards_brief(tmpls) + "\n"
     if extra_prompt:
         user_prompt += f"补充要求：{extra_prompt.strip()}\n"
-    user_prompt += "请按配方输出 JSON（含 thinking 与 variants）。\n"
+    user_prompt += "请严格按 system 要求的 JSON 结构输出。\n"
 
     provider = ""
     payload: Dict[str, Any] = {}
@@ -176,9 +388,9 @@ def lab_compose(
 
         result = generate_text(
             user_prompt,
-            system_prompt=LAB_SYSTEM,
-            temperature=0.8,
-            max_tokens=2200,
+            system_prompt=str(profile.get("system") or LAB_SYSTEM),
+            temperature=float(profile.get("temperature") or 0.8),
+            max_tokens=int(profile.get("max_tokens") or 2200),
         )
         provider = str(result.get("provider") or "")
         if not result.get("success"):
@@ -189,6 +401,8 @@ def lab_compose(
         ai_error = f"AI 调用失败: {e}"
 
     thinking = payload.get("thinking") if isinstance(payload.get("thinking"), list) else cot
+    prompt_snippets = payload.get("prompt_snippets") if isinstance(payload.get("prompt_snippets"), list) else []
+    video_meta = payload.get("video_meta") if isinstance(payload.get("video_meta"), dict) else {}
     variants_raw = payload.get("variants") if isinstance(payload.get("variants"), list) else []
     variants: List[Dict[str, Any]] = []
     for i, v in enumerate(variants_raw[:3]):
@@ -201,50 +415,13 @@ def lab_compose(
             {
                 "id": str(v.get("id") or chr(65 + i)),
                 "label": str(v.get("label") or formula.get("style_hint") or f"版本{chr(65 + i)}"),
-                "hook": str(v.get("hook") or content.split("\n", 1)[0][:80]),
+                "hook": str(v.get("hook") or content.split("\n", 1)[0][:120]),
                 "content": content,
             }
         )
 
     if not variants:
-        # 本地兜底变体，保证工作台可演示闭环
-        hook0 = (tmpls[0].get("hooks") if tmpls else "") or f"关于{topic}，有个反直觉的点"
-        base = (
-            f"{hook0}\n\n"
-            f"大多数人谈「{topic}」只看到表面，真正的冲突是：{(tmpls[0].get('tension') if tmpls else '预期与成本错位')}。\n"
-            f"按「{formula.get('label')}」思路：{formula.get('blurb')}。\n"
-            f"可先从一件小事验证，再决定是否加码。"
-        )
-        variants = [
-            {
-                "id": "A",
-                "label": "情绪刺眼",
-                "hook": hook0,
-                "content": base,
-            },
-            {
-                "id": "B",
-                "label": "干货数据",
-                "hook": f"上周我被「{topic}」打脸了一次",
-                "content": (
-                    f"上周我被「{topic}」打脸了一次。\n"
-                    f"原本以为能一步到位，结果卡在细节上。复盘后只留下三条：把假设写下来、小步验证、公开结果。\n"
-                    f"同场的人如果也在踩坑，欢迎对照。"
-                ),
-            },
-            {
-                "id": "C",
-                "label": "故事复盘",
-                "hook": f"做「{topic}」前先问自己这 3 句",
-                "content": (
-                    f"做「{topic}」前先问自己这 3 句：\n"
-                    f"1) 真正要优化的指标是什么？\n"
-                    f"2) 最小可验证动作是什么？\n"
-                    f"3) 失败的止损线在哪？\n"
-                    f"想清楚再动手，比兴奋着开干更省时间。"
-                ),
-            },
-        ]
+        variants = _fallback_variants(profile, topic, tmpls, formula)
         thinking = list(cot) + ([f"模型暂不可用，已给本地兜底变体（{ai_error[:80]}）"] if ai_error else ["已生成兜底变体"])
         provider = "fallback"
 
@@ -257,6 +434,7 @@ def lab_compose(
             "layer": "generate",
             "mode": "lab_compose",
             "formula": formula.get("id"),
+            "prompt_profile": profile.get("id"),
             "template_ids": [t.get("id") for t in tmpls],
             "topic": topic,
             "provider": provider,
@@ -277,11 +455,14 @@ def lab_compose(
             meta={
                 "provider": provider,
                 "formula": formula.get("id"),
+                "prompt_profile": profile.get("id"),
                 "variant_id": v["id"],
                 "variant_label": v["label"],
                 "template_ids": [t.get("id") for t in tmpls],
                 "mode": "lab_compose",
                 "cot": thinking,
+                "prompt_snippets": prompt_snippets,
+                "video_meta": video_meta,
             },
         )
         v["generation_id"] = gen.get("id")
@@ -304,12 +485,19 @@ def lab_compose(
         "success": True,
         "topic": topic,
         "formula": formula,
-        "cot": [str(x) for x in (thinking or cot)][:8],
+        "prompt_profile": {
+            "id": profile.get("id"),
+            "label": profile.get("label"),
+            "variant_hint": profile.get("variant_hint"),
+        },
+        "prompt_snippets": [str(x) for x in prompt_snippets][:8],
+        "video_meta": video_meta,
+        "cot": [str(x) for x in (thinking or cot)][:10],
         "variants": variants,
         "templates": tmpls,
         "path": path,
         "provider": provider,
-        "content": variants[0]["content"],  # 兼容旧字段
+        "content": variants[0]["content"],
         "generations": generations,
     }
 

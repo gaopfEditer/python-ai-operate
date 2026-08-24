@@ -1874,6 +1874,12 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 template_ids=tid_list,
                 topic=str(body.get("topic") or "").strip(),
                 formula_id=str(body.get("formula") or body.get("formula_id") or "contrarian"),
+                prompt_profile_id=str(
+                    body.get("prompt_profile")
+                    or body.get("profile")
+                    or body.get("prompt_profile_id")
+                    or "general"
+                ),
                 platform_style=str(body.get("platform_style") or body.get("style") or "X/Twitter"),
                 extra_prompt=str(body.get("prompt") or body.get("extra_prompt") or ""),
                 variant_count=int(body.get("variant_count") or 3),
@@ -1932,6 +1938,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         from corpus.lab import list_formulas
 
         return _json_bytes({"success": True, "items": list_formulas()})
+
+    if path == "/api/corpus/lab/profiles" and method == "GET":
+        from corpus.lab import list_prompt_profiles
+
+        return _json_bytes({"success": True, "items": list_prompt_profiles()})
 
     if path == "/api/corpus/lab/tweak" and method == "POST":
         from corpus.lab import tweak_content

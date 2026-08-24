@@ -281,6 +281,11 @@
               <span>叙事配方</span>
               <div class="lab-formulas" id="labFormulas"></div>
             </div>
+            <div class="lab-field">
+              <span>实验室后处理</span>
+              <div class="lab-profiles" id="labProfiles"></div>
+              <p class="lab-profile-hint muted" id="labProfileHint">通用：归纳提示词 + 三版短贴</p>
+            </div>
             <input id="regenPrompt" type="text" class="lab-extra-input" placeholder="补充要求（可选）" />
             <input id="regenStyle" type="hidden" value="X/Twitter" />
             <input id="regenTemplateIds" type="hidden" value="" />
@@ -289,6 +294,10 @@
             <details class="lab-cot" id="labCotBox" hidden>
               <summary>思考过程</summary>
               <ol id="labCotList"></ol>
+            </details>
+            <details class="lab-cot" id="labPromptSnippetsBox" hidden>
+              <summary>归纳提示词</summary>
+              <ul id="labPromptSnippets" class="lab-snippets"></ul>
             </details>
             <div id="corpusPathView" hidden></div>
           </section>
@@ -316,7 +325,7 @@
               <button id="btnLabCopyMd" class="btn ghost" type="button">一键复制</button>
               <button id="btnLabRegen" class="btn ghost" type="button">重新生成</button>
               <button id="btnLabSaveFeatured" class="btn primary" type="button">★ 精选留存</button>
-              <button id="btnCorpusToPublish" class="btn ghost" type="button">加入发布队列</button>
+              <button id="btnLabPublishPreview" class="btn ghost" type="button">发布预览</button>
             </div>
             <div class="lab-hist-head">
               <h4 class="lab-hist-title">精选留存历史</h4>
@@ -328,6 +337,20 @@
             <div id="labBlocksHint" hidden></div>
           </aside>
         </div>
+
+        <dialog id="labPublishPreviewDialog" class="corpus-dialog lab-publish-dialog">
+          <form method="dialog" id="labPublishPreviewForm" class="form-grid">
+            <h3 style="grid-column:1/-1;margin:0">发布预览</h3>
+            <p class="lab-preview-meta muted" id="labPublishPreviewMeta"></p>
+            <p class="lab-preview-hook" id="labPublishPreviewHook"></p>
+            <pre class="lab-preview-body" id="labPublishPreviewBody"></pre>
+            <p class="muted lab-preview-note">确认后将带入「CDP 发布」页，可继续编辑正文、选择平台并通过 CDP 发布。</p>
+            <div class="field full lab-preview-actions">
+              <button value="cancel" class="btn ghost" type="submit">取消</button>
+              <button id="btnLabPublishConfirm" value="confirm" class="btn primary" type="submit">送到 CDP 发布</button>
+            </div>
+          </form>
+        </dialog>
 
         <dialog id="corpusEditDialog" class="corpus-dialog">
           <form method="dialog" id="corpusEditForm" class="form-grid">
@@ -429,10 +452,10 @@
             <span>预约发布时间</span>
             <input id="publishScheduleAt" type="datetime-local" />
           </label>
-          <label class="field full">
-            <span>发布平台（可多选）</span>
-            <select id="publishPlatform" multiple size="3"></select>
-          </label>
+          <div class="field full">
+            <span>发布平台</span>
+            <div id="publishPlatformChecks" class="publish-platforms"></div>
+          </div>
           <label class="field">
             <span>CDP debugger</span>
             <input id="debuggerUrl" type="text" placeholder="127.0.0.1:9222" value="127.0.0.1:9222" />

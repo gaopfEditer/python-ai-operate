@@ -894,6 +894,58 @@ input:focus, textarea:focus, select:focus {
 .corpus-dialog::backdrop {
   background: rgba(16, 24, 22, 0.45);
 }
+.publish-platforms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.publish-plat-check {
+  min-width: 7.5rem;
+}
+.lab-publish-dialog {
+  max-width: min(640px, 94vw);
+}
+.lab-preview-meta {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.lab-preview-hook {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--accent, #0f766e);
+  font-weight: 600;
+}
+.lab-preview-body {
+  grid-column: 1 / -1;
+  margin: 0;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.lab-preview-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.82rem;
+}
+.lab-preview-actions {
+  flex-direction: row;
+  gap: 8px;
+  justify-content: flex-end;
+}
 
 
 
@@ -1090,6 +1142,33 @@ input:focus, textarea:focus, select:focus {
 .lab-formula.on {
   border-color: var(--teal); background: rgba(15,118,110,.12); color: var(--teal);
 }
+.lab-profiles {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.lab-profile {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: .78rem;
+  transition: border-color .15s, box-shadow .15s;
+}
+.lab-profile strong { font-weight: 600; font-size: .82rem; }
+.lab-profile span { color: var(--muted); font-size: .72rem; line-height: 1.35; }
+.lab-profile.on {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 2px rgba(15,118,110,.14);
+  background: #f7fbfa;
+}
+.lab-profile-hint { margin: 4px 0 0; font-size: .72rem; line-height: 1.4; }
+.lab-snippets { margin: 6px 0 0; padding-left: 1.1rem; font-size: .78rem; color: #334; }
+.lab-snippets li { margin-bottom: 4px; }
 .lab-gen-btn { width: 100%; padding: 12px; font-size: .95rem; margin-top: 4px; }
 .lab-cot {
   font-size: .8rem; border: 1px dashed var(--line); border-radius: 8px;
