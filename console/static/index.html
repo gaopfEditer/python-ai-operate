@@ -282,7 +282,10 @@
               <div class="lab-formulas" id="labFormulas"></div>
             </div>
             <div class="lab-field">
-              <span>实验室后处理</span>
+              <div class="lab-field-head">
+                <span>实验室后处理</span>
+                <button id="btnLabProfileConfig" class="btn ghost xs" type="button" title="编辑三套 Prompt 配置">⚙ 配置 Prompt</button>
+              </div>
               <div class="lab-profiles" id="labProfiles"></div>
               <p class="lab-profile-hint muted" id="labProfileHint">通用：归纳提示词 + 三版短贴</p>
             </div>
@@ -337,6 +340,24 @@
             <div id="labBlocksHint" hidden></div>
           </aside>
         </div>
+
+        <dialog id="labProfileConfigDialog" class="corpus-dialog lab-profile-config-dialog">
+          <form method="dialog" id="labProfileConfigForm" class="lab-profile-config-form">
+            <div class="lab-config-head">
+              <h3>实验室后处理 · Prompt 配置</h3>
+              <p class="muted lab-config-sub" id="labConfigCustomHint">修改后保存至 config/lab_prompt_profiles.yaml</p>
+            </div>
+            <div class="lab-config-tabs" id="labConfigTabs" role="tablist"></div>
+            <div class="lab-config-panels" id="labConfigPanels"></div>
+            <p id="labConfigStatus" class="status"></p>
+            <div class="lab-config-actions">
+              <button id="btnLabConfigReset" class="btn ghost" type="button">恢复默认</button>
+              <span class="lab-config-actions-spacer"></span>
+              <button value="cancel" class="btn ghost" type="submit">取消</button>
+              <button id="btnLabConfigSave" value="save" class="btn primary" type="submit">保存</button>
+            </div>
+          </form>
+        </dialog>
 
         <dialog id="labPublishPreviewDialog" class="corpus-dialog lab-publish-dialog">
           <form method="dialog" id="labPublishPreviewForm" class="form-grid">

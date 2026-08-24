@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import json
 import re
+import copy
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+import yaml
 
 from corpus.db import (
     create_generation,
@@ -141,9 +145,52 @@ prompt_snippets：抽象句式，用【占位】，3~5 条，便于下次复用�
 }
 
 
+PROFILE_IDS = ("general", "technical", "longform_video")
+_LAB_PROFILES_PATH = Path(__file__).resolve().parent.parent / "config" / "lab_prompt_profiles.yaml"
+_profiles_cache: Optional[Dict[str, Dict[str, Any]]] = None
+
+
+def _builtin_prompt_profiles() -> Dict[str, Dict[str, Any]]:
+    return copy.deepcopy(PROMPT_PROFILES)
+
+
+def _invalidate_profiles_cache() -> None:
+    global _profiles_cache
+    _profiles_cache = None
+
+
+def get_merged_prompt_profiles() -> Dict[str, Dict[str, Any]]:
+    global _profiles_cache
+    if _profiles_cache is not None:
+        return _profiles_cache
+    merged = _builtin_prompt_profiles()
+    if _LAB_PROFILES_PATH.exists():
+        try:
+            with open(_LAB_PROFILES_PATH, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            overrides = data.get("profiles") or {}
+            for pid in PROFILE_IDS:
+                ov = overrides.get(pid)
+                if not isinstance(ov, dict) or pid not in merged:
+                    continue
+                for key, val in ov.items():
+                    if key == "id" or val is None:
+                        continue
+                    merged[pid][key] = val
+        except Exception:
+            pass
+    _profiles_cache = merged
+    return merged
+
+
+def is_profiles_customized() -> bool:
+    return _LAB_PROFILES_PATH.exists()
+
+
 def list_prompt_profiles() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
-    for p in PROMPT_PROFILES.values():
+    for pid in PROFILE_IDS:
+        p = get_merged_prompt_profiles()[pid]
         out.append(
             {
                 "id": p["id"],
@@ -156,8 +203,111 @@ def list_prompt_profiles() -> List[Dict[str, Any]]:
     return out
 
 
+def list_prompt_profiles_full() -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for pid in PROFILE_IDS:
+        p = get_merged_prompt_profiles()[pid]
+        extra = p.get("output_extra") or []
+        if not isinstance(extra, list):
+            extra = []
+        out.append(
+            {
+                "id": p["id"],
+                "label": p.get("label") or "",
+                "emoji": p.get("emoji") or "",
+                "blurb": p.get("blurb") or "",
+                "variant_hint": p.get("variant_hint") or "",
+                "max_tokens": int(p.get("max_tokens") or 2200),
+                "temperature": float(p.get("temperature") or 0.8),
+                "output_extra": [str(x) for x in extra if str(x).strip()],
+                "system": p.get("system") or "",
+            }
+        )
+    return out
+
+
+def _normalize_profile_payload(raw: Dict[str, Any], pid: str) -> Dict[str, Any]:
+    label = str(raw.get("label") or "").strip()
+    system = str(raw.get("system") or "").strip()
+    if not label:
+        raise ValueError(f"{pid}: 缺少 label")
+    if not system:
+        raise ValueError(f"{pid}: system prompt 不能为空")
+    try:
+        max_tokens = int(raw.get("max_tokens") or 2200)
+    except Exception as exc:
+        raise ValueError(f"{pid}: max_tokens 无效") from exc
+    try:
+        temperature = float(raw.get("temperature") if raw.get("temperature") is not None else 0.8)
+    except Exception as exc:
+        raise ValueError(f"{pid}: temperature 无效") from exc
+    if max_tokens < 500 or max_tokens > 12000:
+        raise ValueError(f"{pid}: max_tokens 需在 500~12000")
+    if temperature < 0 or temperature > 2:
+        raise ValueError(f"{pid}: temperature 需在 0~2")
+    extra_raw = raw.get("output_extra")
+    if isinstance(extra_raw, str):
+        output_extra = [x.strip() for x in extra_raw.split(",") if x.strip()]
+    elif isinstance(extra_raw, list):
+        output_extra = [str(x).strip() for x in extra_raw if str(x).strip()]
+    else:
+        output_extra = []
+    return {
+        "label": label,
+        "emoji": str(raw.get("emoji") or "").strip(),
+        "blurb": str(raw.get("blurb") or "").strip(),
+        "variant_hint": str(raw.get("variant_hint") or "").strip(),
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "output_extra": output_extra,
+        "system": system,
+    }
+
+
+def save_prompt_profiles(profiles: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(profiles, list) or not profiles:
+        return {"success": False, "error": "profiles 不能为空"}
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for raw in profiles:
+        if not isinstance(raw, dict):
+            continue
+        pid = str(raw.get("id") or "").strip()
+        if pid not in PROFILE_IDS:
+            continue
+        try:
+            by_id[pid] = _normalize_profile_payload(raw, pid)
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+    missing = [pid for pid in PROFILE_IDS if pid not in by_id]
+    if missing:
+        return {"success": False, "error": f"缺少配置: {', '.join(missing)}"}
+    _LAB_PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"profiles": by_id}
+    with open(_LAB_PROFILES_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(payload, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    _invalidate_profiles_cache()
+    return {
+        "success": True,
+        "items": list_prompt_profiles_full(),
+        "customized": True,
+        "path": str(_LAB_PROFILES_PATH),
+    }
+
+
+def reset_prompt_profiles() -> Dict[str, Any]:
+    if _LAB_PROFILES_PATH.exists():
+        _LAB_PROFILES_PATH.unlink()
+    _invalidate_profiles_cache()
+    return {
+        "success": True,
+        "items": list_prompt_profiles_full(),
+        "customized": False,
+    }
+
+
 def get_prompt_profile(profile_id: str) -> Dict[str, Any]:
-    return dict(PROMPT_PROFILES.get(profile_id) or PROMPT_PROFILES["general"])
+    merged = get_merged_prompt_profiles()
+    return dict(merged.get(profile_id) or merged["general"])
 
 
 def _build_cot(

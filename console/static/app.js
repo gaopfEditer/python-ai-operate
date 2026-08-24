@@ -16,6 +16,8 @@ const state = {
   labTagFilter: "",
   labVariants: [],
   labActiveVariant: null,
+  labConfigActiveTab: "general",
+  labConfigProfiles: [],
 };
 
 /** CDP 发布页展示顺序与默认全选 */
@@ -767,6 +769,7 @@ async function loadLabFormulas() {
     ]);
     renderLabFormulas(formulas.items || LAB_FORMULAS_FALLBACK);
     renderLabProfiles(profiles.items || LAB_PROFILES_FALLBACK);
+    syncLabConfigCustomHint(profiles.customized);
   } catch (e) {
     renderLabFormulas(LAB_FORMULAS_FALLBACK);
     renderLabProfiles(LAB_PROFILES_FALLBACK);
@@ -804,6 +807,190 @@ function syncLabProfileHint(list) {
   const p = profiles.find((x) => x.id === state.labProfile) || profiles[0];
   if (hint && p) hint.textContent = p.blurb || "";
   if (variantHint && p?.variant_hint) variantHint.textContent = p.variant_hint;
+}
+
+function syncLabConfigCustomHint(customized) {
+  const el = $("#labConfigCustomHint");
+  const btn = $("#btnLabProfileConfig");
+  if (el) {
+    el.textContent = customized
+      ? "当前使用自定义配置（config/lab_prompt_profiles.yaml）"
+      : "当前为内置默认；保存后将写入 config/lab_prompt_profiles.yaml";
+  }
+  if (btn) btn.classList.toggle("is-custom", !!customized);
+}
+
+function renderLabProfileConfigForm(profiles) {
+  const tabs = $("#labConfigTabs");
+  const panels = $("#labConfigPanels");
+  if (!tabs || !panels) return;
+  const list = profiles?.length
+    ? profiles
+    : LAB_PROFILES_FALLBACK.map((p) => ({
+        ...p,
+        system: "",
+        max_tokens: 2200,
+        temperature: 0.8,
+        output_extra: [],
+      }));
+  if (!list.find((p) => p.id === state.labConfigActiveTab)) {
+    state.labConfigActiveTab = list[0]?.id || "general";
+  }
+  tabs.innerHTML = list
+    .map((p) => {
+      const active = p.id === state.labConfigActiveTab;
+      return `<button type="button" class="lab-config-tab${active ? " on" : ""}" data-config-tab="${escapeAttr(p.id)}" role="tab" aria-selected="${active ? "true" : "false"}" aria-controls="lab-config-panel-${escapeAttr(p.id)}">${escapeHtml(`${p.emoji || ""} ${p.label || p.id}`.trim())}</button>`;
+    })
+    .join("");
+  panels.innerHTML = list
+    .map((p) => {
+      const active = p.id === state.labConfigActiveTab;
+      const extra = (p.output_extra || []).join(", ");
+      return `<div id="lab-config-panel-${escapeAttr(p.id)}" class="lab-config-panel${active ? " is-active" : ""}" data-config-panel="${escapeAttr(p.id)}" role="tabpanel"${active ? "" : " hidden"}>
+        <div class="form-grid lab-config-grid">
+          <label class="field"><span>名称</span><input type="text" data-f="label" value="${escapeAttr(p.label || "")}" /></label>
+          <label class="field"><span>Emoji</span><input type="text" data-f="emoji" value="${escapeAttr(p.emoji || "")}" maxlength="8" /></label>
+          <label class="field full"><span>简介</span><input type="text" data-f="blurb" value="${escapeAttr(p.blurb || "")}" /></label>
+          <label class="field full"><span>三版说明</span><input type="text" data-f="variant_hint" value="${escapeAttr(p.variant_hint || "")}" placeholder="A xxx · B xxx · C xxx" /></label>
+          <label class="field"><span>max_tokens</span><input type="number" data-f="max_tokens" min="500" max="12000" step="100" value="${escapeAttr(String(p.max_tokens || 2200))}" /></label>
+          <label class="field"><span>temperature</span><input type="number" data-f="temperature" min="0" max="2" step="0.05" value="${escapeAttr(String(p.temperature ?? 0.8))}" /></label>
+          <label class="field full"><span>额外输出字段</span><input type="text" data-f="output_extra" value="${escapeAttr(extra)}" placeholder="如 prompt_snippets 或 video_meta，逗号分隔" /></label>
+          <label class="field full lab-config-system"><span>System Prompt</span><textarea data-f="system" rows="16" spellcheck="false">${escapeHtml(p.system || "")}</textarea></label>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+function switchLabConfigTab(tabId) {
+  if (!tabId) return;
+  state.labConfigActiveTab = tabId;
+  const tabs = $("#labConfigTabs");
+  const panels = $("#labConfigPanels");
+  tabs?.querySelectorAll("[data-config-tab]").forEach((btn) => {
+    const on = btn.getAttribute("data-config-tab") === tabId;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  panels?.querySelectorAll("[data-config-panel]").forEach((panel) => {
+    const on = panel.getAttribute("data-config-panel") === tabId;
+    panel.hidden = !on;
+    panel.classList.toggle("is-active", on);
+  });
+}
+
+function bindLabConfigTabs() {
+  const tabs = $("#labConfigTabs");
+  if (!tabs || tabs.dataset.bound === "1") return;
+  tabs.dataset.bound = "1";
+  tabs.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-config-tab]");
+    if (!btn) return;
+    e.preventDefault();
+    const id = btn.getAttribute("data-config-tab");
+    if (!id || id === state.labConfigActiveTab) return;
+    collectLabConfigDraft();
+    switchLabConfigTab(id);
+  });
+}
+
+function collectLabConfigDraft() {
+  const panels = $("#labConfigPanels");
+  if (!panels) return;
+  const next = [];
+  panels.querySelectorAll("[data-config-panel]").forEach((panel) => {
+    const id = panel.getAttribute("data-config-panel");
+    const item = { id };
+    panel.querySelectorAll("[data-f]").forEach((el) => {
+      item[el.getAttribute("data-f")] = el.value;
+    });
+    next.push(item);
+  });
+  if (next.length) state.labConfigProfiles = next;
+}
+
+function collectLabConfigProfiles() {
+  collectLabConfigDraft();
+  return (state.labConfigProfiles || []).map((p) => ({
+    id: p.id,
+    label: p.label,
+    emoji: p.emoji,
+    blurb: p.blurb,
+    variant_hint: p.variant_hint,
+    max_tokens: Number(p.max_tokens),
+    temperature: Number(p.temperature),
+    output_extra: String(p.output_extra || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    system: p.system,
+  }));
+}
+
+async function openLabProfileConfig() {
+  const dlg = $("#labProfileConfigDialog");
+  if (!dlg) return;
+  setStatus($("#labConfigStatus"), "加载中…");
+  try {
+    const data = await api("/api/corpus/lab/profiles/config");
+    state.labConfigProfiles = data.items || [];
+    syncLabConfigCustomHint(data.customized);
+    renderLabProfileConfigForm(state.labConfigProfiles);
+    bindLabConfigTabs();
+    setStatus($("#labConfigStatus"), "");
+    if (typeof dlg.showModal === "function") dlg.showModal();
+  } catch (e) {
+    toast(String(e), "error");
+    setStatus($("#labConfigStatus"), "");
+  }
+}
+
+async function saveLabProfileConfig(e) {
+  e.preventDefault();
+  const profiles = collectLabConfigProfiles();
+  setStatus($("#labConfigStatus"), "保存中…");
+  try {
+    const data = await api("/api/corpus/lab/profiles/config", {
+      method: "POST",
+      body: JSON.stringify({ profiles }),
+    });
+    if (!data.success) {
+      setStatus($("#labConfigStatus"), data.error || "保存失败", "error");
+      return;
+    }
+    state.labConfigProfiles = data.items || profiles;
+    syncLabConfigCustomHint(data.customized);
+    await loadLabFormulas();
+    toast("Prompt 配置已保存", "ok");
+    $("#labProfileConfigDialog")?.close();
+  } catch (err) {
+    setStatus($("#labConfigStatus"), String(err), "error");
+  }
+}
+
+async function resetLabProfileConfig() {
+  if (!confirm("确定恢复为内置默认 Prompt？自定义文件将被删除。")) return;
+  setStatus($("#labConfigStatus"), "恢复中…");
+  try {
+    const data = await api("/api/corpus/lab/profiles/config", {
+      method: "POST",
+      body: JSON.stringify({ reset: true }),
+    });
+    if (!data.success) {
+      setStatus($("#labConfigStatus"), data.error || "恢复失败", "error");
+      return;
+    }
+    state.labConfigProfiles = data.items || [];
+    syncLabConfigCustomHint(false);
+    renderLabProfileConfigForm(state.labConfigProfiles);
+    bindLabConfigTabs();
+    switchLabConfigTab(state.labConfigActiveTab);
+    await loadLabFormulas();
+    toast("已恢复默认 Prompt", "ok");
+    setStatus($("#labConfigStatus"), "已恢复内置默认", "ok");
+  } catch (err) {
+    setStatus($("#labConfigStatus"), String(err), "error");
+  }
 }
 
 function renderLabPromptSnippets(snippets) {
@@ -2409,6 +2596,12 @@ function bind() {
     btn.addEventListener("click", () => runLabTweak(btn.getAttribute("data-tweak")));
   });
   $("#btnLabPublishPreview")?.addEventListener("click", () => labOpenPublishPreview());
+  $("#btnLabProfileConfig")?.addEventListener("click", () => openLabProfileConfig());
+  $("#labProfileConfigForm")?.addEventListener("submit", (e) => {
+    if (e.submitter?.value === "save") saveLabProfileConfig(e);
+  });
+  $("#btnLabConfigReset")?.addEventListener("click", () => resetLabProfileConfig());
+  bindLabConfigTabs();
   $("#labPublishPreviewForm")?.addEventListener("submit", (e) => {
     if (e.submitter?.value !== "confirm") return;
     e.preventDefault();

@@ -1940,9 +1940,38 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         return _json_bytes({"success": True, "items": list_formulas()})
 
     if path == "/api/corpus/lab/profiles" and method == "GET":
-        from corpus.lab import list_prompt_profiles
+        from corpus.lab import list_prompt_profiles, is_profiles_customized
 
-        return _json_bytes({"success": True, "items": list_prompt_profiles()})
+        return _json_bytes(
+            {
+                "success": True,
+                "items": list_prompt_profiles(),
+                "customized": is_profiles_customized(),
+            }
+        )
+
+    if path == "/api/corpus/lab/profiles/config" and method == "GET":
+        from corpus.lab import list_prompt_profiles_full, is_profiles_customized
+
+        return _json_bytes(
+            {
+                "success": True,
+                "items": list_prompt_profiles_full(),
+                "customized": is_profiles_customized(),
+            }
+        )
+
+    if path == "/api/corpus/lab/profiles/config" and method == "POST":
+        from corpus.lab import reset_prompt_profiles, save_prompt_profiles
+
+        if body.get("reset"):
+            return _json_bytes(reset_prompt_profiles())
+        profiles = body.get("profiles")
+        if not isinstance(profiles, list):
+            return _json_bytes({"success": False, "error": "profiles 须为数组"}, 400)
+        result = save_prompt_profiles(profiles)
+        status = 200 if result.get("success") else 400
+        return _json_bytes(result, status)
 
     if path == "/api/corpus/lab/tweak" and method == "POST":
         from corpus.lab import tweak_content
