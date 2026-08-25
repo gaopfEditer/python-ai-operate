@@ -67,6 +67,20 @@ def _read_json_body(handler: SimpleHTTPRequestHandler) -> Dict[str, Any]:
         return {}
 
 
+def _publish_queue_module():
+    """确保发布队列/缓存已初始化（避免 resolve_publish_media 等调用崩溃）。"""
+    from console import publish_queue as pq
+
+    try:
+        pq.cache_root()
+    except RuntimeError:
+        pq.init(
+            PROJECT_ROOT / "output" / "publish_queue.json",
+            cache_root=PROJECT_ROOT / "output" / "publish_cache",
+        )
+    return pq
+
+
 _STATE_LOCK = threading.Lock()
 
 
@@ -1241,8 +1255,6 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         )
 
     if path == "/api/platforms/crawl":
-        import sys
-
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
         from crawler.index import CONFIG
@@ -1251,13 +1263,24 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         return _json_bytes({"success": True, "platforms": platforms})
 
     if path == "/api/platforms/publish" and method == "GET":
-        import sys
+        fallback = [
+            {"id": "binance_square", "name": "币安广场", "enabled": True, "type": "binance_square"},
+            {"id": "okx", "name": "OKX", "enabled": True, "type": "okx"},
+            {"id": "bitget", "name": "Bitget", "enabled": True, "type": "bitget"},
+            {"id": "reddit", "name": "Reddit", "enabled": True, "type": "reddit"},
+            {"id": "x", "name": "X / Twitter", "enabled": True, "type": "x"},
+        ]
+        try:
+            if str(PROJECT_ROOT) not in sys.path:
+                sys.path.insert(0, str(PROJECT_ROOT))
+            from public.index import list_platforms
 
-        if str(PROJECT_ROOT) not in sys.path:
-            sys.path.insert(0, str(PROJECT_ROOT))
-        from public.index import list_platforms
-
-        return _json_bytes({"success": True, "platforms": list_platforms()})
+            platforms = list_platforms() or []
+            if not platforms:
+                platforms = fallback
+            return _json_bytes({"success": True, "platforms": platforms})
+        except Exception as e:
+            return _json_bytes({"success": True, "platforms": fallback, "warning": str(e)})
 
     if path == "/api/posts" and method == "GET":
         keyword = (query.get("keyword") or [""])[0]
@@ -1654,6 +1677,14 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             status=(query.get("status") or ["active"])[0] or "active",
             keyword=(query.get("keyword") or [""])[0],
             platform=(query.get("platform") or [""])[0],
+            material_category=(query.get("material_category") or [""])[0],
+            category_template=(
+                True
+                if (query.get("category_template") or [""])[0] in ("1", "true", "yes")
+                else False
+                if (query.get("category_template") or [""])[0] in ("0", "false", "no")
+                else None
+            ),
             limit=limit,
         )
         return _json_bytes({"success": True, "total": len(items), "items": items})
@@ -1760,6 +1791,44 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 if t and t not in tags:
                     tags.append(str(t))
             item = update_template(tid, {"tags": tags}, history_reason="add_tags")
+            return _json_bytes({"success": True, "item": item})
+        if action in ("set_material_category", "material_category"):
+            from corpus.db import patch_template_factors
+
+            cat = str(body.get("material_category") or body.get("category") or "").strip()
+            item = patch_template_factors(
+                tid,
+                {"material_category": cat},
+                history_reason="set_material_category",
+            )
+            if not item:
+                return _json_bytes({"success": False, "error": "模板不存在"}, 404)
+            return _json_bytes({"success": True, "item": item})
+        if action in ("set_category_template", "category_template"):
+            from corpus.db import patch_template_factors
+
+            enabled = body.get("enabled")
+            if enabled is None:
+                enabled = body.get("is_category_template")
+            if enabled is None:
+                cur = get_template(tid) or {}
+                factors = cur.get("factors") or {}
+                enabled = not bool(factors.get("is_category_template"))
+            cat = str(body.get("material_category") or body.get("category") or "").strip()
+            patch: Dict[str, Any] = {"is_category_template": bool(enabled)}
+            if cat:
+                patch["material_category"] = cat
+            elif enabled:
+                cur = get_template(tid) or {}
+                existing = str((cur.get("factors") or {}).get("material_category") or "").strip()
+                if not existing:
+                    return _json_bytes(
+                        {"success": False, "error": "请先选择素材类目或指定 material_category"},
+                        400,
+                    )
+            item = patch_template_factors(tid, patch, history_reason="set_category_template")
+            if not item:
+                return _json_bytes({"success": False, "error": "模板不存在"}, 404)
             return _json_bytes({"success": True, "item": item})
         if action in ("restore_history", "rollback"):
             from corpus.db import list_template_history
@@ -1884,6 +1953,9 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 extra_prompt=str(body.get("prompt") or body.get("extra_prompt") or ""),
                 variant_count=int(body.get("variant_count") or 3),
                 bump_weight=bool(body.get("bump_weight", True)),
+                material_category=str(
+                    body.get("material_category") or body.get("material") or ""
+                ).strip(),
             )
             status = 200 if result.get("success") else 400
             return _json_bytes(result, status)
@@ -1938,6 +2010,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         from corpus.lab import list_formulas
 
         return _json_bytes({"success": True, "items": list_formulas()})
+
+    if path == "/api/corpus/lab/materials" and method == "GET":
+        from corpus.materials import material_category_stats
+
+        return _json_bytes({"success": True, **material_category_stats()})
 
     if path == "/api/corpus/lab/profiles" and method == "GET":
         from corpus.lab import list_prompt_profiles, is_profiles_customized
@@ -2211,8 +2288,6 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         except Exception:
             words = 2000
 
-        import sys
-
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
         from create.index import generate_article_by_topic
@@ -2246,75 +2321,62 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         if not isinstance(platforms, list):
             platforms = None
 
-        media_paths = body.get("media_paths") or body.get("media") or []
-        if isinstance(media_paths, str):
-            media_paths = [
-                p.strip()
-                for p in re.split(r"[\n,;]+", media_paths)
-                if p.strip()
-            ]
-        elif not isinstance(media_paths, list):
-            media_paths = []
-        else:
-            media_paths = [str(p).strip() for p in media_paths if str(p).strip()]
+        media_paths = []
+        try:
+            pq = _publish_queue_module()
+            media_paths = pq.resolve_publish_media(body)
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": f"媒体处理失败: {e}"}, 500)
 
-        if file_path and (not title or not content):
+        if file_path and not content:
             art = _read_article(file_path)
             if not art.get("success"):
                 return _json_bytes(art, 400)
             title = title or art["title"]
             content = content or art["content"]
 
-        # 社交 CDP（X / 币安广场）：允许无标题，正文或媒体至少其一
-        social_types = {"x", "twitter", "binance_square", "binance", "square"}
-        plats = platforms or []
-        is_social_only = False
-        if plats:
-            try:
-                if str(PROJECT_ROOT) not in sys.path:
-                    sys.path.insert(0, str(PROJECT_ROOT))
-                from public.index import get_platform_config
-
-                types = {
-                    str((get_platform_config(pid) or {}).get("type") or "").lower()
-                    for pid in plats
-                }
-                is_social_only = bool(types) and types.issubset(social_types)
-            except Exception:
-                is_social_only = False
-
-        if is_social_only:
-            if not content and not media_paths:
-                return _json_bytes(
-                    {"success": False, "error": "请提供正文或媒体路径"}, 400
-                )
-        elif not title or not content:
-            return _json_bytes(
-                {"success": False, "error": "请提供标题和正文，或选择文章文件"}, 400
-            )
-
-        use_cdp = bool(body.get("use_cdp", True))
+        use_cdp = body.get("use_cdp", True)
+        if isinstance(use_cdp, str):
+            use_cdp = use_cdp.strip().lower() not in ("0", "false", "no", "off")
+        else:
+            use_cdp = bool(use_cdp)
         debugger_url = str(body.get("debugger_url") or "").strip()
-        submit = bool(body.get("submit", True))
+        submit = body.get("submit", True)
+        if isinstance(submit, str):
+            submit = submit.strip().lower() not in ("0", "false", "no", "off")
+        else:
+            submit = bool(submit)
+
+        # 控制台 CDP 发布：正文或图片至少其一，不要求标题
+        if not content and not media_paths:
+            return _json_bytes(
+                {"success": False, "error": "请填写正文或上传图片"}, 400
+            )
 
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
-        from public.index import publish_content
+        try:
+            from public.index import publish_content
 
-        result = publish_content(
-            content={"title": title, "content": content},
-            platform_ids=platforms,
-            tags=tags,
-            use_cdp=use_cdp,
-            debugger_url=debugger_url or None,
-            media_paths=media_paths,
-            submit=submit,
-        )
-        return _json_bytes(result)
+            result = publish_content(
+                content={"title": title, "content": content},
+                platform_ids=platforms,
+                tags=tags,
+                use_cdp=use_cdp,
+                debugger_url=debugger_url or None,
+                media_paths=media_paths,
+                submit=submit,
+            )
+            result["media_paths"] = media_paths
+            return _json_bytes(result)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 500)
 
     # —— 定时发布队列 ——
     if path == "/api/publish/queue" and method == "GET":
-        from console import publish_queue as pq
+        pq = _publish_queue_module()
 
         status = (query.get("status") or [""])[0].strip() or None
         include_done = (query.get("include_done") or ["1"])[0] not in ("0", "false", "no")
@@ -2328,7 +2390,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         )
 
     if path == "/api/publish/queue" and method == "POST":
-        from console import publish_queue as pq
+        pq = _publish_queue_module()
 
         try:
             item = pq.add_item(body)
@@ -3185,9 +3247,15 @@ class ConsoleHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
-            req_body = _read_json_body(self)
-            body, status, ctype = handle_api("POST", parsed.path, parse_qs(parsed.query), req_body)
-            self._send(body, status, ctype)
+            try:
+                req_body = _read_json_body(self)
+                body, status, ctype = handle_api(
+                    "POST", parsed.path, parse_qs(parsed.query), req_body
+                )
+                self._send(body, status, ctype)
+            except Exception as e:
+                traceback.print_exc()
+                self._send(*_json_bytes({"success": False, "error": str(e)}, 500))
             return
         self._send(*_json_bytes({"success": False, "error": "Not Found"}, 404))
 

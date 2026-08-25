@@ -18,9 +18,11 @@ from corpus.db import (
     get_generation,
     get_templates_by_ids,
     init_db,
+    list_templates,
     update_generation,
     update_template,
 )
+from corpus.materials import category_label
 
 FORMULA_PRESETS: Dict[str, Dict[str, str]] = {
     "contrarian": {
@@ -478,12 +480,17 @@ def _extract_json(text: str) -> Dict[str, Any]:
         return {}
 
 
-def _cards_brief(tmpls: List[Dict[str, Any]]) -> str:
-    lines = []
+def _cards_brief(tmpls: List[Dict[str, Any]], *, title: str = "灵感卡片") -> str:
+    if not tmpls:
+        return ""
+    lines = [f"{title}："]
     for i, tmpl in enumerate(tmpls, 1):
         factors = tmpl.get("factors") or {}
+        cat = str(factors.get("material_category") or "").strip()
+        cat_s = category_label(cat) if cat else ""
         lines.append(
-            f"卡片{i}(#{tmpl.get('id')} 「{tmpl.get('source_title') or ''}」):\n"
+            f"卡片{i}(#{tmpl.get('id')} 「{tmpl.get('source_title') or ''}」"
+            f"{f' · 素材={cat_s}' if cat_s else ''}):\n"
             f"- hook: {tmpl.get('hooks') or factors.get('hook') or ''}\n"
             f"- pattern: {tmpl.get('pattern') or ''}\n"
             f"- emotion: {tmpl.get('emotion') or ''}\n"
@@ -493,7 +500,26 @@ def _cards_brief(tmpls: List[Dict[str, Any]]) -> str:
             f"- keywords: {', '.join(tmpl.get('keywords') or [])}\n"
             f"- tags: {', '.join(tmpl.get('tags') or [])}\n"
         )
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
+
+
+def _structure_brief(tmpls: List[Dict[str, Any]], *, category: str = "") -> str:
+    """类目结构模板：只强调句式骨架，供生成时参考结构。"""
+    if not tmpls:
+        return ""
+    cat_s = category_label(category) if category else "当前素材"
+    lines = [f"类目结构模板（{cat_s} · 参考段落结构/句式，勿照搬原文细节）："]
+    for i, tmpl in enumerate(tmpls, 1):
+        factors = tmpl.get("factors") or {}
+        lines.append(
+            f"结构{i}(#{tmpl.get('id')}):\n"
+            f"- pattern: {tmpl.get('pattern') or ''}\n"
+            f"- hook范式: {tmpl.get('hooks') or factors.get('hook') or ''}\n"
+            f"- 叙事: {factors.get('narrative_type') or tmpl.get('emotion') or ''}\n"
+            f"- 冲突: {tmpl.get('tension') or ''}\n"
+            f"- 适用: {factors.get('use_case') or ''}\n"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def lab_compose(
@@ -506,6 +532,7 @@ def lab_compose(
     extra_prompt: str = "",
     variant_count: int = 3,
     bump_weight: bool = True,
+    material_category: str = "",
 ) -> Dict[str, Any]:
     """工作台一键融合：返回 CoT + 多版本（支持后处理提示词配置）。"""
     topic = (topic or "").strip()
@@ -515,6 +542,20 @@ def lab_compose(
     profile = get_prompt_profile(prompt_profile_id)
     ids = [int(x) for x in (template_ids or []) if x is not None]
     tmpls = get_templates_by_ids(ids) if ids else []
+    struct_tmpls: List[Dict[str, Any]] = []
+    cat = str(material_category or "").strip()
+    if cat and cat not in ("all", ""):
+        picked = set(ids)
+        struct_tmpls = [
+            t
+            for t in list_templates(
+                material_category=cat,
+                category_template=True,
+                status="active",
+                limit=6,
+            )
+            if int(t.get("id") or 0) not in picked
+        ][:3]
     cot = _build_cot(tmpls, topic, formula, profile)
 
     user_prompt = (
@@ -524,8 +565,12 @@ def lab_compose(
         f"叙事配方：{formula.get('label')} — {formula.get('recipe')}\n"
         f"需要变体数：{max(2, min(3, int(variant_count or 3)))}\n"
     )
+    if cat and cat not in ("all", ""):
+        user_prompt += f"当前素材类目：{category_label(cat)}\n"
+    if struct_tmpls:
+        user_prompt += _structure_brief(struct_tmpls, category=cat)
     if tmpls:
-        user_prompt += "灵感卡片：\n" + _cards_brief(tmpls) + "\n"
+        user_prompt += _cards_brief(tmpls)
     if extra_prompt:
         user_prompt += f"补充要求：{extra_prompt.strip()}\n"
     user_prompt += "请严格按 system 要求的 JSON 结构输出。\n"
@@ -586,6 +631,8 @@ def lab_compose(
             "formula": formula.get("id"),
             "prompt_profile": profile.get("id"),
             "template_ids": [t.get("id") for t in tmpls],
+            "structure_template_ids": [t.get("id") for t in struct_tmpls],
+            "material_category": cat or "",
             "topic": topic,
             "provider": provider,
             "at": now,
@@ -609,6 +656,8 @@ def lab_compose(
                 "variant_id": v["id"],
                 "variant_label": v["label"],
                 "template_ids": [t.get("id") for t in tmpls],
+                "structure_template_ids": [t.get("id") for t in struct_tmpls],
+                "material_category": cat or "",
                 "mode": "lab_compose",
                 "cot": thinking,
                 "prompt_snippets": prompt_snippets,

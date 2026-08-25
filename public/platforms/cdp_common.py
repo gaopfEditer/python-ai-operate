@@ -149,3 +149,70 @@ def human_pause(a: float = 0.4, b: float = 1.0) -> None:
     import random
 
     time.sleep(max(0.1, a + random.random() * max(0.0, b - a)))
+
+
+def type_text_human(
+    driver,
+    element,
+    text: str,
+    *,
+    min_delay: float = 0.04,
+    max_delay: float = 0.14,
+    pause_every: int = 36,
+    clear_first: bool = True,
+) -> None:
+    """逐字输入，模拟人工打字延迟。"""
+    import random
+    import sys
+
+    from selenium.webdriver.common.keys import Keys
+
+    if not text:
+        return
+    try:
+        element.click()
+    except Exception:
+        driver.execute_script("arguments[0].click(); arguments[0].focus();", element)
+    human_pause(0.15, 0.35)
+    mod = Keys.COMMAND if sys.platform == "darwin" else Keys.CONTROL
+    if clear_first:
+        try:
+            element.send_keys(mod, "a")
+            element.send_keys(Keys.BACKSPACE)
+        except Exception:
+            pass
+        human_pause(0.08, 0.2)
+    else:
+        try:
+            driver.execute_script(
+                """
+                const el = arguments[0];
+                el.focus();
+                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                  const len = (el.value || '').length;
+                  el.setSelectionRange(len, len);
+                  return;
+                }
+                const sel = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                """,
+                element,
+            )
+        except Exception:
+            try:
+                element.send_keys(mod, Keys.END)
+            except Exception:
+                pass
+        human_pause(0.08, 0.18)
+    for i, ch in enumerate(text):
+        element.send_keys(ch)
+        if ch == "\n":
+            time.sleep(random.uniform(0.1, 0.22))
+        elif i > 0 and pause_every > 0 and i % pause_every == 0:
+            time.sleep(random.uniform(0.18, 0.5))
+        else:
+            time.sleep(random.uniform(min_delay, max_delay))

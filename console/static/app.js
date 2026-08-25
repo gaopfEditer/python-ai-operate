@@ -12,7 +12,10 @@ const state = {
   corpusSelected: new Set(),
   corpusItems: [],
   labFormula: "contrarian",
-  labProfile: "general",
+  labProfile: localStorage.getItem("labProfile") || "general",
+  labMaterialCategory: localStorage.getItem("labMaterialCategory") || "all",
+  labMaterialCategories: [],
+  labCategoryTemplates: [],
   labTagFilter: "",
   labVariants: [],
   labActiveVariant: null,
@@ -151,10 +154,15 @@ function toast(text, kind) {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options,
+    });
+  } catch (e) {
+    return { success: false, error: `网络错误: ${e?.message || e}` };
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok && data && !data.error) {
     data.error = `HTTP ${res.status}`;
@@ -527,9 +535,21 @@ function switchTab(name) {
   if (name === "later") loadLibrary("later");
   if (name === "archived") loadLibrary("archived");
   if (name === "tags") loadLibrary("tags");
-  if (name === "corpus") { loadLabFormulas(); loadCorpus(); loadGenerations(); }
+  if (name === "corpus") {
+    loadLabMaterials().then(() => {
+      applyLabProfileMaterialFilter({ reload: false });
+      renderLabMaterialTabs();
+    });
+    loadLabFormulas();
+    loadCorpus();
+    loadGenerations();
+  }
   if (name === "signals") { loadSignalsPanel(); }
   if (name === "tweetcards") { loadTweetCards(); }
+  if (name === "publish") {
+    loadPublishPlatforms(loadPublishPrefs().platforms || undefined);
+    restorePublishPrefsFields();
+  }
 }
 
 async function refreshHealth() {
@@ -655,6 +675,12 @@ const LAB_FORMULAS_FALLBACK = [
   { id: "checklist", label: "硬核极简清单", emoji: "🛠️", blurb: "痛点 → 3点建议 → 落地指令" },
 ];
 
+const LAB_PROFILE_MATERIAL_MAP = {
+  general: "x_hot",
+  technical: "market",
+  longform_video: "thread",
+};
+
 const LAB_PROFILES_FALLBACK = [
   {
     id: "general",
@@ -777,6 +803,25 @@ async function loadLabFormulas() {
   }
 }
 
+function labProfileMaterialCategory(profileId) {
+  return LAB_PROFILE_MATERIAL_MAP[String(profileId || "").trim()] || "all";
+}
+
+function applyLabProfileMaterialFilter({ reload = true } = {}) {
+  const cat = labProfileMaterialCategory(state.labProfile);
+  const prev = state.labMaterialCategory || "all";
+  if (cat === prev) {
+    if (reload) loadCategoryTemplates();
+    return false;
+  }
+  state.labMaterialCategory = cat;
+  localStorage.setItem("labMaterialCategory", cat);
+  state.corpusSelected = new Set();
+  renderLabMaterialTabs();
+  if (reload) loadCorpus();
+  return true;
+}
+
 function renderLabProfiles(items) {
   const box = $("#labProfiles");
   if (!box) return;
@@ -794,8 +839,10 @@ function renderLabProfiles(items) {
   box.querySelectorAll("[data-profile]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.labProfile = btn.getAttribute("data-profile");
+      localStorage.setItem("labProfile", state.labProfile || "general");
       box.querySelectorAll(".lab-profile").forEach((b) => b.classList.toggle("on", b === btn));
       syncLabProfileHint(list);
+      applyLabProfileMaterialFilter({ reload: true });
     });
   });
   syncLabProfileHint(list);
@@ -806,7 +853,13 @@ function syncLabProfileHint(list) {
   const variantHint = $("#labVariantHint");
   const profiles = list || LAB_PROFILES_FALLBACK;
   const p = profiles.find((x) => x.id === state.labProfile) || profiles[0];
-  if (hint && p) hint.textContent = p.blurb || "";
+  const mat = labProfileMaterialCategory(state.labProfile);
+  const matLabel = mat !== "all" ? materialCategoryLabel(mat) : "";
+  if (hint && p) {
+    hint.textContent = matLabel
+      ? `${p.blurb || ""} · 左侧语料：${matLabel}`
+      : p.blurb || "";
+  }
   if (variantHint && p?.variant_hint) variantHint.textContent = p.variant_hint;
 }
 
@@ -1064,6 +1117,117 @@ function renderPathView(pathObj) {
     .join("")}</ol>`;
 }
 
+function materialCategoryLabel(id) {
+  const cid = String(id || "").trim();
+  if (!cid || cid === "uncategorized") return "未分类";
+  const hit = (state.labMaterialCategories || []).find((c) => c.id === cid);
+  return hit?.label || cid;
+}
+
+function corpusMaterialCategory(it) {
+  const factors = it?.factors || {};
+  return String(factors.material_category || "").trim();
+}
+
+function isCorpusCategoryTemplate(it) {
+  return !!(it?.factors || {}).is_category_template;
+}
+
+async function loadLabMaterials() {
+  try {
+    const data = await api("/api/corpus/lab/materials");
+    state.labMaterialCategories = data.categories || [];
+    renderLabMaterialTabs();
+  } catch (_) {
+    state.labMaterialCategories = [];
+    renderLabMaterialTabs();
+  }
+}
+
+function renderLabMaterialTabs() {
+  const box = $("#labMaterialTabs");
+  if (!box) return;
+  const cur = state.labMaterialCategory || "all";
+  const cats = state.labMaterialCategories || [];
+  const tabs = [
+    { id: "all", label: "全部", emoji: "📚", count: cats.reduce((s, c) => s + Number(c.count || 0), 0) },
+    ...cats.filter((c) => c.id !== "uncategorized" || Number(c.count || 0) > 0),
+  ];
+  box.innerHTML = tabs
+    .map((c) => {
+      const on = cur === c.id ? " on" : "";
+      const tpl = Number(c.template_count || 0);
+      const tplHint = tpl > 0 ? ` · 模板${tpl}` : "";
+      return `<button type="button" class="lab-material-tab${on}" data-lab-material="${escapeAttr(c.id)}">${escapeHtml(c.emoji || "")} ${escapeHtml(c.label || c.id)}<em>${Number(c.count || 0)}${tplHint}</em></button>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-lab-material]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-lab-material") || "all";
+      if (state.labMaterialCategory === id) return;
+      state.labMaterialCategory = id;
+      localStorage.setItem("labMaterialCategory", id);
+      state.corpusSelected = new Set();
+      state.labTagFilter = "";
+      if ($("#corpusKeyword")) $("#corpusKeyword").value = "";
+      renderLabMaterialTabs();
+      syncLabProfileHint();
+      loadCorpus();
+    });
+  });
+  fillCorpusMaterialSelect();
+}
+
+function fillCorpusMaterialSelect() {
+  const sel = $("#editCorpusMaterial");
+  if (!sel) return;
+  const cur = sel.value;
+  const opts = [
+    `<option value="">（未分类）</option>`,
+    ...(state.labMaterialCategories || [])
+      .filter((c) => c.id !== "uncategorized")
+      .map((c) => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.label || c.id)}</option>`),
+  ];
+  sel.innerHTML = opts.join("");
+  if (cur) sel.value = cur;
+}
+
+async function loadCategoryTemplates() {
+  const cat = state.labMaterialCategory || "all";
+  const wrap = $("#labCategoryTemplates");
+  const list = $("#labCategoryTemplateList");
+  if (!wrap || !list) return;
+  if (!cat || cat === "all") {
+    wrap.hidden = true;
+    state.labCategoryTemplates = [];
+    return;
+  }
+  try {
+    const qs = new URLSearchParams({
+      material_category: cat,
+      category_template: "1",
+      status: "active",
+      limit: "8",
+    });
+    const data = await api(`/api/corpus/templates?${qs.toString()}`);
+    state.labCategoryTemplates = data.items || [];
+  } catch (_) {
+    state.labCategoryTemplates = [];
+  }
+  const items = state.labCategoryTemplates || [];
+  if (!items.length) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  list.innerHTML = items
+    .map((it) => {
+      const hook = it.hooks || it.factors?.hook || it.pattern || it.source_title || "";
+      return `<div class="lab-category-template-item"><strong>#${escapeHtml(String(it.id))}</strong> · ${escapeHtml(String(hook).slice(0, 100))}</div>`;
+    })
+    .join("");
+}
+
 function narrativeBadge(it) {
   const factors = it.factors || {};
   return factors.narrative_type || it.emotion || "灵感";
@@ -1074,12 +1238,20 @@ function renderCorpusItems(items) {
   if (!box) return;
   if (!state.corpusSelected) state.corpusSelected = new Set();
   let list = items || [];
+  const cat = state.labMaterialCategory || "all";
+  if (cat && cat !== "all") {
+    list = list.filter((it) => {
+      const mc = corpusMaterialCategory(it) || "uncategorized";
+      return mc === cat;
+    });
+  }
   if (state.labTagFilter) {
     const tag = state.labTagFilter.toLowerCase();
     list = list.filter((it) => (it.tags || []).some((t) => String(t).toLowerCase() === tag));
   }
   if (!list.length) {
-    box.innerHTML = `<div class="lab-empty">暂无卡片。上方快捕，或用进阶工具导入。</div>`;
+    const catLabel = cat && cat !== "all" ? materialCategoryLabel(cat) : "";
+    box.innerHTML = `<div class="lab-empty">暂无${catLabel ? `「${escapeHtml(catLabel)}」` : ""}语料卡。切换素材类目、快捕或导入。</div>`;
     syncCorpusSelectionInput();
     return;
   }
@@ -1089,20 +1261,31 @@ function renderCorpusItems(items) {
       const selected = state.corpusSelected.has(Number(it.id));
       const hook = it.hooks || factors.hook || it.pattern || it.source_title || "";
       const narrative = narrativeBadge(it);
+      const mat = corpusMaterialCategory(it);
+      const matBadge = mat
+        ? `<span class="lab-material-badge">${escapeHtml(materialCategoryLabel(mat))}</span>`
+        : "";
+      const tplBadge = isCorpusCategoryTemplate(it)
+        ? `<span class="lab-template-badge">类目模板</span>`
+        : "";
       const tags = (it.tags || [])
         .slice(0, 3)
         .map((t) => `<span class="chip tag">#${escapeHtml(t)}</span>`)
         .join("");
+      const tplAction = isCorpusCategoryTemplate(it)
+        ? `<button type="button" data-corpus="unset_template">取消类目模板</button>`
+        : `<button type="button" data-corpus="set_template">设为类目模板</button>`;
       return `
-        <article class="lab-card${selected ? " is-selected" : ""}" data-id="${escapeAttr(String(it.id))}" data-corpus-card>
+        <article class="lab-card${selected ? " is-selected" : ""}${isCorpusCategoryTemplate(it) ? " is-template" : ""}" data-id="${escapeAttr(String(it.id))}" data-corpus-card>
           <details class="lab-card-menu" onclick="event.stopPropagation()">
             <summary title="更多">···</summary>
             <div class="lab-card-menu-list">
               <button type="button" data-corpus="edit">编辑</button>
+              ${tplAction}
               <button type="button" data-corpus="delete">删除</button>
             </div>
           </details>
-          <span class="lab-narrative">${escapeHtml(String(narrative).slice(0, 10))}</span>
+          <div class="lab-card-badges">${tplBadge}${matBadge}<span class="lab-narrative">${escapeHtml(String(narrative).slice(0, 10))}</span></div>
           <p class="lab-hook">${escapeHtml(String(hook).slice(0, 140))}</p>
           <div class="chip-row">${tags}</div>
         </article>`;
@@ -1121,9 +1304,6 @@ function renderCorpusItems(items) {
     }
     renderCorpusItems(state.corpusItems || []);
     syncCorpusSelectionInput();
-    if ($("#regenTopic") && !($("#regenTopic").value || "").trim()) {
-      $("#regenTopic").focus();
-    }
   };
   box.querySelectorAll("[data-corpus-card]").forEach((card) => {
     card.addEventListener("click", (e) => {
@@ -1141,6 +1321,35 @@ function renderCorpusItems(items) {
       const item = (state.corpusItems || []).find((x) => Number(x.id) === id);
       if (action === "edit") {
         openCorpusEdit(item || { id });
+        return;
+      }
+      if (action === "set_template") {
+        const cat = state.labMaterialCategory;
+        if (!cat || cat === "all") {
+          toast("请先选择具体素材类目", "error");
+          return;
+        }
+        await api(`/api/corpus/templates/${id}`, {
+          method: "POST",
+          body: JSON.stringify({
+            action: "set_category_template",
+            enabled: true,
+            material_category: cat,
+          }),
+        });
+        toast("已设为类目结构模板", "ok");
+        await loadLabMaterials();
+        await loadCorpus();
+        return;
+      }
+      if (action === "unset_template") {
+        await api(`/api/corpus/templates/${id}`, {
+          method: "POST",
+          body: JSON.stringify({ action: "set_category_template", enabled: false }),
+        });
+        toast("已取消类目模板", "ok");
+        await loadLabMaterials();
+        await loadCorpus();
         return;
       }
       if (action === "delete") {
@@ -1170,6 +1379,8 @@ function openCorpusEdit(item) {
   $("#editCorpusKeywords").value = (item.keywords || []).join(", ");
   $("#editCorpusHooks").value = item.hooks || "";
   $("#editCorpusTags").value = (item.tags || []).join(", ");
+  const matSel = $("#editCorpusMaterial");
+  if (matSel) matSel.value = corpusMaterialCategory(item) || "";
   if (typeof dlg.showModal === "function") dlg.showModal();
   else dlg.setAttribute("open", "true");
 }
@@ -1208,6 +1419,14 @@ async function saveCorpusEdit(ev) {
     toast("已保存", "ok");
     if (dlg?.close) dlg.close();
     else dlg?.removeAttribute("open");
+    await api(`/api/corpus/templates/${id}`, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "set_material_category",
+        material_category: $("#editCorpusMaterial")?.value.trim() || "",
+      }),
+    });
+    await loadLabMaterials();
     await loadCorpus();
   } catch (e) {
     toast(String(e), "error");
@@ -1250,6 +1469,19 @@ async function runLabCapture(ev) {
     toast(data.message || "已入库", "ok");
     input.value = "";
     if (data.template) {
+      const tid = Number(data.template.id);
+      const cat = state.labMaterialCategory;
+      if (tid && cat && cat !== "all") {
+        try {
+          await api(`/api/corpus/templates/${tid}`, {
+            method: "POST",
+            body: JSON.stringify({ action: "set_material_category", material_category: cat }),
+          });
+          data.template.factors = { ...(data.template.factors || {}), material_category: cat };
+        } catch (_) {
+          /* ignore */
+        }
+      }
       state.corpusItems = [data.template, ...(state.corpusItems || [])];
       state.corpusSelected.add(Number(data.template.id));
       // 保持最多 3 张选中
@@ -1344,9 +1576,11 @@ async function loadCorpus() {
   if (kw.startsWith("#")) kw = kw.slice(1);
   const quality = $("#corpusQuality")?.value || "";
   const status = $("#corpusStatus")?.value ?? "active";
+  const cat = state.labMaterialCategory || "all";
   if (kw) qs.set("keyword", kw);
   if (quality) qs.set("quality", quality);
   if (status) qs.set("status", status);
+  if (cat && cat !== "all") qs.set("material_category", cat);
   qs.set("limit", "100");
   try {
     const data = await api(`/api/corpus/templates?${qs.toString()}`);
@@ -1358,6 +1592,13 @@ async function loadCorpus() {
     const alive = new Set(state.corpusItems.map((x) => Number(x.id)));
     state.corpusSelected = new Set([...(state.corpusSelected || [])].filter((id) => alive.has(id)));
     renderCorpusItems(state.corpusItems);
+    const meta = $("#corpusMeta");
+    if (meta) {
+      const catLabel =
+        cat && cat !== "all" ? materialCategoryLabel(cat) : "全部素材";
+      meta.textContent = `${catLabel} · ${(state.corpusItems || []).length} 张语料 · 已选 ${(state.corpusSelected || new Set()).size}/3`;
+    }
+    await loadCategoryTemplates();
     await refreshCorpusStats();
     await loadGenerations();
   } catch (e) {
@@ -1583,7 +1824,8 @@ function renderLabCot(steps) {
   list.innerHTML = arr.map((s) => `<li>${escapeHtml(String(s))}</li>`).join("");
 }
 
-async function runCorpusRegen() {
+async function runCorpusRegen({ explicit = false } = {}) {
+  if (!explicit) return;
   const ids = [...(state.corpusSelected || [])];
   const topic = $("#regenTopic")?.value.trim() || "";
   if (!topic) {
@@ -1607,6 +1849,12 @@ async function runCorpusRegen() {
         platform_style: $("#regenStyle")?.value.trim() || "X/Twitter",
         prompt: $("#regenPrompt")?.value.trim() || "",
         variant_count: 3,
+        material_category:
+          state.labMaterialCategory && state.labMaterialCategory !== "all"
+            ? state.labMaterialCategory
+            : labProfileMaterialCategory(state.labProfile) !== "all"
+              ? labProfileMaterialCategory(state.labProfile)
+              : "",
       }),
     });
     if (!data.success) {
@@ -1694,8 +1942,13 @@ function labBuildPublishDraft(variant) {
   };
 }
 
-function labPlatformHintFromStyle(_style) {
-  return [...PUBLISH_PLATFORM_DEFAULT_IDS];
+function labPlatformHintFromStyle(style) {
+  const s = String(style || "").toLowerCase();
+  if (s.includes("币安") || s.includes("binance")) return ["binance_square"];
+  if (s.includes("reddit")) return ["reddit"];
+  if (s.includes("okx")) return ["okx"];
+  if (s.includes("bitget")) return ["bitget"];
+  return ["x"];
 }
 
 function applyPublishPlatformHint(ids) {
@@ -1705,6 +1958,45 @@ function applyPublishPlatformHint(ids) {
   box.querySelectorAll('input[type="checkbox"][data-platform]').forEach((el) => {
     el.checked = want.has(el.value);
   });
+}
+
+async function labPublishViaCdp() {
+  const draft = labBuildPublishDraft();
+  if (!draft?.content) {
+    toast("请先生成并选中一条变体文案", "error");
+    return;
+  }
+  const btn = $("#btnLabPublishPreview");
+  const platforms = labPlatformHintFromStyle(draft.style);
+  if (btn) btn.disabled = true;
+  toast(`CDP 发布中 · ${platforms.join(", ")}…`);
+  try {
+    const data = await api("/api/publish", {
+      method: "POST",
+      body: JSON.stringify({
+        title: draft.title,
+        content: draft.content,
+        tags: draft.tags || "",
+        platforms,
+        media_paths: [],
+        use_cdp: true,
+        debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+        submit: !$("#publishDryRun")?.checked,
+      }),
+    });
+    const okN = data.success_count || 0;
+    const total = data.total || platforms.length;
+    if (data.success) {
+      toast(`CDP 发布完成 ${okN}/${total}`, "ok");
+    } else {
+      const err = data.error || data.results?.find((r) => r?.error)?.error || "发布失败";
+      toast(`${err} (${okN}/${total})`, "error");
+    }
+  } catch (e) {
+    toast(String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function labOpenPublishPreview() {
@@ -1737,15 +2029,13 @@ async function labSendToPublish(draft) {
     toast("无可用正文", "error");
     return;
   }
-  state.lastCreate = { title: d.title, content: d.content, path: "" };
-  if ($("#publishTitle")) $("#publishTitle").value = d.title;
+  state.lastCreate = { title: "", content: d.content, path: "" };
   if ($("#publishContent")) $("#publishContent").value = d.content;
-  if ($("#publishTags") && d.tags) $("#publishTags").value = d.tags;
   await loadPublishPlatforms();
   applyPublishPlatformHint(labPlatformHintFromStyle(d.style));
   switchTab("publish");
   $("#publishContent")?.focus();
-  toast("已带入 CDP 发布页，可选平台后发布", "ok");
+  toast("已带入 CDP 发布页", "ok");
   state.labPublishDraft = null;
 }
 
@@ -2149,38 +2439,76 @@ function syncTaskUi() {
   loadTasks();
 }
 
+function publishPlatformEnabled(meta) {
+  if (!meta) return true;
+  const v = meta.enabled;
+  if (v === false || v === 0 || v === "false" || v === "0") return false;
+  return true;
+}
+
 async function loadPublishPlatforms(selectedIds) {
   const box = $("#publishPlatformChecks");
   if (!box) return;
   let apiPlatforms = [];
   try {
     const data = await api("/api/platforms/publish");
-    apiPlatforms = data.platforms || [];
+    if (data && data.success !== false) {
+      apiPlatforms = Array.isArray(data.platforms) ? data.platforms : [];
+    }
   } catch (_) {
     /* 离线时用预设列表 */
   }
   const byId = new Map();
   apiPlatforms.forEach((p) => {
-    if (p?.id) byId.set(p.id, p);
+    if (p?.id) byId.set(String(p.id), p);
   });
   PUBLISH_PLATFORM_ORDER.forEach((preset) => {
-    if (!byId.has(preset.id)) {
+    const cur = byId.get(preset.id);
+    if (!cur) {
       byId.set(preset.id, { id: preset.id, name: preset.name, enabled: true });
+    } else if (!cur.name) {
+      cur.name = preset.name;
     }
   });
+  const ordered = [];
+  const seen = new Set();
+  PUBLISH_PLATFORM_ORDER.forEach((preset) => {
+    const meta = byId.get(preset.id) || preset;
+    ordered.push({
+      id: preset.id,
+      name: meta.name || preset.name,
+      enabled: publishPlatformEnabled(meta),
+    });
+    seen.add(preset.id);
+  });
+  apiPlatforms.forEach((p) => {
+    const id = String(p?.id || "");
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ordered.push({
+      id,
+      name: p.name || id,
+      enabled: publishPlatformEnabled(p),
+    });
+  });
+  if (!ordered.length) {
+    PUBLISH_PLATFORM_ORDER.forEach((preset) => {
+      ordered.push({ id: preset.id, name: preset.name, enabled: true });
+    });
+  }
   const selected = new Set(
     selectedIds?.length ? selectedIds : PUBLISH_PLATFORM_DEFAULT_IDS
   );
-  box.innerHTML = PUBLISH_PLATFORM_ORDER.map((preset) => {
-    const meta = byId.get(preset.id) || preset;
-    if (meta.enabled === false) return "";
-    const checked = selected.has(preset.id) ? " checked" : "";
-    const name = meta.name || preset.name;
-    return `<label class="publish-plat-check corpus-check">
-      <input type="checkbox" data-platform value="${escapeHtml(preset.id)}"${checked} />
-      <span>${escapeHtml(name)}</span>
+  box.innerHTML = ordered
+    .map((p) => {
+      const disabled = p.enabled ? "" : " disabled";
+      const checked = p.enabled && selected.has(p.id) ? " checked" : "";
+      return `<label class="publish-plat-check corpus-check${p.enabled ? "" : " is-disabled"}">
+      <input type="checkbox" data-platform value="${escapeHtml(p.id)}"${checked}${disabled} />
+      <span>${escapeHtml(p.name)}</span>
     </label>`;
-  }).join("");
+    })
+    .join("");
 }
 
 function selectedPublishPlatforms() {
@@ -2213,12 +2541,131 @@ function defaultScheduleLocal(minutesAhead = 30) {
   return toDatetimeLocalValue(d.toISOString());
 }
 
+const PUBLISH_PREFS_KEY = "pai_publish_prefs";
+const PUBLISH_MEDIA_CACHE_MAX_BYTES = 4 * 1024 * 1024;
+/** @type {{name:string,type:string,data_b64:string}[]} */
+let publishMediaItems = [];
+
+function publishMediaCacheBytes(items = publishMediaItems) {
+  return (items || []).reduce(
+    (n, it) => n + Math.ceil(((it.data_b64 || "").length * 3) / 4),
+    0,
+  );
+}
+
+function normalizePublishMediaItem(row) {
+  if (!row || typeof row !== "object") return null;
+  const data_b64 = String(row.data_b64 || row.content_base64 || row.data || "").trim();
+  if (!data_b64) return null;
+  return {
+    name: String(row.name || row.filename || "image.jpg"),
+    type: String(row.type || row.mime || "image/jpeg"),
+    data_b64,
+  };
+}
+
+function restorePublishMediaItems(raw) {
+  if (!Array.isArray(raw)) {
+    publishMediaItems = [];
+    return;
+  }
+  publishMediaItems = raw.map(normalizePublishMediaItem).filter(Boolean);
+}
+
+function persistPublishMediaItems() {
+  try {
+    savePublishPrefs({ mediaFiles: publishMediaItems });
+  } catch (_) {
+    toast("图片缓存写入失败（可能超出浏览器容量）", "error");
+  }
+}
+
+function loadPublishPrefs() {
+  try {
+    const raw = localStorage.getItem(PUBLISH_PREFS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePublishPrefs(patch) {
+  try {
+    const cur = loadPublishPrefs();
+    localStorage.setItem(
+      PUBLISH_PREFS_KEY,
+      JSON.stringify({ ...cur, ...patch, saved_at: Date.now() }),
+    );
+  } catch (_) {}
+}
+
+function snapshotPublishPrefs() {
+  savePublishPrefs({
+    debuggerUrl: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+    useCdp: !!$("#useCdp")?.checked,
+    publishDryRun: !!$("#publishDryRun")?.checked,
+    content: $("#publishContent")?.value || "",
+    scheduleAt: $("#publishScheduleAt")?.value || "",
+    scheduleBaseline: $("#publishScheduleAt")?.dataset.default || "",
+    platforms: selectedPublishPlatforms(),
+    mediaFiles: publishMediaItems,
+  });
+}
+
+function restorePublishPrefsFields() {
+  const p = loadPublishPrefs();
+  if (p.debuggerUrl != null && $("#debuggerUrl")) $("#debuggerUrl").value = p.debuggerUrl;
+  if ($("#useCdp")) $("#useCdp").checked = p.useCdp !== false;
+  if ($("#publishDryRun")) $("#publishDryRun").checked = !!p.publishDryRun;
+  if (p.content != null && $("#publishContent")) $("#publishContent").value = p.content;
+  restorePublishMediaItems(p.mediaFiles);
+  renderMediaPreview();
+  return Array.isArray(p.platforms) ? p.platforms : null;
+}
+
+function bindPublishPrefsAutosave() {
+  if (document.body.dataset.publishPrefsBound) return;
+  document.body.dataset.publishPrefsBound = "1";
+  let timer = null;
+  const queue = () => {
+    clearTimeout(timer);
+    timer = setTimeout(snapshotPublishPrefs, 280);
+  };
+  $("#debuggerUrl")?.addEventListener("input", queue);
+  $("#publishContent")?.addEventListener("input", queue);
+  $("#publishScheduleAt")?.addEventListener("change", queue);
+  $("#useCdp")?.addEventListener("change", queue);
+  $("#publishDryRun")?.addEventListener("change", queue);
+  $("#publishPlatformChecks")?.addEventListener("change", queue);
+}
+
+function initPublishScheduleDefault() {
+  const el = $("#publishScheduleAt");
+  if (!el) return;
+  const p = loadPublishPrefs();
+  const def = defaultScheduleLocal(30);
+  el.dataset.default = p.scheduleBaseline || def;
+  el.value = p.scheduleAt || def;
+}
+
+function isPublishScheduleDefault() {
+  const el = $("#publishScheduleAt");
+  if (!el) return true;
+  const baseline = el.dataset.default || "";
+  return el.value === baseline;
+}
+
+function resetPublishScheduleDefault() {
+  initPublishScheduleDefault();
+}
+
 function fileToBase64Payload(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result || "");
-      const data_b64 = result.includes(",") ? result.split(",", 1)[1] : result;
+      const comma = result.indexOf(",");
+      const data_b64 = comma >= 0 ? result.slice(comma + 1) : result;
       resolve({
         name: file.name,
         type: file.type || "",
@@ -2231,51 +2678,294 @@ function fileToBase64Payload(file) {
 }
 
 async function collectUploadMediaFiles() {
-  const input = $("#publishMediaFiles");
-  const files = input?.files ? [...input.files] : [];
-  if (!files.length) return [];
-  const out = [];
-  for (const f of files) {
+  return publishMediaItems.map(({ name, type, data_b64 }) => ({
+    name,
+    type,
+    data_b64,
+  }));
+}
+
+function normalizePastedMediaFile(file, index = 0) {
+  if (!file) return null;
+  const type = file.type || "";
+  if (!type.startsWith("image/") && !type.startsWith("video/")) return null;
+  if (file.name) return file;
+  const ext = (type.split("/")[1] || "png").replace("jpeg", "jpg");
+  const name = `paste-${Date.now()}${index ? `-${index}` : ""}.${ext}`;
+  return new File([file], name, { type });
+}
+
+async function appendPublishMediaFiles(newFiles) {
+  if (!newFiles?.length) return 0;
+  const next = [...publishMediaItems];
+  let added = 0;
+  for (let i = 0; i < newFiles.length; i++) {
+    const f = normalizePastedMediaFile(newFiles[i], i + 1);
+    if (!f) continue;
     if (f.size > 12 * 1024 * 1024) {
-      throw new Error(`文件过大（>12MB）: ${f.name}`);
+      toast(`文件过大（>12MB）: ${f.name}`, "error");
+      continue;
     }
-    out.push(await fileToBase64Payload(f));
+    const payload = await fileToBase64Payload(f);
+    const trial = [...next, payload];
+    if (publishMediaCacheBytes(trial) > PUBLISH_MEDIA_CACHE_MAX_BYTES) {
+      toast("图片缓存已满（约 4MB），请删除部分后再添加", "error");
+      break;
+    }
+    next.push(payload);
+    added += 1;
   }
-  return out;
+  if (!added) return 0;
+  publishMediaItems = next;
+  persistPublishMediaItems();
+  renderMediaPreview();
+  snapshotPublishPrefs();
+  return added;
+}
+
+function handlePublishMediaPaste(e) {
+  const panel = $("#panel-publish");
+  if (!panel || panel.hidden) return;
+  const items = e.clipboardData?.items;
+  if (!items?.length) return;
+  const files = [];
+  for (const item of items) {
+    if (item.kind !== "file") continue;
+    const f = item.getAsFile();
+    if (f && (f.type.startsWith("image/") || f.type.startsWith("video/"))) {
+      files.push(f);
+    }
+  }
+  if (!files.length) return;
+  e.preventDefault();
+  e.stopPropagation();
+  appendPublishMediaFiles(files).then((n) => {
+    if (n) toast(`已粘贴 ${n} 个媒体文件`, "ok");
+  });
+}
+
+function bindPublishMediaPaste() {
+  const panel = $("#panel-publish");
+  if (!panel || panel.dataset.pasteBound) return;
+  panel.dataset.pasteBound = "1";
+  panel.addEventListener("paste", handlePublishMediaPaste);
+}
+
+function removePublishMediaFile(index) {
+  if (index < 0 || index >= publishMediaItems.length) return;
+  publishMediaItems = publishMediaItems.filter((_, i) => i !== index);
+  persistPublishMediaItems();
+  renderMediaPreview();
+  snapshotPublishPrefs();
 }
 
 function renderMediaPreview() {
   const box = $("#publishMediaPreview");
-  const input = $("#publishMediaFiles");
-  if (!box || !input) return;
+  if (!box) return;
   box.innerHTML = "";
-  [...(input.files || [])].forEach((f) => {
+  publishMediaItems.forEach((item, index) => {
     const wrap = document.createElement("div");
-    if (f.type.startsWith("image/")) {
+    wrap.className = "media-thumb";
+    const mime = item.type || "image/jpeg";
+    if (mime.startsWith("image/")) {
       const img = document.createElement("img");
       img.className = "thumb";
-      img.alt = f.name;
-      img.src = URL.createObjectURL(f);
+      img.alt = item.name;
+      img.src = `data:${mime};base64,${item.data_b64}`;
       wrap.appendChild(img);
+    } else {
+      const ph = document.createElement("div");
+      ph.className = "thumb thumb-video";
+      ph.textContent = "视频";
+      wrap.appendChild(ph);
     }
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "media-thumb-del";
+    del.setAttribute("data-media-del", String(index));
+    del.setAttribute("aria-label", "删除");
+    del.textContent = "×";
+    wrap.appendChild(del);
     const name = document.createElement("div");
     name.className = "thumb-name";
-    name.textContent = f.name;
+    name.textContent = item.name;
     wrap.appendChild(name);
     box.appendChild(wrap);
   });
 }
 
+async function onPublishMediaFilesChange() {
+  const input = $("#publishMediaFiles");
+  const files = input?.files ? [...input.files] : [];
+  if (files.length) {
+    await appendPublishMediaFiles(files);
+  }
+  if (input) input.value = "";
+}
+
+function publishPlatformLabel(platformId) {
+  const id = String(platformId || "");
+  const box = $("#publishPlatformChecks");
+  const input = box?.querySelector(`input[data-platform][value="${CSS.escape(id)}"]`);
+  const span = input?.closest("label")?.querySelector("span");
+  if (span?.textContent) return span.textContent.trim();
+  return PUBLISH_PLATFORM_ORDER.find((p) => p.id === id)?.name || id;
+}
+
+function formatPublishStepSummary(results) {
+  return (results || [])
+    .map((r) => {
+      const name = r.name || publishPlatformLabel(r.platform);
+      if (r.success) return `${name} ✓`;
+      const err = r.error ? ` (${String(r.error).slice(0, 24)})` : "";
+      return `${name} ✗${err}`;
+    })
+    .join(" · ");
+}
+
+function renderPublishProgress({ phase, index, total, name, results }) {
+  const box = $("#publishProgress");
+  if (!box) return;
+  box.hidden = false;
+  const done = (results || []).length;
+  const pct = total ? Math.round((Math.max(0, index - (phase === "running" ? 1 : 0)) / total) * 100) : 0;
+  const barPct = phase === "running" ? Math.round(((index - 1) / total) * 100 + 50 / total) : 100;
+  const rows = (results || [])
+    .map((r) => {
+      const label = r.name || publishPlatformLabel(r.platform);
+      const cls = r.success ? "done" : "failed";
+      const mark = r.success ? "✓" : "✗";
+      return `<li class="publish-step ${cls}"><span>${escapeHtml(label)}</span><em>${mark}</em></li>`;
+    })
+    .join("");
+  const current =
+    phase === "running" && name
+      ? `<li class="publish-step running"><span>${escapeHtml(name)}</span><em>…</em></li>`
+      : "";
+  box.innerHTML = `
+    <div class="publish-progress-head">
+      <span>${phase === "running" ? `正在发布 ${index}/${total}` : `已完成 ${done}/${total}`}</span>
+      <span class="muted">${pct}%</span>
+    </div>
+    <div class="publish-progress-bar"><i style="width:${Math.min(100, barPct)}%"></i></div>
+    <ul class="publish-progress-steps">${rows}${current}</ul>`;
+}
+
+function clearPublishProgress() {
+  const box = $("#publishProgress");
+  if (!box) return;
+  box.hidden = true;
+  box.innerHTML = "";
+}
+
+async function publishNowViaCdp(onProgress) {
+  const platforms = selectedPublishPlatforms();
+  if (!platforms.length) {
+    throw new Error("请至少选择一个平台");
+  }
+  const content = $("#publishContent")?.value.trim() || "";
+  const media_files = await collectUploadMediaFiles();
+  if (!content && !media_files.length) {
+    throw new Error("请填写正文或上传图片");
+  }
+  const dry = !!$("#publishDryRun")?.checked;
+  const base = {
+    title: "",
+    content,
+    tags: "",
+    media_paths: [],
+    use_cdp: true,
+    debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+    submit: !dry,
+  };
+  const stepResults = [];
+  let stagedMediaPaths = [];
+  for (let i = 0; i < platforms.length; i++) {
+    const pid = platforms[i];
+    const name = publishPlatformLabel(pid);
+    onProgress?.({
+      phase: "running",
+      index: i + 1,
+      total: platforms.length,
+      platform: pid,
+      name,
+      results: stepResults,
+    });
+    setStatus($("#publishStatus"), `正在发布 (${i + 1}/${platforms.length}) ${name}…`);
+    const data = await api("/api/publish", {
+      method: "POST",
+      body: JSON.stringify({
+        ...base,
+        platforms: [pid],
+        media_paths: stagedMediaPaths,
+        media_files: stagedMediaPaths.length ? [] : media_files,
+      }),
+    });
+    if (data.media_paths?.length) {
+      stagedMediaPaths = data.media_paths;
+    }
+    const row = data.results?.[0] || {
+      platform: pid,
+      platform_name: name,
+      success: !!data.success,
+      error: data.error,
+    };
+    stepResults.push({
+      platform: pid,
+      name: row.platform_name || name,
+      success: !!row.success,
+      error: row.error || (row.success ? "" : data.error),
+    });
+    onProgress?.({
+      phase: row.success ? "done" : "fail",
+      index: i + 1,
+      total: platforms.length,
+      platform: pid,
+      name,
+      results: stepResults,
+    });
+  }
+  const success_count = stepResults.filter((r) => r.success).length;
+  return {
+    success: success_count > 0,
+    total: platforms.length,
+    success_count,
+    results: stepResults,
+  };
+}
+
+async function submitPublish() {
+  if (isPublishScheduleDefault()) {
+    return {
+      mode: "now",
+      data: await publishNowViaCdp((p) => renderPublishProgress(p)),
+    };
+  }
+  const platforms = selectedPublishPlatforms();
+  const names = platforms.map(publishPlatformLabel).join("、");
+  setStatus($("#publishStatus"), `正在加入定时队列 · ${names || "—"}…`);
+  const draft = await collectPublishDraft({ requireSchedule: true });
+  draft.scheduled_at = $("#publishScheduleAt")?.value || "";
+  const data = await api("/api/publish/queue", {
+    method: "POST",
+    body: JSON.stringify(draft),
+  });
+  if (!data.success) {
+    throw new Error(data.error || "加入定时队列失败");
+  }
+  return { mode: "schedule", data };
+}
+
 async function collectPublishDraft({ requireSchedule = false } = {}) {
   const media_files = await collectUploadMediaFiles();
   const draft = {
-    title: $("#publishTitle")?.value.trim() || "",
+    title: "",
     content: $("#publishContent")?.value.trim() || "",
-    tags: $("#publishTags")?.value.trim() || "",
+    tags: "",
     platforms: selectedPublishPlatforms(),
-    media_paths: parseMediaPaths($("#publishMedia")?.value || ""),
+    media_paths: [],
     media_files,
-    use_cdp: !!$("#useCdp")?.checked,
+    use_cdp: true,
     debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
     scheduled_at: $("#publishScheduleAt")?.value || "",
   };
@@ -2292,15 +2982,14 @@ async function collectPublishDraft({ requireSchedule = false } = {}) {
 }
 
 function clearPublishEditorKeepMeta() {
-  $("#publishTitle").value = "";
-  $("#publishContent").value = "";
-  $("#publishMedia").value = "";
-  $("#publishTags").value = "";
+  if ($("#publishContent")) $("#publishContent").value = "";
+  publishMediaItems = [];
+  persistPublishMediaItems();
   const input = $("#publishMediaFiles");
   if (input) input.value = "";
   renderMediaPreview();
-  const sch = $("#publishScheduleAt");
-  if (sch) sch.value = defaultScheduleLocal(60);
+  resetPublishScheduleDefault();
+  snapshotPublishPrefs();
 }
 
 function statusLabel(st) {
@@ -2591,12 +3280,12 @@ function bind() {
   $("#btnLoadFeatured")?.addEventListener("click", () => loadGenerations());
   $("#labCaptureForm")?.addEventListener("submit", runLabCapture);
   $("#btnLabCopyMd")?.addEventListener("click", () => labCopyMarkdown());
-  $("#btnLabRegen")?.addEventListener("click", () => runCorpusRegen());
+  $("#btnLabRegen")?.addEventListener("click", () => runCorpusRegen({ explicit: true }));
   $("#btnLabSaveFeatured")?.addEventListener("click", () => labSaveFeatured());
   document.querySelectorAll("#labTweaks [data-tweak]").forEach((btn) => {
     btn.addEventListener("click", () => runLabTweak(btn.getAttribute("data-tweak")));
   });
-  $("#btnLabPublishPreview")?.addEventListener("click", () => labOpenPublishPreview());
+  $("#btnLabPublishPreview")?.addEventListener("click", () => labPublishViaCdp());
   $("#btnLabProfileConfig")?.addEventListener("click", () => openLabProfileConfig());
   $("#labProfileConfigForm")?.addEventListener("submit", (e) => {
     if (e.submitter?.value === "save") saveLabProfileConfig(e);
@@ -2622,9 +3311,12 @@ function bind() {
   });
   $("#corpusQuality")?.addEventListener("change", () => loadCorpus());
   $("#corpusStatus")?.addEventListener("change", () => loadCorpus());
-  $("#btnCorpusRegen")?.addEventListener("click", () => runCorpusRegen());
+  $("#btnCorpusRegen")?.addEventListener("click", () => runCorpusRegen({ explicit: true }));
   $("#regenTopic")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") runCorpusRegen();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      setStatus($("#corpusRegenStatus"), "请点击「生成 3 个变体」按钮", "error");
+    }
   });
   $("#regenTopic")?.addEventListener("input", () => updateLabSteps());
 
@@ -2792,14 +3484,13 @@ function bind() {
       setStatus($("#createStatus"), "请先生成文章", "error");
       return;
     }
-    $("#publishTitle").value = state.lastCreate.title;
     $("#publishContent").value = state.lastCreate.content;
     switchTab("publish");
   });
 
-  $("#btnLoadArticles").addEventListener("click", loadArticles);
+  $("#btnLoadArticles")?.addEventListener("click", loadArticles);
 
-  $("#articleSelect").addEventListener("change", async () => {
+  $("#articleSelect")?.addEventListener("change", async () => {
     const path = $("#articleSelect").value;
     if (!path) return;
     const data = await api(`/api/article?path=${encodeURIComponent(path)}`);
@@ -2814,39 +3505,51 @@ function bind() {
 
   $("#btnPublish").addEventListener("click", async () => {
     $("#btnPublish").disabled = true;
-    setStatus($("#publishStatus"), "正在发布…");
-    $("#publishResult").textContent = "";
+    clearPublishProgress();
+    const platformNames = selectedPublishPlatforms().map(publishPlatformLabel).join("、");
+    setStatus(
+      $("#publishStatus"),
+      isPublishScheduleDefault()
+        ? platformNames
+          ? `正在发布 · ${platformNames}`
+          : "正在发布…"
+        : platformNames
+          ? `正在加入定时队列 · ${platformNames}`
+          : "正在加入定时队列…"
+    );
     try {
-      const platforms = selectedPublishPlatforms();
-      if (!platforms.length) {
-        setStatus($("#publishStatus"), "请至少选择一个平台", "error");
-        return;
+      const result = await submitPublish();
+      if (result.mode === "now") {
+        const data = result.data;
+        const okN = data.success_count || 0;
+        const total = data.total || 0;
+        const detail = formatPublishStepSummary(data.results);
+        renderPublishProgress({
+          phase: "done",
+          index: total,
+          total,
+          results: data.results,
+        });
+        setStatus(
+          $("#publishStatus"),
+          data.success
+            ? `发布完成 ${okN}/${total}${detail ? ` · ${detail}` : ""}`
+            : detail || data.error || "发布失败",
+          data.success ? "ok" : "error"
+        );
+        if (data.success) clearPublishEditorKeepMeta();
+      } else {
+        const it = result.data.item || {};
+        const when = it.scheduled_at || $("#publishScheduleAt")?.value || "";
+        setStatus(
+          $("#publishStatus"),
+          `已加入定时队列 ${it.id || ""} · ${when}`,
+          "ok"
+        );
+        clearPublishEditorKeepMeta();
+        await loadPublishQueue();
+        await loadPublishCache();
       }
-      const dry = !!$("#publishDryRun")?.checked;
-      const data = await api("/api/publish", {
-        method: "POST",
-        body: JSON.stringify({
-          title: $("#publishTitle").value.trim(),
-          content: $("#publishContent").value.trim(),
-          tags: $("#publishTags").value.trim(),
-          platforms,
-          media_paths: parseMediaPaths($("#publishMedia")?.value || ""),
-          use_cdp: $("#useCdp").checked,
-          debugger_url: $("#debuggerUrl").value.trim(),
-          submit: !dry,
-          file: $("#articleSelect").value || undefined,
-        }),
-      });
-      $("#publishResult").textContent = JSON.stringify(data, null, 2);
-      const okN = data.success_count || 0;
-      const total = data.total || 0;
-      setStatus(
-        $("#publishStatus"),
-        data.success
-          ? `发布完成 ${okN}/${total}`
-          : data.error || "发布失败",
-        data.success ? "ok" : "error"
-      );
     } catch (e) {
       setStatus($("#publishStatus"), String(e), "error");
     } finally {
@@ -2872,7 +3575,14 @@ function bind() {
       setStatus($("#publishStatus"), String(e), "error");
     }
   });
-  $("#publishMediaFiles")?.addEventListener("change", renderMediaPreview);
+  $("#publishMediaFiles")?.addEventListener("change", onPublishMediaFilesChange);
+  $("#publishMediaPreview")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-media-del]");
+    if (!btn) return;
+    removePublishMediaFile(Number(btn.getAttribute("data-media-del")));
+  });
+  bindPublishMediaPaste();
+  bindPublishPrefsAutosave();
   $("#btnCacheRefresh")?.addEventListener("click", () => loadPublishCache());
   $("#cacheMonthSelect")?.addEventListener("change", () => loadPublishCache());
   $("#btnCacheOpenRoot")?.addEventListener("click", async () => {
@@ -4400,11 +5110,11 @@ async function runTweetCardIngest() {
 async function boot() {
   bind();
   syncTaskUi();
-  const sch = $("#publishScheduleAt");
-  if (sch && !sch.value) sch.value = defaultScheduleLocal(30);
+  initPublishScheduleDefault();
+  restorePublishPrefsFields();
   await refreshHealth();
-  await loadPublishPlatforms();
-  await loadArticles();
+  const savedPlatforms = loadPublishPrefs().platforms;
+  await loadPublishPlatforms(savedPlatforms?.length ? savedPlatforms : undefined);
   await loadPublishQueue();
   await loadPublishCache();
   await refreshStats();

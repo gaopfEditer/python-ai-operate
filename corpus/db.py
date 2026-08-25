@@ -242,6 +242,8 @@ def list_templates(
     status: str = "active",
     keyword: str = "",
     platform: str = "",
+    material_category: str = "",
+    category_template: Optional[bool] = None,
     limit: int = 50,
     offset: int = 0,
     db_path: Optional[Path] = None,
@@ -261,6 +263,23 @@ def list_templates(
     if platform:
         clauses.append("source_platform=?")
         args.append(platform)
+    cat = str(material_category or "").strip()
+    if cat == "uncategorized":
+        clauses.append(
+            "(json_extract(factors_json, '$.material_category') IS NULL "
+            "OR json_extract(factors_json, '$.material_category') = '')"
+        )
+    elif cat:
+        clauses.append("json_extract(factors_json, '$.material_category') = ?")
+        args.append(cat)
+    if category_template is True:
+        clauses.append("json_extract(factors_json, '$.is_category_template') = 1")
+    elif category_template is False:
+        clauses.append(
+            "(json_extract(factors_json, '$.is_category_template') IS NULL "
+            "OR json_extract(factors_json, '$.is_category_template') = 0 "
+            "OR json_extract(factors_json, '$.is_category_template') = false)"
+        )
     if keyword:
         kw = f"%{keyword.strip()}%"
         clauses.append(
@@ -409,6 +428,26 @@ def update_template(
             args,
         )
     return get_template(template_id, db_path=db_path)
+
+
+def patch_template_factors(
+    template_id: int,
+    patch: Dict[str, Any],
+    *,
+    db_path: Optional[Path] = None,
+    history_reason: str = "patch_factors",
+) -> Optional[Dict[str, Any]]:
+    cur = get_template(template_id, db_path=db_path)
+    if not cur:
+        return None
+    factors = dict(cur.get("factors") or {})
+    factors.update(patch or {})
+    return update_template(
+        template_id,
+        {"factors": factors},
+        db_path=db_path,
+        history_reason=history_reason,
+    )
 
 
 def archive_template(template_id: int, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:

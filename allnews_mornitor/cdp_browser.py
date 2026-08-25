@@ -143,6 +143,27 @@ class BackgroundTarget:
         self.session_id = session_id
 
     @classmethod
+    def attach(cls, client: _CdpClient, target_id: str) -> "BackgroundTarget":
+        """附着到已有标签（不 activate、不新建）。"""
+        tid = str(target_id or "").strip()
+        if not tid:
+            raise RuntimeError("缺少 targetId")
+        attached = client.call(
+            "Target.attachToTarget",
+            {"targetId": tid, "flatten": True},
+        )
+        session_id = str(attached.get("sessionId") or "")
+        if not session_id:
+            raise RuntimeError("Target.attachToTarget 未返回 sessionId")
+        page = cls(client, tid, session_id)
+        try:
+            page.call("Page.enable")
+            page.call("Runtime.enable")
+        except Exception:
+            pass
+        return page
+
+    @classmethod
     def create(cls, client: _CdpClient, url: str = "about:blank") -> "BackgroundTarget":
         created = client.call(
             "Target.createTarget",
@@ -214,6 +235,27 @@ class BackgroundTarget:
     def detach(self) -> None:
         try:
             self.client.call("Target.detachFromTarget", {"sessionId": self.session_id})
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        """关闭标签页并解除附着（避免静默抓取累积空白/列表 tab）。"""
+        try:
+            self.detach()
+        except Exception:
+            pass
+        try:
+            self.client.call("Target.closeTarget", {"targetId": self.target_id})
+        except Exception:
+            pass
+
+    @staticmethod
+    def close_target_id(client: _CdpClient, target_id: str) -> None:
+        tid = str(target_id or "").strip()
+        if not tid:
+            return
+        try:
+            client.call("Target.closeTarget", {"targetId": tid})
         except Exception:
             pass
 
@@ -354,7 +396,7 @@ def cdp_session() -> Iterator[Any]:
     finally:
         if page is not None:
             try:
-                page.detach()
+                page.close()
             except Exception:
                 pass
         if client is not None:
