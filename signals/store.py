@@ -374,6 +374,8 @@ def list_cards(
     only_trade: bool = False,
     limit: int = 100,
 ) -> List[Dict[str, Any]]:
+    from signals.crawl import normalize_twimg_url
+
     state = load_state()
     lid = parse_list_id(list_id) if list_id else ""
     out: List[Dict[str, Any]] = []
@@ -383,7 +385,20 @@ def list_cards(
         sig = c.get("signal") if isinstance(c.get("signal"), dict) else {}
         if only_trade and not sig.get("has_trade_signal"):
             continue
-        out.append(c)
+        card = dict(c)
+        imgs = card.get("images")
+        if isinstance(imgs, list) and imgs:
+            fixed_imgs = []
+            for im in imgs:
+                if not isinstance(im, dict):
+                    continue
+                item = dict(im)
+                item["url"] = normalize_twimg_url(str(item.get("url") or "")) or str(
+                    item.get("url") or ""
+                )
+                fixed_imgs.append(item)
+            card["images"] = fixed_imgs
+        out.append(card)
     out.sort(key=_card_sort_ts, reverse=True)
     cap = max(1, int(limit))
     return out[:cap]

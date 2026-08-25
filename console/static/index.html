@@ -678,6 +678,12 @@
               <button id="btnSigUserStop" class="btn danger" type="button" disabled>终止</button>
               <button id="btnSigUserRemote" class="btn ghost" type="button">刷新 Cards 列表</button>
               <button id="btnSigUserValidate" class="btn ghost" type="button">验证执行情况</button>
+              <button id="btnSigMockSample" class="btn ghost" type="button">Mock 静态样例</button>
+              <button id="btnSigMockValidate" class="btn ghost" type="button">Mock 验证任务</button>
+              <label class="field sig-mock-count">
+                <span>Mock 条数</span>
+                <input id="sigMockCount" type="number" min="1" max="20" value="8" />
+              </label>
             </div>
           </div>
           <p id="sigUserStatus" class="status"></p>
@@ -767,6 +773,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260825a"></script>
+  <script src="/app.js?v=20260825c"></script>
 </body>
 </html>

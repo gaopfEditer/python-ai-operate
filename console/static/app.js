@@ -182,6 +182,33 @@ function escapeAttr(s) {
   return escapeHtml(s).replace(/'/g, "&#39;");
 }
 
+function normalizeSigImgUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (!/twimg\.com|pbs\./i.test(raw)) return raw;
+  try {
+    const u = new URL(raw);
+    if (!u.searchParams.get("format")) {
+      const path = u.pathname.toLowerCase();
+      let fmt = "jpg";
+      if (path.endsWith(".png")) fmt = "png";
+      else if (path.endsWith(".webp")) fmt = "webp";
+      else if (path.endsWith(".gif")) fmt = "gif";
+      u.searchParams.set("format", fmt);
+    }
+    u.searchParams.set("name", "large");
+    return u.href;
+  } catch (_) {
+    return raw.includes("?") ? raw : `${raw}?format=jpg&name=large`;
+  }
+}
+
+function sigImgSrc(im) {
+  if (!im || typeof im !== "object") return "";
+  if (im.rel) return `/api/signals/media?rel=${encodeURIComponent(im.rel)}`;
+  return normalizeSigImgUrl(im.url || "");
+}
+
 function encodeData(s) {
   return encodeURIComponent(String(s || ""));
 }
@@ -3789,6 +3816,8 @@ function bind() {
   $("#btnSigUserStop")?.addEventListener("click", () => signalsControl("stop"));
   $("#btnSigUserRemote")?.addEventListener("click", () => loadRemoteCards());
   $("#btnSigUserValidate")?.addEventListener("click", () => startCardsValidate());
+  $("#btnSigMockSample")?.addEventListener("click", () => loadMockValidateSample());
+  $("#btnSigMockValidate")?.addEventListener("click", () => startMockCardsValidate());
   $("#btnSigCdpConfig")?.addEventListener("click", () => openSigCdpDialog());
   $("#sigCdpConfigForm")?.addEventListener("submit", (e) => {
     if (e.submitter?.value === "save") saveSigCdpConfig(e);
@@ -4061,6 +4090,7 @@ function formatValidateItem(it) {
   if (!it || typeof it !== "object") return "";
   const mode = it.mode || "?";
   const parts = [
+    it.mock ? "[Mock]" : "",
     `#${it.cardId || it.id || "?"}`,
     it.symbol ? `币种=${it.symbol}` : "",
     mode === "full" ? "已完结" : "进行中",
@@ -4070,6 +4100,47 @@ function formatValidateItem(it) {
   if (it.currentPnlPct != null) parts.push(`当前盈亏 ${it.currentPnlPct}%`);
   if (it.maxProfitAt) parts.push(`峰值@${String(it.maxProfitAt).slice(0, 19)}`);
   return parts.join(" · ");
+}
+
+function formatMockValidateCard(it) {
+  if (!it || typeof it !== "object") return "";
+  const symbol = it.symbol || it.coin || "-";
+  const dir = sigDirectionLabel(it.direction || "");
+  const cardId = it.cardId || it.id || "?";
+  const outcome = it.outcome || (it.mode === "full" ? "已完结" : "进行中");
+  const pnl = it.currentPnlPct;
+  const maxP = it.maxProfitPct;
+  const maxD = it.maxDrawdownPct;
+  const body = String(it.body || it.summary || it.note || "Mock 回测样例").slice(0, 200);
+  return `<article class="sig-card is-trade sig-remote-card sig-mock-card">
+    <div class="sig-card-top">
+      <span class="sig-dir">${escapeHtml(dir)}</span>
+      <span class="sig-coin">${escapeHtml(String(symbol))}</span>
+      <span class="sig-author">Mock</span>
+      <span class="sig-time">${escapeHtml(String(it.signalAt || it.validatedAt || "").slice(0, 19))}</span>
+    </div>
+    <p class="sig-summary">${escapeHtml(body)}</p>
+    <div class="sig-card-foot">
+      <span class="sig-conf">Mock #${escapeHtml(String(cardId))} · ${escapeHtml(String(outcome))}${
+        maxP != null ? ` · 最大盈利 ${escapeHtml(String(maxP))}%` : ""
+      }${maxD != null ? ` · 最大回撤 ${escapeHtml(String(maxD))}%` : ""}${
+        pnl != null ? ` · 当前盈亏 ${escapeHtml(String(pnl))}%` : ""
+      }</span>
+    </div>
+  </article>`;
+}
+
+function renderMockValidateItems(items, { title = "Mock 回测样例" } = {}) {
+  const box = $("#sigRemoteCards");
+  if (!box) return;
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) {
+    box.innerHTML = `<p class="muted">${escapeHtml(title)}：无数据</p>`;
+    return;
+  }
+  box.innerHTML = `<p class="muted">${escapeHtml(title)} · ${arr.length} 条（非真实 Cards 列表）</p>${arr
+    .map((it) => formatMockValidateCard(it))
+    .join("")}`;
 }
 
 async function loadRemoteCards({ quiet = false } = {}) {
@@ -4141,10 +4212,14 @@ function handleValidateWsMessage(msg) {
     const item = data.item || data;
     appendSigValidateLog(formatValidateItem(item));
   } else if (kind === "card_validate_done") {
-    appendSigValidateLog(`验证完成 · ${(data.items || []).length} 条结果`);
+    const items = data.items || [];
+    appendSigValidateLog(`验证完成 · ${items.length} 条结果`);
+    if (items.length && (data.mock || items.some((it) => it && it.mock))) {
+      renderMockValidateItems(items, { title: "Mock 验证结果" });
+    }
     if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = "完成";
     closeSigValidateWs();
-    loadRemoteCards({ quiet: true });
+    if (!data.mock && !items.some((it) => it && it.mock)) loadRemoteCards({ quiet: true });
   } else if (kind === "card_validate_error") {
     appendSigValidateLog(`验证失败：${data.error || "未知错误"}`);
     if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = "失败";
@@ -4152,9 +4227,11 @@ function handleValidateWsMessage(msg) {
   }
 }
 
-async function startCardsValidate() {
-  const btn = $("#btnSigUserValidate");
-  if (btn) btn.disabled = true;
+async function runCardsValidateJob({ mock = false } = {}) {
+  const btnReal = $("#btnSigUserValidate");
+  const btnMock = $("#btnSigMockValidate");
+  if (btnReal) btnReal.disabled = true;
+  if (btnMock) btnMock.disabled = true;
   closeSigValidateWs();
   const log = $("#sigValidateLog");
   if (log) {
@@ -4163,24 +4240,29 @@ async function startCardsValidate() {
   }
   const handle = parseSigUserHandle($("#sigUserProfileUrl")?.value.trim() || "");
   const weeks = Number($("#sigUserWeeks")?.value || 1);
-  setStatus($("#sigUserStatus"), "启动 Cards 验证…");
+  const mockCount = Math.max(1, Math.min(20, Number($("#sigMockCount")?.value || 8) || 8));
+  setStatus($("#sigUserStatus"), mock ? "启动 Mock 验证任务…" : "启动 Cards 验证…");
   try {
+    const body = mock
+      ? { mock: true, mockCount }
+      : {
+          days: Math.max(1, weeks * 7),
+          handle,
+          sources: "x",
+          limit: 200,
+        };
     const data = await api("/api/signals/cards/validate", {
       method: "POST",
-      body: JSON.stringify({
-        days: Math.max(1, weeks * 7),
-        handle,
-        sources: "x",
-        limit: 200,
-      }),
+      body: JSON.stringify(body),
     });
     if (!data.success || !data.job_id) {
       setStatus($("#sigUserStatus"), data.error || "验证启动失败", "error");
       return;
     }
     const jobId = data.job_id;
-    appendSigValidateLog(`jobId=${jobId}`);
-    setStatus($("#sigUserStatus"), `验证任务 ${jobId} 运行中…`, "ok");
+    appendSigValidateLog(`${mock ? "[Mock] " : ""}jobId=${jobId}`);
+    if (mock) appendSigValidateLog(`mockCount=${mockCount} · 监听 WebSocket / 轮询…`);
+    setStatus($("#sigUserStatus"), `${mock ? "Mock " : ""}验证任务 ${jobId} 运行中…`, "ok");
 
     try {
       const wsCfg = await api("/api/signals/cards/ws-config");
@@ -4204,11 +4286,13 @@ async function startCardsValidate() {
       try {
         const st = await api(`/api/signals/cards/validate/${encodeURIComponent(jobId)}`);
         if (st.status === "done") {
-          (st.items || []).forEach((it) => appendSigValidateLog(formatValidateItem(it)));
-          appendSigValidateLog("轮询：验证完成");
+          const items = st.items || [];
+          items.forEach((it) => appendSigValidateLog(formatValidateItem(it)));
+          if (mock && items.length) renderMockValidateItems(items, { title: "Mock 验证结果" });
+          appendSigValidateLog(`${mock ? "[Mock] " : ""}轮询：验证完成`);
           if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = "完成";
           closeSigValidateWs();
-          await loadRemoteCards({ quiet: true });
+          if (!mock) await loadRemoteCards({ quiet: true });
         } else if (st.status === "error") {
           appendSigValidateLog(`轮询：${st.error || "验证失败"}`);
           closeSigValidateWs();
@@ -4221,6 +4305,48 @@ async function startCardsValidate() {
     }, 2500);
   } catch (e) {
     setStatus($("#sigUserStatus"), String(e), "error");
+  } finally {
+    if (btnReal) btnReal.disabled = false;
+    if (btnMock) btnMock.disabled = false;
+  }
+}
+
+async function startCardsValidate() {
+  await runCardsValidateJob({ mock: false });
+}
+
+async function startMockCardsValidate() {
+  await runCardsValidateJob({ mock: true });
+}
+
+async function loadMockValidateSample() {
+  const btn = $("#btnSigMockSample");
+  if (btn) btn.disabled = true;
+  closeSigValidateWs();
+  const log = $("#sigValidateLog");
+  if (log) {
+    log.hidden = false;
+    log.textContent = "";
+  }
+  setStatus($("#sigUserStatus"), "拉取 Mock 静态样例…");
+  try {
+    const data = await api("/api/signals/cards/validate/mock/sample");
+    if (!data.success) {
+      const msg = data.message || data.error || "Mock 样例不可用";
+      setStatus($("#sigUserStatus"), msg, "error");
+      appendSigValidateLog(`失败：${msg}`);
+      return;
+    }
+    const items = data.items || [];
+    appendSigValidateLog(`[Mock 静态样例] 共 ${items.length} 条（不跑任务，立刻返回）`);
+    items.forEach((it) => appendSigValidateLog(formatValidateItem(it)));
+    renderMockValidateItems(items, { title: "Mock 静态回测样例" });
+    if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = `样例 ${items.length} 条`;
+    setStatus($("#sigUserStatus"), `Mock 静态样例 ${items.length} 条`, "ok");
+    toast(`Mock 静态样例 ${items.length} 条`, "ok");
+  } catch (e) {
+    setStatus($("#sigUserStatus"), String(e), "error");
+    appendSigValidateLog(String(e));
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -4905,11 +5031,10 @@ async function loadSignalCards() {
         }
         const imgs = (c.images || [])
           .map((im) => {
-            const src = im.rel
-              ? `/api/signals/media?rel=${encodeURIComponent(im.rel)}`
-              : im.url || "";
+            const src = sigImgSrc(im);
             if (!src) return "";
-            return `<a href="${escapeAttr(im.url || src)}" target="_blank" rel="noopener"><img src="${escapeAttr(src)}" alt="${escapeAttr(im.alt || "")}" loading="lazy" /></a>`;
+            const href = normalizeSigImgUrl(im.url || "") || src;
+            return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener"><img src="${escapeAttr(src)}" alt="${escapeAttr(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" /></a>`;
           })
           .join("");
         const chMap = c.channel || {};

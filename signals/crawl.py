@@ -23,70 +23,131 @@ _SESSION_LOCK = threading.RLock()
 _SESSION: Optional[Dict[str, Any]] = None  # client, page, target_id
 
 LIST_FEED_JS = r"""
-function abs(u){
-  try { return new URL(u, location.origin).href.split('?')[0]; } catch(e){ return (u||''); }
+function absUrl(u){
+  try {
+    if (!u) return '';
+    if (/^https?:\/\//i.test(u)) return new URL(u).href.split('?')[0];
+    const base = (location && location.origin) ? location.origin : 'https://x.com';
+    return new URL(u, base).href.split('?')[0];
+  } catch(e) {
+    return String(u || '').split('?')[0];
+  }
+}
+/** 推特媒体 URL 必须保留 ?format=&name=，否则会 404 */
+function mediaUrl(u){
+  try {
+    if (!u) return '';
+    let href = String(u);
+    if (!/^https?:\/\//i.test(href)) {
+      const base = (location && location.origin) ? location.origin : 'https://x.com';
+      href = new URL(href, base).href;
+    }
+    const url = new URL(href);
+    if (/pbs\.twimg\.com|twimg\.com/i.test(url.hostname)) {
+      if (!url.searchParams.get('format')) {
+        const path = url.pathname.toLowerCase();
+        let fmt = 'jpg';
+        if (path.endsWith('.png')) fmt = 'png';
+        else if (path.endsWith('.webp')) fmt = 'webp';
+        else if (path.endsWith('.gif')) fmt = 'gif';
+        url.searchParams.set('format', fmt);
+      }
+      url.searchParams.set('name', 'large');
+      return url.href;
+    }
+    return url.href;
+  } catch(e) {
+    return String(u || '');
+  }
+}
+function pickStatus(article){
+  const links = [...article.querySelectorAll("a[href*='status']")];
+  for (const l of links) {
+    const h = (l.getAttribute('href') || '').trim();
+    if (!h || /\/(analytics|photo|video|media)\//.test(h)) continue;
+    const m = h.match(/status\/(\d+)/i);
+    if (m) {
+      const path = h.startsWith('http') ? h : (h.startsWith('/') ? h : '/' + h);
+      return { tweet_id: m[1], url: absUrl(path) };
+    }
+  }
+  const timeLink = article.querySelector('time')?.closest('a[href*="status"]');
+  if (timeLink) {
+    const h = (timeLink.getAttribute('href') || '').trim();
+    const m = h.match(/status\/(\d+)/i);
+    if (m) return { tweet_id: m[1], url: absUrl(h) };
+  }
+  return null;
+}
+function pickAuthor(article){
+  for (const s of article.querySelectorAll('a[role="link"] span, [data-testid="User-Name"] span')) {
+    const t = (s.textContent || '').trim();
+    if (t.startsWith('@')) return t;
+  }
+  const nameLink = article.querySelector('[data-testid="User-Name"] a[href^="/"]')
+    || article.querySelector('div[data-testid="User-Name"] a[href^="/"]');
+  if (nameLink) {
+    const href = (nameLink.getAttribute('href') || '').split('?')[0].split('#')[0];
+    const seg = href.replace(/^\//, '').split('/')[0];
+    const bad = ['home','search','i','intent','hashtag','explore','settings','notifications'];
+    if (seg && bad.indexOf(seg.toLowerCase()) < 0) return '@' + seg;
+  }
+  return '';
 }
 const out = [];
 const arts = [...document.querySelectorAll("article[data-testid='tweet']")];
 for (const a of arts) {
-  const links = [...a.querySelectorAll("a[href*='/status/']")];
-  let status = '';
-  for (const l of links) {
-    const h = (l.getAttribute('href') || '');
-    if (/\/status\/\d+/.test(h) && !/\/(analytics|photo|video|media)\//.test(h)) {
-      status = abs(h);
-      break;
+  try {
+    const bodyTxt = (a.innerText || '').trim();
+    if (!bodyTxt || bodyTxt.length < 2) continue;
+    const head = (bodyTxt.split('\n')[0] || '').trim();
+    if (/^(Relevant|People|Top|Latest|Post|Posts)$/i.test(head)) continue;
+    const st = pickStatus(a);
+    if (!st || !st.tweet_id) continue;
+    const timeEl = a.querySelector('time');
+    const created_at = timeEl ? (timeEl.getAttribute('datetime') || '') : '';
+    const time_label = timeEl ? (timeEl.textContent || '').trim() : '';
+    const textParts = [...a.querySelectorAll('[data-testid="tweetText"]')]
+      .map(el => (el.innerText || '').trim())
+      .filter(Boolean);
+    const text = (textParts.length ? textParts.join('\n\n') : bodyTxt).slice(0, 8000);
+    const author = pickAuthor(a);
+    const images = [];
+    const seenImg = new Set();
+    for (const img of a.querySelectorAll('img')) {
+      const src = img.getAttribute('src') || '';
+      if (!src) continue;
+      if (/profile_images|emoji|ext_tw_video_thumb|hashflag/i.test(src)) continue;
+      if (!/twimg\.com|pbs\.|media/i.test(src)) continue;
+      const url = mediaUrl(src);
+      if (!url) continue;
+      const key = url.replace(/([?&]name=)\w+/i, '$1large');
+      if (seenImg.has(key)) continue;
+      seenImg.add(key);
+      images.push({
+        url: key,
+        alt: (img.getAttribute('alt') || '').slice(0, 300),
+      });
     }
-  }
-  if (!status) continue;
-  const idm = status.match(/\/status\/(\d+)/);
-  const tweet_id = idm ? idm[1] : '';
-  const timeEl = a.querySelector('time');
-  const created_at = timeEl ? (timeEl.getAttribute('datetime') || '') : '';
-  const time_label = timeEl ? (timeEl.textContent || '').trim() : '';
-  const text = [...a.querySelectorAll('[data-testid="tweetText"]')]
-    .map(el => (el.innerText || '').trim())
-    .filter(Boolean)
-    .join('\n\n');
-  let author = '';
-  for (const s of a.querySelectorAll('a[role="link"] span')) {
-    const t = (s.textContent || '').trim();
-    if (t.startsWith('@')) { author = t; break; }
-  }
-  const images = [];
-  const seenImg = new Set();
-  for (const img of a.querySelectorAll('img')) {
-    const src = img.getAttribute('src') || '';
-    if (!src) continue;
-    if (/profile_images|emoji|ext_tw_video_thumb|hashflag/i.test(src)) continue;
-    if (!/twimg\.com|pbs\.|media/i.test(src)) continue;
-    const url = abs(src.replace(/&name=\w+/, '&name=large').replace(/\?format=/, '?format='));
-    const key = url.replace(/name=\w+/, 'name=large');
-    if (seenImg.has(key)) continue;
-    seenImg.add(key);
-    images.push({
-      url: key,
-      alt: (img.getAttribute('alt') || '').slice(0, 300),
+    out.push({
+      tweet_id: st.tweet_id,
+      url: st.url,
+      author,
+      text,
+      created_at,
+      time_label,
+      images,
     });
-  }
-  out.push({
-    tweet_id,
-    url: status,
-    author,
-    text: (text || '').slice(0, 8000),
-    created_at,
-    time_label,
-    images,
-  });
+  } catch (e) {}
 }
 return out;
 """
 
 
-def _feed_js(handle: str = "") -> str:
-    """按博主 handle 过滤（排除时间线上的转推/他人帖）。"""
+def _feed_js(handle: str = "", *, filter_author: bool = True) -> str:
+    """按博主 handle 过滤（排除时间线上的转推/他人帖）。搜索页应 filter_author=False。"""
     h = re.sub(r"[^A-Za-z0-9_]", "", (handle or "").lstrip("@")).lower()
-    if not h:
+    if not h or not filter_author:
         return LIST_FEED_JS
     filter_tail = f"""
 const __want = "{h}";
@@ -102,21 +163,110 @@ return out;
     return base + filter_tail
 
 
-def _scroll_feed_page(page) -> None:
+def _scroll_feed_page(page, *, rounds: int = 4) -> None:
     page.eval_js(
-        """
-(() => {
-  window.scrollBy(0, Math.max(window.innerHeight * 1.2, 1600));
-  const col = document.querySelector('[data-testid="primaryColumn"]');
-  if (col) col.scrollTop = col.scrollHeight;
+        f"""
+(() => {{
+  const delta = Math.max(window.innerHeight * 0.95, 1400);
+  for (let r = 0; r < {max(1, int(rounds))}; r++) {{
+    window.scrollBy(0, delta);
+    const col = document.querySelector('[data-testid="primaryColumn"]');
+    if (col) col.scrollTop = col.scrollTop + delta;
+    const main = document.querySelector('main');
+    if (main && main.scrollHeight > main.clientHeight + 40) {{
+      main.scrollTop = main.scrollHeight;
+    }}
+  }}
   window.scrollTo(0, document.body.scrollHeight);
-  return true;
-})()
+  return document.querySelectorAll("article[data-testid='tweet']").length;
+}})()
 """
     )
 
 
-def _user_search_url(handle: str, since: datetime) -> str:
+def _prepare_timeline_page(page, *, kind: str) -> None:
+    """搜索/主页：点对应 Tab，尽量等首屏推文渲染。"""
+    kind_l = (kind or "").lower()
+    if kind_l == "search":
+        page.eval_js(
+            """
+(() => {
+  const tabs = [...document.querySelectorAll('a[role="tab"]')];
+  const pick = tabs.find(t => /Latest|最新|Recent|实时|Live/i.test((t.textContent||'').trim()))
+    || tabs.find(t => /Top|热门|Relevant/i.test((t.textContent||'').trim()));
+  if (pick) pick.click();
+  return true;
+})()
+"""
+        )
+        time.sleep(2.0)
+    elif kind_l == "profile":
+        page.eval_js(
+            """
+(() => {
+  const tabs = [...document.querySelectorAll('a[role="tab"]')];
+  const posts = tabs.find(t => /^(Posts|帖子|Post)$/i.test((t.textContent||'').trim()));
+  if (posts) posts.click();
+  return true;
+})()
+"""
+        )
+        time.sleep(1.5)
+
+
+def _dom_tweet_count(page) -> int:
+    try:
+        n = page.eval_js(
+            "return document.querySelectorAll(\"article[data-testid='tweet']\").length"
+        )
+        return int(n or 0)
+    except Exception:
+        return 0
+
+
+_DIAG_FEED_JS = r"""
+(() => {
+  const lim = __LIMIT__;
+  const arts = [...document.querySelectorAll("article[data-testid='tweet']")].slice(0, lim);
+  return arts.map((a, i) => {
+    const links = [...a.querySelectorAll("a[href*='status']")]
+      .map(l => (l.getAttribute('href') || '').trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    const hasTime = !!a.querySelector('time');
+    const hasText = !!a.querySelector('[data-testid="tweetText"]');
+    let tweet_id = '';
+    for (const h of links) {
+      const m = (h || '').match(/status\/(\d+)/i);
+      if (m) { tweet_id = m[1]; break; }
+    }
+    return {
+      i: i + 1,
+      links: links,
+      hasTime: hasTime,
+      hasText: hasText,
+      tweet_id: tweet_id,
+      preview: (a.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 100)
+    };
+  });
+})()
+"""
+
+
+def _diagnose_feed_dom(page, *, limit: int = 4) -> List[Dict[str, Any]]:
+    """抽取为空时诊断：每条 article 的链接/时间/正文情况。"""
+    lim = max(1, min(int(limit), 8))
+    script = _DIAG_FEED_JS.replace("__LIMIT__", str(lim))
+    try:
+        raw = page.eval_js(script)
+        if isinstance(raw, list):
+            return [x for x in raw if isinstance(x, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def _user_search_url(handle: str, since: datetime, *, live: bool = False) -> str:
     from urllib.parse import quote
 
     h = re.sub(r"[^A-Za-z0-9_]", "", (handle or "").lstrip("@"))
@@ -125,7 +275,16 @@ def _user_search_url(handle: str, since: datetime) -> str:
         since_local = since_local.replace(tzinfo=timezone.utc)
     since_date = since_local.astimezone().strftime("%Y-%m-%d")
     q = f"from:{h} since:{since_date}"
-    return f"https://x.com/search?q={quote(q)}&src=typed_query&f=live"
+    base = f"https://x.com/search?q={quote(q)}&src=typed_query"
+    return f"{base}&f=live" if live else base
+
+
+def _user_search_urls(handle: str, since: datetime) -> List[str]:
+    """搜索优先 Top，再试 Latest（live）。"""
+    return [
+        _user_search_url(handle, since, live=False),
+        _user_search_url(handle, since, live=True),
+    ]
 
 
 def _crawl_timeline_at_url(
@@ -139,34 +298,23 @@ def _crawl_timeline_at_url(
     progress: ProgressCb,
     should_abort: Optional[Callable[[], bool]],
     page,
+    filter_author: bool = True,
+    page_kind: str = "profile",
 ) -> Dict[str, Any]:
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
-    feed_js = _feed_js(handle)
+    feed_js = _feed_js(handle, filter_author=filter_author)
     by_id: Dict[str, Dict[str, Any]] = {}
     seen_log: set = set()
     page_seen = 0
-    page_kept = 0
     page_old = 0
-    reached_old = False
-    stale_rounds = 0
+    window_exhausted = False
+    lazy_stall = 0
 
     _log(progress, f"打开 {label}：{url}")
     page.silent_navigate(url)
-    time.sleep(4.0)
-    try:
-        page.eval_js(
-            """
-(() => {
-  const tabs = [...document.querySelectorAll('a[role="tab"]')];
-  const posts = tabs.find(t => /^(Posts|帖子)$/i.test((t.textContent||'').trim()));
-  if (posts) posts.click();
-  return true;
-})()
-"""
-        )
-        time.sleep(1.2)
-    except Exception:
-        pass
+    wait_s = 5.0 if page_kind == "search" else 3.5
+    time.sleep(wait_s)
+    _prepare_timeline_page(page, kind=page_kind)
 
     for round_i in range(max_scroll):
         if should_abort and should_abort():
@@ -179,10 +327,30 @@ def _crawl_timeline_at_url(
             raw = []
         if not isinstance(raw, list):
             raw = []
+        if not raw:
+            dom_n = _dom_tweet_count(page)
+            if dom_n:
+                _log(
+                    progress,
+                    f"{label} DOM 可见 {dom_n} 条 article，但抽取为空"
+                    + ("（已关作者过滤）" if not filter_author else "（检查登录或页面结构）"),
+                )
+                if round_i == 0 or round_i % 5 == 0:
+                    for diag in _diagnose_feed_dom(page):
+                        _log(
+                            progress,
+                            f"  诊断 #{diag.get('i')} id={diag.get('tweet_id') or '-'}"
+                            f" time={bool(diag.get('hasTime'))} text={bool(diag.get('hasText'))}"
+                            f" links={diag.get('links') or []}"
+                            f" | {(diag.get('preview') or '')[:80]}",
+                        )
+            elif round_i == 0:
+                _log(progress, f"{label} 首屏无推文 DOM，继续滚动…")
 
         oldest_in_batch = None
         new_in_round = 0
         new_in_window = 0
+        new_all_old = True
         for it in raw:
             if not isinstance(it, dict):
                 continue
@@ -196,8 +364,6 @@ def _crawl_timeline_at_url(
             if created:
                 if oldest_in_batch is None or created < oldest_in_batch:
                     oldest_in_batch = created
-                if too_old:
-                    reached_old = True
 
             if tid not in seen_log:
                 seen_log.add(tid)
@@ -207,8 +373,9 @@ def _crawl_timeline_at_url(
                     page_old += 1
                     _log(progress, f"[页面] #{page_seen} 过旧 · {fmt_tweet_line(it)}")
                 else:
-                    page_kept += 1
                     _log(progress, f"[页面] #{page_seen} 纳入 · {fmt_tweet_line(it)}")
+                if not too_old:
+                    new_all_old = False
 
             if too_old:
                 continue
@@ -226,24 +393,32 @@ def _crawl_timeline_at_url(
         if len(by_id) >= max_tweets:
             break
 
-        if new_in_window == 0:
-            stale_rounds += 1
+        if new_in_round > 0:
+            lazy_stall = 0
+            if new_all_old:
+                window_exhausted = True
         else:
-            stale_rounds = 0
+            lazy_stall += 1
 
-        # 必须连续多轮无新帖 + 已见到过旧帖，才停止（避免置顶老帖导致只抓 2 条）
-        if reached_old and stale_rounds >= 6:
-            _log(progress, f"{label}：已滚出时间窗且连续 {stale_rounds} 轮无新帖，停止")
+        # 仅当「新加载的全是过旧帖」且连续多轮滚不动，才认为滚出时间窗（置顶老帖不会误触发）
+        if window_exhausted and lazy_stall >= 4:
+            _log(
+                progress,
+                f"{label}：已滚出时间窗且连续 {lazy_stall} 轮无新帖，停止",
+            )
             break
-        if round_i >= 8 and stale_rounds >= 10:
-            _log(progress, f"{label}：连续 {stale_rounds} 轮无新帖，停止")
+        if lazy_stall >= 14:
+            _log(
+                progress,
+                f"{label}：连续 {lazy_stall} 轮 DOM 无新帖，停止（可检查 CDP 是否已登录 X）",
+            )
             break
 
         try:
-            _scroll_feed_page(page)
+            _scroll_feed_page(page, rounds=3 if lazy_stall >= 3 else 2)
         except Exception:
             break
-        time.sleep(1.35)
+        time.sleep(1.6 if lazy_stall >= 3 else 1.35)
 
     items = list(by_id.values())
 
@@ -416,37 +591,79 @@ def close_list_crawl_tab(*, log: ProgressCb = None) -> None:
     _close_session(log=log)
 
 
+def normalize_twimg_url(url: str) -> str:
+    """补全 pbs.twimg.com 缺失的 format/name，避免 404。"""
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    if "twimg.com" not in raw and "pbs." not in raw:
+        return raw
+    try:
+        from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+        parsed = urlparse(raw)
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        if "format" not in qs or not qs.get("format"):
+            path_l = (parsed.path or "").lower()
+            fmt = "jpg"
+            if path_l.endswith(".png"):
+                fmt = "png"
+            elif path_l.endswith(".webp"):
+                fmt = "webp"
+            elif path_l.endswith(".gif"):
+                fmt = "gif"
+            qs["format"] = [fmt]
+        qs["name"] = ["large"]
+        flat = [(k, v[0] if isinstance(v, list) and v else v) for k, v in qs.items()]
+        return urlunparse(parsed._replace(query=urlencode(flat)))
+    except Exception:
+        if "?" not in raw:
+            return f"{raw}?format=jpg&name=large"
+        return raw
+
+
 def download_image(url: str, tweet_id: str, index: int) -> Dict[str, Any]:
     """下载配图到 output/signals/media/，失败则仅保留远端 URL。"""
-    info: Dict[str, Any] = {"url": url, "local": "", "rel": "", "alt": ""}
-    if not url:
+    fixed = normalize_twimg_url(url)
+    info: Dict[str, Any] = {"url": fixed or url, "local": "", "rel": "", "alt": ""}
+    if not fixed and not url:
         return info
     root = media_root()
     ext = ".jpg"
-    m = re.search(r"format=(\w+)", url)
+    m = re.search(r"format=(\w+)", fixed or url, re.I)
     if m:
         fmt = m.group(1).lower()
-        ext = ".png" if fmt == "png" else ".webp" if fmt == "webp" else ".jpg"
-    elif ".png" in url:
+        ext = ".png" if fmt == "png" else ".webp" if fmt == "webp" else ".gif" if fmt == "gif" else ".jpg"
+    elif ".png" in (fixed or url):
         ext = ".png"
     name = f"{tweet_id}_{index}{ext}"
     dest = root / name
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 TrendRadarSignals/1.0",
-                "Referer": "https://x.com/",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = resp.read()
-        if data:
-            dest.write_bytes(data)
-            info["local"] = str(dest)
-            info["rel"] = name
-    except Exception as e:
-        info["error"] = str(e)[:120]
+    last_err = ""
+    for candidate in (fixed, url):
+        if not candidate:
+            continue
+        try:
+            req = urllib.request.Request(
+                candidate,
+                headers={
+                    "User-Agent": "Mozilla/5.0 TrendRadarSignals/1.0",
+                    "Referer": "https://x.com/",
+                    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = resp.read()
+            if data:
+                dest.write_bytes(data)
+                info["local"] = str(dest)
+                info["rel"] = name
+                info["url"] = candidate
+                info.pop("error", None)
+                return info
+        except Exception as e:
+            last_err = str(e)[:120]
+    if last_err:
+        info["error"] = last_err
     return info
 
 
@@ -627,9 +844,18 @@ def crawl_user_timeline(
     if not h:
         return {"success": False, "error": "缺少博主链接或 @handle", "items": []}
     profile_url = user_profile_url(h)
-    search_url = _user_search_url(h, since)
+    search_urls = _user_search_urls(h, since)
     max_tweets = max(1, min(int(max_tweets or 80), 300))
-    max_scroll = max(20, min(int(max_scroll or 24), 150))
+    max_scroll = max(25, min(int(max_scroll or 24), 150))
+
+    def _merge_items(into: Dict[str, Dict[str, Any]], res: Dict[str, Any]) -> Tuple[int, int]:
+        seen = int(res.get("page_seen") or 0)
+        old = int(res.get("page_old") or 0)
+        for it in res.get("items") or []:
+            tid = str(it.get("tweet_id") or "")
+            if tid:
+                into[tid] = it
+        return seen, old
 
     def _aborted() -> bool:
         try:
@@ -670,25 +896,31 @@ def crawl_user_timeline(
         total_seen = 0
         total_old = 0
 
-        search_res = _crawl_timeline_at_url(
-            url=search_url,
-            label="搜索时间线",
-            handle=h,
-            since=since,
-            max_tweets=max_tweets,
-            max_scroll=max_scroll,
-            progress=progress,
-            should_abort=_aborted,
-            page=page,
-        )
-        for it in search_res.get("items") or []:
-            tid = str(it.get("tweet_id") or "")
-            if tid:
-                merged[tid] = it
-        total_seen += int(search_res.get("page_seen") or 0)
-        total_old += int(search_res.get("page_old") or 0)
+        for si, search_url in enumerate(search_urls):
+            if _aborted():
+                break
+            if si > 0 and len(merged) >= max(10, max_tweets // 3):
+                break
+            tag = "搜索(热门)" if si == 0 else "搜索(实时)"
+            search_res = _crawl_timeline_at_url(
+                url=search_url,
+                label=tag,
+                handle=h,
+                since=since,
+                max_tweets=max_tweets,
+                max_scroll=max_scroll,
+                progress=progress,
+                should_abort=_aborted,
+                page=page,
+                filter_author=False,
+                page_kind="search",
+            )
+            ps, po = _merge_items(merged, search_res)
+            total_seen += ps
+            total_old += po
 
-        if len(merged) < max(10, max_tweets // 3):
+        min_want = max(10, max_tweets // 3)
+        if len(merged) < min_want:
             _log(
                 progress,
                 f"搜索仅 {len(merged)} 条，补充抓取主页时间线…",
@@ -703,13 +935,32 @@ def crawl_user_timeline(
                 progress=progress,
                 should_abort=_aborted,
                 page=page,
+                filter_author=True,
+                page_kind="profile",
             )
-            for it in profile_res.get("items") or []:
-                tid = str(it.get("tweet_id") or "")
-                if tid and tid not in merged:
-                    merged[tid] = it
-            total_seen += int(profile_res.get("page_seen") or 0)
-            total_old += int(profile_res.get("page_old") or 0)
+            ps, po = _merge_items(merged, profile_res)
+            total_seen += ps
+            total_old += po
+
+        if len(merged) < min_want:
+            replies_url = f"{profile_url.rstrip('/')}/with_replies"
+            _log(progress, f"主页仍仅 {len(merged)} 条，尝试回复时间线…")
+            replies_res = _crawl_timeline_at_url(
+                url=replies_url,
+                label="博主回复",
+                handle=h,
+                since=since,
+                max_tweets=max_tweets,
+                max_scroll=max_scroll,
+                progress=progress,
+                should_abort=_aborted,
+                page=page,
+                filter_author=True,
+                page_kind="profile",
+            )
+            ps, po = _merge_items(merged, replies_res)
+            total_seen += ps
+            total_old += po
 
         items = list(merged.values())
 
@@ -727,7 +978,7 @@ def crawl_user_timeline(
             "success": True,
             "handle": h,
             "url": profile_url,
-            "search_url": search_url,
+            "search_urls": search_urls,
             "items": items,
             "count": len(items),
             "page_seen": total_seen,

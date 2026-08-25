@@ -3113,6 +3113,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             limit = int(body.get("limit") or 200)
         except Exception:
             limit = 200
+        mock_flag = bool(body.get("mock"))
+        try:
+            mock_count = int(body.get("mockCount") or body.get("mock_count") or 8)
+        except Exception:
+            mock_count = 8
         result = start_validate(
             days=days,
             channel_id=channel_id,
@@ -3120,9 +3125,25 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             sources=sources,
             limit=limit,
             card_ids=card_ids,
+            mock=mock_flag,
+            mock_count=mock_count,
         )
         code = 202 if result.get("success") else 400
         return _json_bytes(result, code)
+
+    if path == "/api/signals/cards/validate/mock/sample" and method == "GET":
+        from signals.cards_api import fetch_validate_mock_sample
+
+        result = fetch_validate_mock_sample()
+        if not result.get("success"):
+            code = 502
+            payload = {
+                "success": False,
+                **result,
+                "message": result.get("hint") or result.get("error") or "Mock 样例不可用",
+            }
+            return _json_bytes(payload, code)
+        return _json_bytes({"success": True, **result})
 
     if path.startswith("/api/signals/cards/validate/") and method == "GET":
         from signals.cards_api import poll_validate

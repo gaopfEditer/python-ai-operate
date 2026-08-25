@@ -174,6 +174,24 @@ def fetch_channels(
     return {"success": bool(res.get("success")), "channels": channels, "error": res.get("error")}
 
 
+def fetch_validate_mock_sample(*, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """静态 Mock 验证样例（立刻返回，不跑任务）。"""
+    res = _request_json("GET", "/api/v1/cards/validate/mock/sample", cfg=cfg)
+    data = res.get("data") if isinstance(res.get("data"), dict) else {}
+    items = data.get("items") if isinstance(data.get("items"), list) else []
+    err = _upstream_error_message(res) if not res.get("success") else ""
+    return {
+        "success": bool(res.get("success")),
+        "items": items,
+        "mock": True,
+        "total": data.get("total") or len(items),
+        "error": err,
+        "status": res.get("status"),
+        "upstream_url": res.get("url"),
+        "raw": data,
+    }
+
+
 def start_validate(
     *,
     days: Optional[int] = None,
@@ -182,19 +200,27 @@ def start_validate(
     sources: str = "",
     limit: int = 200,
     card_ids: Optional[List[int]] = None,
+    mock: bool = False,
+    mock_count: int = 8,
     cfg: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    body: Dict[str, Any] = {"limit": max(1, min(int(limit or 200), 500))}
-    if days is not None:
-        body["days"] = max(1, int(days))
-    if channel_id:
-        body["channelId"] = channel_id
-    if symbol:
-        body["symbol"] = symbol
-    if sources:
-        body["sources"] = sources
-    if card_ids:
-        body["cardIds"] = card_ids
+    if mock:
+        body = {
+            "mock": True,
+            "mockCount": max(1, min(int(mock_count or 8), 20)),
+        }
+    else:
+        body = {"limit": max(1, min(int(limit or 200), 500))}
+        if days is not None:
+            body["days"] = max(1, int(days))
+        if channel_id:
+            body["channelId"] = channel_id
+        if symbol:
+            body["symbol"] = symbol
+        if sources:
+            body["sources"] = sources
+        if card_ids:
+            body["cardIds"] = card_ids
     res = _request_json("POST", "/api/v1/cards/validate", body=body, cfg=cfg)
     data = res.get("data") if isinstance(res.get("data"), dict) else {}
     job_id = str(data.get("jobId") or "")
@@ -203,6 +229,7 @@ def start_validate(
         "job_id": job_id,
         "status": data.get("status"),
         "filters": data.get("filters"),
+        "mock": bool(mock or data.get("mock")),
         "ws": data.get("ws") or ws_config(cfg),
         "poll": data.get("poll") or (f"/api/v1/cards/validate/{job_id}" if job_id else ""),
         "error": res.get("error") or data.get("error"),

@@ -484,8 +484,8 @@ def run_user_signal_pipeline(
                 filtered_cache += 1
                 _log(progress, f"[缓存] 将复用已解析 · {fmt_tweet_line(it)}")
                 continue
-            filtered_seen += 1
-            _log(progress, f"[过滤] 已处理过 · {fmt_tweet_line(it)}")
+            fresh.append(it)
+            _log(progress, f"[补解析] 无缓存记录 · {fmt_tweet_line(it)}")
             continue
         fresh.append(it)
 
