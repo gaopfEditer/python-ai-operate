@@ -183,6 +183,17 @@ def _write_content_md(dir_path: Path, title: str, content: str, meta: Dict[str, 
     return path
 
 
+def resolve_publish_media(body: dict) -> List[str]:
+    """合并 media_paths 与浏览器上传 media_files，供即时 CDP 发布使用。"""
+    path_sources = _normalize_media(body.get("media_paths") or body.get("media") or [])
+    uploads = _decode_upload_files(body.get("media_files"))
+    if not uploads:
+        return path_sources
+    tmp = cache_root() / "_instant" / uuid.uuid4().hex[:12]
+    tmp.mkdir(parents=True, exist_ok=True)
+    return _materialize_media(tmp / "media", path_sources=path_sources, uploads=uploads)
+
+
 def _materialize_media(
     media_dir: Path,
     *,

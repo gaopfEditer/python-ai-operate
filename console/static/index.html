@@ -250,6 +250,17 @@
             <form id="labCaptureForm" class="lab-capture">
               <input id="labCaptureInput" type="text" placeholder="粘贴推文 / 链接 / 碎片…" autocomplete="off" />
             </form>
+            <div class="lab-material-bar">
+              <span class="lab-material-label">素材类目</span>
+              <div id="labMaterialTabs" class="lab-material-tabs"></div>
+            </div>
+            <div id="labCategoryTemplates" class="lab-category-templates" hidden>
+              <div class="lab-category-templates-head">
+                <span>类目结构模板</span>
+                <em class="muted">生成时自动参考句式骨架</em>
+              </div>
+              <div id="labCategoryTemplateList" class="lab-category-template-list"></div>
+            </div>
             <div class="lab-filters">
               <input id="corpusKeyword" type="search" placeholder="搜索 / #标签" />
               <select id="corpusStatus">
@@ -328,7 +339,7 @@
               <button id="btnLabCopyMd" class="btn ghost" type="button">一键复制</button>
               <button id="btnLabRegen" class="btn ghost" type="button">重新生成</button>
               <button id="btnLabSaveFeatured" class="btn primary" type="button">★ 精选留存</button>
-              <button id="btnLabPublishPreview" class="btn ghost" type="button">发布预览</button>
+              <button id="btnLabPublishPreview" class="btn ghost" type="button">CDP 发布</button>
             </div>
             <div class="lab-hist-head">
               <h4 class="lab-hist-title">精选留存历史</h4>
@@ -384,6 +395,7 @@
             <label class="field full"><span>关键词</span><input id="editCorpusKeywords" type="text" /></label>
             <label class="field full"><span>钩子</span><input id="editCorpusHooks" type="text" /></label>
             <label class="field full"><span>标签</span><input id="editCorpusTags" type="text" /></label>
+            <label class="field full"><span>素材类目</span><select id="editCorpusMaterial"></select></label>
             <div class="field full" style="flex-direction:row;gap:8px;justify-content:flex-end">
               <button value="cancel" class="btn ghost" type="submit">取消</button>
               <button id="btnSaveCorpusEdit" value="save" class="btn primary" type="submit">保存</button>
@@ -436,42 +448,25 @@
       <section id="panel-publish" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>CDP 发布</h2>
-          <p>上传图文保存到后台按月目录（可拷贝），也可预约定时发布。存储：<code>output/publish_cache/YYYY-MM/</code></p>
+          <p>正文 + 图片发布到所选平台。预约时间<strong>默认不修改则立即发布</strong>，修改后按时间定时发布。存储：<code>output/publish_cache/YYYY-MM/</code></p>
         </div>
-        <div class="toolbar">
-          <label class="field grow">
-            <span>本地文章</span>
-            <select id="articleSelect">
-              <option value="">选择本地文章…</option>
-            </select>
-          </label>
-          <button id="btnLoadArticles" class="btn ghost" type="button">刷新列表</button>
-        </div>
-        <div class="form-grid">
-          <label class="field full">
-            <span>标题（可选）</span>
-            <input id="publishTitle" type="text" />
-          </label>
+        <div class="form-grid publish-simple">
           <label class="field full">
             <span>正文</span>
-            <textarea id="publishContent" rows="8"></textarea>
+            <textarea id="publishContent" rows="8" placeholder="推文 / 帖子正文…"></textarea>
           </label>
-          <label class="field full">
-            <span>上传图片（可多选）</span>
-            <input id="publishMediaFiles" type="file" accept="image/*,video/*" multiple />
-          </label>
-          <div id="publishMediaPreview" class="media-preview"></div>
-          <label class="field full">
-            <span>或粘贴本地路径（可选，每行一个）</span>
-            <textarea id="publishMedia" rows="2" placeholder="/path/to/a.jpg"></textarea>
-          </label>
-          <label class="field">
-            <span>标签（博客用）</span>
-            <input id="publishTags" type="text" placeholder="AI, 热点" />
-          </label>
+          <div class="field full publish-media-field">
+            <span>图片（可选）</span>
+            <div class="publish-media-row">
+              <div id="publishMediaPreview" class="media-preview"></div>
+              <label id="btnPublishMediaAdd" class="btn ghost publish-media-add" for="publishMediaFiles">添加图片</label>
+              <input id="publishMediaFiles" type="file" accept="image/*,video/*" multiple class="publish-media-input" />
+            </div>
+          </div>
           <label class="field">
             <span>预约发布时间</span>
             <input id="publishScheduleAt" type="datetime-local" />
+            <span class="muted publish-schedule-hint">默认不修改 = 立即发布；改了时间 = 定时发布</span>
           </label>
           <div class="field full">
             <span>发布平台</span>
@@ -490,19 +485,19 @@
             <span>立即发布时：仅填不点发</span>
           </label>
         </div>
-        <div class="toolbar">
+        <div class="toolbar publish-toolbar">
           <button id="btnCacheSave" class="btn primary" type="button">保存到月度缓存</button>
           <button id="btnQueueAdd" class="btn primary" type="button">保存并加入定时队列</button>
-          <button id="btnPublish" class="btn ghost" type="button">立即发布</button>
+          <button id="btnPublish" class="btn primary" type="button">发布</button>
           <button id="btnQueueRefresh" class="btn ghost" type="button">刷新队列</button>
           <button id="btnQueueClearDone" class="btn ghost" type="button">清理已完成</button>
         </div>
         <p id="publishStatus" class="status"></p>
+        <div id="publishProgress" class="publish-progress" hidden></div>
         <div class="queue-head">
           <h3>发布队列 <span id="queueStats" class="muted"></span></h3>
         </div>
         <div id="publishQueueList" class="card-list queue-list"></div>
-
         <div class="queue-head" style="margin-top:28px">
           <h3>月度缓存浏览 <span id="cacheRootLabel" class="muted"></span></h3>
         </div>
@@ -515,7 +510,11 @@
           <button id="btnCacheOpenRoot" class="btn ghost" type="button">打开缓存根目录</button>
         </div>
         <div id="publishCacheList" class="card-list queue-list"></div>
-        <pre id="publishResult" class="preview-body muted"></pre>
+        <input id="publishTitle" type="hidden" value="" />
+        <textarea id="publishMedia" hidden></textarea>
+        <input id="publishTags" type="hidden" value="" />
+        <select id="articleSelect" hidden><option value=""></option></select>
+        <pre id="publishResult" class="preview-body muted" hidden></pre>
       </section>
 
       <section id="panel-signals" class="panel" role="tabpanel" hidden>
@@ -682,6 +681,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260823e"></script>
+  <script src="/app.js?v=20260824p"></script>
 </body>
 </html>

@@ -255,12 +255,12 @@ publish:
     - id: "okx"
       name: "OKX"
       type: "okx"
-      square_url: "https://www.okx.com/zh-hans/community"
+      square_url: "https://www.okx.com/zh-hans/orbit"
       enabled: true
     - id: "bitget"
       name: "Bitget"
       type: "bitget"
-      square_url: "https://www.bitget.com/zh-CN/community"
+      square_url: "https://www.bitget.com/zh-CN/insights"
       enabled: true
     - id: "reddit"
       name: "Reddit"

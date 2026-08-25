@@ -13,6 +13,7 @@ from public.platforms.cdp_common import (
     normalize_media_paths,
     open_url_new_tab,
     split_media,
+    type_text_human,
     upload_files,
 )
 
@@ -186,23 +187,7 @@ class XPublisher:
         return False
 
     def _fill_text(self, driver, editor, text: str) -> None:
-        from selenium.webdriver.common.keys import Keys
-
-        try:
-            editor.click()
-        except Exception:
-            driver.execute_script("arguments[0].click();", editor)
-        human_pause(0.2, 0.4)
-        try:
-            editor.send_keys(Keys.COMMAND if self._is_mac() else Keys.CONTROL, "a")
-            editor.send_keys(Keys.BACKSPACE)
-        except Exception:
-            pass
-        # 分段输入，降低一次粘贴失败概率
-        chunk = 400
-        for i in range(0, len(text), chunk):
-            editor.send_keys(text[i : i + chunk])
-            time.sleep(0.05)
+        type_text_human(driver, editor, text, min_delay=0.035, max_delay=0.12)
 
     def _ensure_media_input(self, driver) -> None:
         """若尚无 file input，点媒体按钮唤出。"""
@@ -291,9 +276,3 @@ class XPublisher:
                 return True
             except Exception:
                 return False
-
-    @staticmethod
-    def _is_mac() -> bool:
-        import sys
-
-        return sys.platform == "darwin"

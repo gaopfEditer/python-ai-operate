@@ -93,7 +93,8 @@ def publish_content(
     results = []
     shared_driver = None
     needs_cdp = use_cdp or any(
-        (get_platform_config(pid) or {}).get("type") in ("x", "twitter", "binance_square")
+        (get_platform_config(pid) or {}).get("type")
+        in ("x", "twitter", "binance_square", "okx", "bitget")
         for pid in platform_ids
     )
     if needs_cdp and debugger_url:
@@ -163,7 +164,7 @@ def publish_content(
                     submit=submit,
                     title=content.get('title', ''),
                 )
-            elif platform_type in ('binance_square', 'binance', 'square'):
+            elif platform_type in ('binance_square', 'binance', 'square', 'okx', 'bitget'):
                 from public.platforms.binance_square_publisher import (
                     BinanceSquarePublisher,
                 )
@@ -179,6 +180,8 @@ def publish_content(
                     media_upload_wait=float(
                         platform_config.get('media_upload_wait', 25) or 25
                     ),
+                    platform_id=platform_id,
+                    platform_name=platform_name,
                 )
                 if shared_driver is not None:
                     publisher.driver = shared_driver

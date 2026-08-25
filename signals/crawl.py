@@ -4,15 +4,23 @@
 from __future__ import annotations
 
 import re
+import threading
 import time
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from signals.store import media_root, parse_dt, parse_list_id
 from signals.tweet_log import fmt_tweet_line
 
 ProgressCb = Optional[Callable[[str], None]]
+
+# 专用静默标签标记（用于复用 / 清理，避免每次 createTarget 堆 tab）
+_SIGNALS_TAB_MARKER = "trendradar-signals"
+_SIGNALS_TAB_BLANK = f"about:blank#{_SIGNALS_TAB_MARKER}"
+
+_SESSION_LOCK = threading.RLock()
+_SESSION: Optional[Dict[str, Any]] = None  # client, page, target_id
 
 LIST_FEED_JS = r"""
 function abs(u){
@@ -95,6 +103,137 @@ def _debugger_host() -> str:
         return "127.0.0.1:9223"
 
 
+def _patch_debugger_host(host: str):
+    """临时覆盖 allnews debugger 地址。"""
+    try:
+        import allnews_mornitor.cdp_browser as cdp_mod
+
+        orig = cdp_mod.get_debugger_url
+
+        def _patched() -> str:
+            return host
+
+        cdp_mod.get_debugger_url = _patched  # type: ignore
+        return orig
+    except Exception:
+        return None
+
+
+def _list_signal_tabs() -> List[Dict[str, Any]]:
+    from allnews_mornitor.cdp_browser import _http_json
+
+    try:
+        pages = _http_json("/json/list")
+    except Exception:
+        return []
+    if not isinstance(pages, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for p in pages:
+        if not isinstance(p, dict) or p.get("type") != "page":
+            continue
+        url = str(p.get("url") or "")
+        if _SIGNALS_TAB_MARKER in url or "/i/lists/" in url:
+            out.append(p)
+    return out
+
+
+def _close_session(*, log: ProgressCb = None) -> None:
+    global _SESSION
+    with _SESSION_LOCK:
+        sess = _SESSION
+        _SESSION = None
+    if not sess:
+        return
+    page = sess.get("page")
+    client = sess.get("client")
+    if page is not None:
+        try:
+            page.close()
+        except Exception:
+            pass
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+    if log:
+        _log(log, "CDP 列表抓取标签已关闭")
+
+
+def _session_alive(sess: Dict[str, Any]) -> bool:
+    client = sess.get("client")
+    page = sess.get("page")
+    if client is None or page is None:
+        return False
+    if getattr(client, "_closed", False):
+        return False
+    try:
+        page.eval_js("1+1")
+        return True
+    except Exception:
+        return False
+
+
+def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[Any, Any]:
+    """
+    复用单个后台标签抓取列表，避免周期任务每次 Target.createTarget 新开 tab。
+    """
+    from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
+
+    global _SESSION
+
+    with _SESSION_LOCK:
+        if _SESSION and _session_alive(_SESSION):
+            page = _SESSION["page"]
+            _log(progress, f"CDP 复用列表标签 → {list_url}")
+            page.silent_navigate(list_url)
+            return _SESSION["client"], page
+
+        _close_session()
+
+        try:
+            _http_json("/json/version")
+        except Exception as e:
+            raise RuntimeError(
+                f"无法连接 Chrome CDP，请先 --remote-debugging-port=9223: {e}"
+            ) from e
+
+        client = _CdpClient(_browser_ws_url())
+        page = None
+        marked = [p for p in _list_signal_tabs() if _SIGNALS_TAB_MARKER in str(p.get("url") or "")]
+
+        # 清理历史遗留的多个标记 tab，只保留一个
+        for extra in marked[1:]:
+            BackgroundTarget.close_target_id(client, str(extra.get("id") or ""))
+
+        if marked:
+            tid = str(marked[0].get("id") or "")
+            try:
+                page = BackgroundTarget.attach(client, tid)
+                _log(progress, "CDP 附着已有列表抓取标签（未新建 tab）")
+            except Exception:
+                BackgroundTarget.close_target_id(client, tid)
+                page = None
+
+        if page is None:
+            page = BackgroundTarget.create(client, _SIGNALS_TAB_BLANK)
+            _log(progress, "CDP 建立列表抓取专用标签（后台，仅此一个）")
+
+        _SESSION = {
+            "client": client,
+            "page": page,
+            "target_id": page.target_id,
+        }
+        page.silent_navigate(list_url)
+        return client, page
+
+
+def close_list_crawl_tab(*, log: ProgressCb = None) -> None:
+    """手动关闭列表抓取专用标签（一般不必调用，周期任务会自动复用）。"""
+    _close_session(log=log)
+
+
 def download_image(url: str, tweet_id: str, index: int) -> Dict[str, Any]:
     """下载配图到 output/signals/media/，失败则仅保留远端 URL。"""
     info: Dict[str, Any] = {"url": url, "local": "", "rel": "", "alt": ""}
@@ -142,7 +281,7 @@ def crawl_list_timeline(
     静默 CDP 打开列表页，滚动直到推文时间早于 since 或达到上限。
     should_abort: 返回 True 时提前结束滚动。
     """
-    from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
+    from allnews_mornitor.cdp_browser import _http_json
 
     lid = parse_list_id(list_id) or str(list_id or "").strip()
     if not lid:
@@ -157,22 +296,9 @@ def crawl_list_timeline(
         except Exception:
             return False
 
-    # 临时覆盖 allnews debugger（BackgroundTarget 用其 get_debugger_url）
     host = _debugger_host()
-    _orig = None
-    try:
-        import allnews_mornitor.cdp_browser as cdp_mod
+    _orig = _patch_debugger_host(host)
 
-        _orig = cdp_mod.get_debugger_url
-
-        def _patched() -> str:
-            return host
-
-        cdp_mod.get_debugger_url = _patched  # type: ignore
-    except Exception:
-        pass
-
-    client = None
     page = None
     try:
         try:
@@ -184,11 +310,8 @@ def crawl_list_timeline(
                 "items": [],
             }
 
-        _log(progress, f"CDP 打开列表 {url}")
-        client = _CdpClient(_browser_ws_url())
-        page = BackgroundTarget.create(client, "about:blank")
-        page.silent_navigate(url)
-        time.sleep(3.2)
+        _, page = _acquire_list_page(url, progress=progress)
+        time.sleep(2.5)
 
         by_id: Dict[str, Dict[str, Any]] = {}
         seen_log: set = set()
@@ -292,18 +415,9 @@ def crawl_list_timeline(
             "page_old": page_old,
         }
     except Exception as e:
+        _close_session()
         return {"success": False, "error": str(e), "items": []}
     finally:
-        try:
-            if page is not None:
-                page.detach()
-        except Exception:
-            pass
-        try:
-            if client is not None:
-                client.close()
-        except Exception:
-            pass
         if _orig is not None:
             try:
                 import allnews_mornitor.cdp_browser as cdp_mod
@@ -311,3 +425,4 @@ def crawl_list_timeline(
                 cdp_mod.get_debugger_url = _orig  # type: ignore
             except Exception:
                 pass
+        # 保留 _SESSION 供下次周期抓取复用，不 detach / 不 close tab
