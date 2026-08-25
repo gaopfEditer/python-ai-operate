@@ -519,10 +519,21 @@
       </section>
 
       <section id="panel-signals" class="panel" role="tabpanel" hidden>
-        <div class="panel-head">
-          <h2>X 列表交易信号</h2>
-          <p>配置推特 List → 按<strong>北京时间</strong>分时频率 CDP 抓取 → AI 识别币种/方向/止盈止损。高峰 3–5 分钟，凌晨可休眠。</p>
+        <div class="panel-head sig-panel-head">
+          <div class="sig-panel-head-main">
+            <h2>X 列表信号</h2>
+            <p>配置推特 List → 按<strong>北京时间</strong>分时频率 CDP 抓取 → AI 识别币种/方向/止盈止损。高峰 3–5 分钟，凌晨可休眠。</p>
+          </div>
+          <div class="sig-panel-head-actions">
+            <span class="sig-cdp-badge muted" id="sigCdpBadge" title="当前 CDP 地址">CDP …</span>
+            <button id="btnSigCdpConfig" class="btn ghost xs" type="button" title="配置 Chrome CDP 调试地址">⚙ CDP</button>
+          </div>
         </div>
+        <div class="sig-mode-tabs" role="tablist">
+          <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号</button>
+          <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">博主回溯</button>
+        </div>
+        <div id="sigModeList">
         <div class="sig-config form-grid">
           <label class="field full">
             <span>列表链接或 ID</span>
@@ -628,6 +639,63 @@
         </div>
         <p id="sigStatus" class="status"></p>
         <pre id="sigRunLog" class="sig-run-log" hidden></pre>
+        </div>
+
+        <div id="sigModeUser" hidden>
+          <div class="sig-config form-grid">
+            <label class="field full">
+              <span>博主主页链接</span>
+              <input id="sigUserProfileUrl" type="text" placeholder="https://x.com/some_kol 或 @handle" />
+            </label>
+            <label class="field">
+              <span>回溯周数</span>
+              <input id="sigUserWeeks" type="number" min="1" max="52" value="1" />
+            </label>
+            <label class="field">
+              <span>最多条数</span>
+              <input id="sigUserMaxTweets" type="number" min="10" max="300" value="50" />
+            </label>
+            <label class="field check">
+              <input id="sigUserSkipNonTrade" type="checkbox" checked />
+              <span>只保留有交易信号的贴文</span>
+            </label>
+            <label class="field check">
+              <input id="sigUserReparse" type="checkbox" />
+              <span>重新解析已见贴文</span>
+            </label>
+            <label class="field check">
+              <input id="sigUserPush" type="checkbox" checked />
+              <span>解析后推送 Cards API</span>
+            </label>
+            <label class="field check">
+              <input id="sigUserForcePush" type="checkbox" />
+              <span>强制重推（忽略已推送）</span>
+            </label>
+            <div class="field full sig-action-bar">
+              <button id="btnSigUserRun" class="btn primary" type="button">一键抓取并解析</button>
+              <button id="btnSigUserClearCache" class="btn ghost" type="button">清除博主缓存</button>
+              <button id="btnSigUserPause" class="btn ghost" type="button" disabled>暂停</button>
+              <button id="btnSigUserResume" class="btn ghost" type="button" disabled hidden>继续</button>
+              <button id="btnSigUserStop" class="btn danger" type="button" disabled>终止</button>
+              <button id="btnSigUserRemote" class="btn ghost" type="button">刷新 Cards 列表</button>
+              <button id="btnSigUserValidate" class="btn ghost" type="button">验证执行情况</button>
+            </div>
+          </div>
+          <p id="sigUserStatus" class="status"></p>
+          <pre id="sigUserRunLog" class="sig-run-log" hidden></pre>
+          <div class="sig-validate-head">
+            <h3 class="sig-sub">Cards 验证进度</h3>
+            <span id="sigValidateProgress" class="muted"></span>
+          </div>
+          <pre id="sigValidateLog" class="sig-run-log sig-validate-log" hidden></pre>
+          <div class="sig-meta-head" style="margin-top:12px">
+            <h3 class="sig-sub">Cards API 卡片（远端）</h3>
+          </div>
+          <div id="sigRemoteCards" class="sig-cards sig-remote-cards">
+            <p class="muted">需 discord-collector（3851）开启 CARDS_API_KEY 后，点「刷新 Cards 列表」拉取远端卡片。</p>
+          </div>
+        </div>
+
         <div class="sig-meta">
           <div class="sig-meta-windows">
             <div class="sig-meta-head">
@@ -652,6 +720,24 @@
           </div>
         </div>
         <div id="sigCards" class="sig-cards"></div>
+
+        <dialog id="sigCdpConfigDialog" class="corpus-dialog sig-cdp-dialog">
+          <form method="dialog" id="sigCdpConfigForm" class="form-grid">
+            <h3 style="grid-column:1/-1;margin:0">CDP 调试地址</h3>
+            <p class="muted" style="grid-column:1/-1;margin:0;font-size:.82rem">
+              列表信号 / 博主回溯共用。Chrome 需先以 <code>--remote-debugging-port=9223</code> 启动并已登录 X。
+            </p>
+            <label class="field full">
+              <span>host:port</span>
+              <input id="sigDebuggerUrl" type="text" placeholder="127.0.0.1:9223" value="127.0.0.1:9223" />
+            </label>
+            <p id="sigCdpConfigStatus" class="status" style="grid-column:1/-1"></p>
+            <div class="field full" style="flex-direction:row;gap:8px;justify-content:flex-end">
+              <button value="cancel" class="btn ghost" type="submit">取消</button>
+              <button id="btnSigCdpSave" value="save" class="btn primary" type="submit">保存</button>
+            </div>
+          </form>
+        </dialog>
       </section>
 
       <section id="panel-tweetcards" class="panel" role="tabpanel" hidden>
@@ -682,6 +768,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260823e"></script>
+  <script src="/app.js?v=20260825a"></script>
 </body>
 </html>

@@ -1567,6 +1567,60 @@ input:focus, textarea:focus, select:focus {
 
 /* X List 交易信号 */
 .sig-config { margin-bottom: 8px; }
+.sig-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sig-panel-head-main { min-width: 0; flex: 1; }
+.sig-panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+.sig-cdp-badge {
+  font-size: .72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sig-cdp-dialog { max-width: min(420px, 94vw); }
+.sig-mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+.sig-mode-tab {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: transparent;
+  font-size: .82rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+.sig-mode-tab.on {
+  border-color: rgba(15, 118, 110, .35);
+  background: rgba(15, 118, 110, .1);
+  color: #0f766e;
+  font-weight: 600;
+}
+.sig-validate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sig-validate-log { max-height: 220px; }
+.sig-remote-cards .sig-card { border-style: dashed; }
 .sig-action-bar {
   grid-column: 1 / -1;
   display: flex;

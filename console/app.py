@@ -2470,6 +2470,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         from signals.store import get_config, load_state
         from signals.cycle_watcher import status as cycle_status
         from signals.watcher import status as watch_status
+        from signals.store import resolve_signals_debugger_url
 
         st = load_state()
         cfg = get_config()
@@ -2477,6 +2478,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             {
                 "success": True,
                 "config": cfg,
+                "debugger_url_effective": resolve_signals_debugger_url(cfg),
                 "windows": (st.get("windows") or [])[:12],
                 "card_count": len(st.get("cards") or []),
                 "seen_count": len(st.get("seen_tweet_ids") or []),
@@ -2493,7 +2495,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
     if path == "/api/signals/config" and method == "POST":
         from signals.cycle_watcher import set_cycle, start_cycle_watcher
-        from signals.store import save_config
+        from signals.store import resolve_signals_debugger_url, save_config
         from signals.watcher import set_watch, start_watcher
 
         cfg = save_config(body if isinstance(body, dict) else {})
@@ -2509,7 +2511,13 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             set_cycle(bool(cfg.get("cycle_enabled")))
         elif cfg.get("cycle_enabled"):
             start_cycle_watcher(force=True)
-        return _json_bytes({"success": True, "config": cfg})
+        return _json_bytes(
+            {
+                "success": True,
+                "config": cfg,
+                "debugger_url_effective": resolve_signals_debugger_url(cfg),
+            }
+        )
 
     if path == "/api/signals/cycle" and method == "GET":
         from signals.cycle_watcher import status as cycle_status
@@ -2797,6 +2805,155 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         threading.Thread(target=_worker, daemon=True).start()
         return _json_bytes({"success": True, "job_id": job_id})
 
+    if path == "/api/signals/user/run" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+
+        from signals.control import RunControl, register, unregister
+
+        ctl = register(job_id, RunControl(job_id))
+        log_buf: List[str] = []
+
+        def _progress_u(msg: str) -> None:
+            text = str(msg or "")[:800]
+            try:
+                from utils.stdio_encoding import safe_print, sanitize_for_console
+
+                safe_print(f" [signals-user] {sanitize_for_console(text)}")
+            except Exception:
+                print(f"[signals-user] {text}", flush=True)
+            log_buf.append(text)
+            if len(log_buf) > 400:
+                del log_buf[:120]
+            st = ctl.status()
+            _set_job(
+                job_id,
+                status="paused" if st == "paused" else "running",
+                message=text[:300],
+                logs=list(log_buf[-120:]),
+                control_status=st,
+            )
+
+        def _worker_user() -> None:
+            try:
+                from utils.stdio_encoding import safe_print
+
+                safe_print("=" * 60)
+                safe_print(" [signals-user] 博主回溯 · 开始")
+                safe_print("=" * 60)
+            except Exception:
+                pass
+            _set_job(
+                job_id,
+                status="running",
+                type="signals_user",
+                message="开始抓取博主时间线…",
+                logs=[],
+                control_status="running",
+                started_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            try:
+                from signals.pipeline import run_user_signal_pipeline
+
+                push_flag = body.get("push")
+                if push_flag is None:
+                    push_flag = body.get("push_enabled")
+                result = run_user_signal_pipeline(
+                    profile_url=str(
+                        body.get("profile_url")
+                        or body.get("user_url")
+                        or body.get("user_handle")
+                        or ""
+                    ),
+                    user_handle=str(body.get("user_handle") or ""),
+                    weeks=body.get("weeks"),
+                    max_tweets=body.get("max_tweets"),
+                    skip_non_trade=body.get("skip_non_trade"),
+                    reparse_seen=bool(body.get("reparse_seen")),
+                    push=None if push_flag is None else bool(push_flag),
+                    force_push=bool(body.get("force_push")),
+                    progress=_progress_u,
+                    control=ctl,
+                )
+                aborted = bool(result.get("aborted"))
+                if aborted:
+                    final_status = "cancelled"
+                elif result.get("success"):
+                    final_status = "done"
+                else:
+                    final_status = "error"
+                _set_job(
+                    job_id,
+                    status=final_status,
+                    message=result.get("message") or result.get("error") or "完成",
+                    logs=list(log_buf[-120:]),
+                    control_status=ctl.status(),
+                    result={
+                        k: result.get(k)
+                        for k in (
+                            "handle",
+                            "profile_url",
+                            "scope_id",
+                            "weeks",
+                            "since",
+                            "fetched",
+                            "candidates",
+                            "parsed",
+                            "skipped",
+                            "trade_count",
+                            "reused_cache",
+                            "window",
+                            "push",
+                            "message",
+                            "error",
+                            "aborted",
+                            "item_logs",
+                        )
+                        if k in result
+                    },
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    logs=list(log_buf[-120:]),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            finally:
+                unregister(job_id)
+
+        _set_job(
+            job_id,
+            status="queued",
+            type="signals_user",
+            message="排队中…",
+            logs=[],
+            control_status="running",
+        )
+        threading.Thread(target=_worker_user, daemon=True).start()
+        return _json_bytes({"success": True, "job_id": job_id})
+
+    if path == "/api/signals/user/clear-cache" and method == "POST":
+        from signals.store import clear_user_cache, parse_user_handle
+
+        raw = str(
+            body.get("profile_url")
+            or body.get("user_url")
+            or body.get("user_handle")
+            or ""
+        ).strip()
+        handle = parse_user_handle(raw) or str(body.get("user_handle") or "").strip().lstrip("@")
+        result = clear_user_cache(handle)
+        if not result.get("success"):
+            return _json_bytes(result, 400)
+        return _json_bytes(
+            {
+                **result,
+                "message": f"已清除 @{result.get('handle')} 缓存 {result.get('removed_cards', 0)} 条",
+            }
+        )
+
     if path == "/api/signals/control" and method == "POST":
         from signals.control import control_action, get as get_sig_ctl
 
@@ -2832,6 +2989,86 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return data, 200, ctype
         except Exception as e:
             return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/signals/cards/ws-config" and method == "GET":
+        from signals.cards_api import ws_config
+
+        return _json_bytes({"success": True, **ws_config()})
+
+    if path == "/api/signals/cards/remote" and method == "GET":
+        from signals.cards_api import fetch_cards
+        from signals.push import resolve_channel
+
+        try:
+            days = int((query.get("days") or ["7"])[0])
+        except Exception:
+            days = 7
+        channel_id = (query.get("channelId") or query.get("channel_id") or [""])[0]
+        symbol = (query.get("symbol") or query.get("coin") or [""])[0]
+        sources = (query.get("sources") or query.get("source") or ["x"])[0]
+        try:
+            limit = int((query.get("limit") or ["200"])[0])
+        except Exception:
+            limit = 200
+        handle = (query.get("handle") or [""])[0]
+        if handle and not channel_id:
+            ch = resolve_channel(str(handle))
+            channel_id = ch.get("channelId") or ""
+        result = fetch_cards(
+            days=days,
+            channel_id=str(channel_id or ""),
+            symbol=str(symbol or ""),
+            sources=str(sources or "x"),
+            limit=limit,
+        )
+        if not result.get("success"):
+            code = 502
+            payload = {
+                "success": False,
+                **result,
+                "message": result.get("hint") or result.get("error") or "Cards API 不可用",
+            }
+            return _json_bytes(payload, code)
+        return _json_bytes({"success": True, **result})
+
+    if path == "/api/signals/cards/validate" and method == "POST":
+        from signals.cards_api import start_validate
+        from signals.push import resolve_channel
+
+        try:
+            days = int(body.get("days") or 7)
+        except Exception:
+            days = 7
+        channel_id = str(body.get("channelId") or body.get("channel_id") or "")
+        symbol = str(body.get("symbol") or body.get("coin") or "")
+        sources = str(body.get("sources") or body.get("source") or "x")
+        handle = str(body.get("handle") or "")
+        if handle and not channel_id:
+            ch = resolve_channel(handle)
+            channel_id = ch.get("channelId") or ""
+        card_ids = body.get("cardIds") if isinstance(body.get("cardIds"), list) else None
+        try:
+            limit = int(body.get("limit") or 200)
+        except Exception:
+            limit = 200
+        result = start_validate(
+            days=days,
+            channel_id=channel_id,
+            symbol=symbol,
+            sources=sources,
+            limit=limit,
+            card_ids=card_ids,
+        )
+        code = 202 if result.get("success") else 400
+        return _json_bytes(result, code)
+
+    if path.startswith("/api/signals/cards/validate/") and method == "GET":
+        from signals.cards_api import poll_validate
+
+        job_id = path.split("/api/signals/cards/validate/", 1)[-1].strip("/")
+        result = poll_validate(job_id)
+        code = 200 if result.get("success") else 404
+        return _json_bytes(result, code)
 
     # ——— 推文卡片（粘贴链接解析） ———
     if path == "/api/tweet-cards" and method == "GET":
@@ -3020,10 +3257,17 @@ def _free_port(port: int, log=print) -> None:
     log(f" 端口 {port} 已强制释放")
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = True) -> None:
+def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = False) -> None:
     from utils.stdio_encoding import ensure_utf8_stdio, safe_print
 
     ensure_utf8_stdio()
+    if not os.environ.get("CARDS_API_KEY", "").strip():
+        try:
+            from signals.push import resolve_cards_api_key
+
+            os.environ["CARDS_API_KEY"] = resolve_cards_api_key()
+        except Exception:
+            pass
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
     restored = _load_crawl_tasks()
@@ -3108,9 +3352,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="TrendRadar 一体化控制台")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
-    parser.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    parser.add_argument("--browser", action="store_true", help="启动后自动打开浏览器")
+    parser.add_argument("--no-browser", action="store_true", help="（已默认不打开，可忽略）")
     args = parser.parse_args()
-    run_server(host=args.host, port=args.port, open_browser=not args.no_browser)
+    open_browser = bool(args.browser) and not args.no_browser
+    run_server(host=args.host, port=args.port, open_browser=open_browser)
 
 
 if __name__ == "__main__":

@@ -75,6 +75,183 @@ return out;
 """
 
 
+def _feed_js(handle: str = "") -> str:
+    """按博主 handle 过滤（排除时间线上的转推/他人帖）。"""
+    h = re.sub(r"[^A-Za-z0-9_]", "", (handle or "").lstrip("@")).lower()
+    if not h:
+        return LIST_FEED_JS
+    filter_tail = f"""
+const __want = "{h}";
+for (let i = out.length - 1; i >= 0; i--) {{
+  const a = (out[i].author || "").toLowerCase().replace(/^@/, "");
+  if (a && a !== __want) out.splice(i, 1);
+}}
+return out;
+"""
+    base = LIST_FEED_JS.rstrip()
+    if base.endswith("return out;"):
+        return base[: -len("return out;")] + filter_tail
+    return base + filter_tail
+
+
+def _scroll_feed_page(page) -> None:
+    page.eval_js(
+        """
+(() => {
+  window.scrollBy(0, Math.max(window.innerHeight * 1.2, 1600));
+  const col = document.querySelector('[data-testid="primaryColumn"]');
+  if (col) col.scrollTop = col.scrollHeight;
+  window.scrollTo(0, document.body.scrollHeight);
+  return true;
+})()
+"""
+    )
+
+
+def _user_search_url(handle: str, since: datetime) -> str:
+    from urllib.parse import quote
+
+    h = re.sub(r"[^A-Za-z0-9_]", "", (handle or "").lstrip("@"))
+    since_local = since
+    if since_local.tzinfo is None:
+        since_local = since_local.replace(tzinfo=timezone.utc)
+    since_date = since_local.astimezone().strftime("%Y-%m-%d")
+    q = f"from:{h} since:{since_date}"
+    return f"https://x.com/search?q={quote(q)}&src=typed_query&f=live"
+
+
+def _crawl_timeline_at_url(
+    *,
+    url: str,
+    label: str,
+    handle: str,
+    since: datetime,
+    max_tweets: int,
+    max_scroll: int,
+    progress: ProgressCb,
+    should_abort: Optional[Callable[[], bool]],
+    page,
+) -> Dict[str, Any]:
+    since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+    feed_js = _feed_js(handle)
+    by_id: Dict[str, Dict[str, Any]] = {}
+    seen_log: set = set()
+    page_seen = 0
+    page_kept = 0
+    page_old = 0
+    reached_old = False
+    stale_rounds = 0
+
+    _log(progress, f"打开 {label}：{url}")
+    page.silent_navigate(url)
+    time.sleep(4.0)
+    try:
+        page.eval_js(
+            """
+(() => {
+  const tabs = [...document.querySelectorAll('a[role="tab"]')];
+  const posts = tabs.find(t => /^(Posts|帖子)$/i.test((t.textContent||'').trim()));
+  if (posts) posts.click();
+  return true;
+})()
+"""
+        )
+        time.sleep(1.2)
+    except Exception:
+        pass
+
+    for round_i in range(max_scroll):
+        if should_abort and should_abort():
+            _log(progress, "抓取已终止（滚动中）")
+            break
+        try:
+            raw = page.eval_js(feed_js) or []
+        except Exception as e:
+            _log(progress, f"抽取失败 round={round_i + 1}: {e}")
+            raw = []
+        if not isinstance(raw, list):
+            raw = []
+
+        oldest_in_batch = None
+        new_in_round = 0
+        new_in_window = 0
+        for it in raw:
+            if not isinstance(it, dict):
+                continue
+            tid = str(it.get("tweet_id") or "").strip()
+            if not tid:
+                continue
+            created = parse_dt(str(it.get("created_at") or ""))
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            too_old = bool(created and created < since_cmp)
+            if created:
+                if oldest_in_batch is None or created < oldest_in_batch:
+                    oldest_in_batch = created
+                if too_old:
+                    reached_old = True
+
+            if tid not in seen_log:
+                seen_log.add(tid)
+                page_seen += 1
+                new_in_round += 1
+                if too_old:
+                    page_old += 1
+                    _log(progress, f"[页面] #{page_seen} 过旧 · {fmt_tweet_line(it)}")
+                else:
+                    page_kept += 1
+                    _log(progress, f"[页面] #{page_seen} 纳入 · {fmt_tweet_line(it)}")
+
+            if too_old:
+                continue
+            if tid not in by_id:
+                by_id[tid] = it
+                new_in_window += 1
+
+        _log(
+            progress,
+            f"{label} 滚动 {round_i + 1}/{max_scroll} · 窗口内 {len(by_id)} · 页面 {page_seen}"
+            f"（本轮新 {new_in_round} / 入窗 {new_in_window}）"
+            + (f" · 本批最旧 {oldest_in_batch.isoformat()}" if oldest_in_batch else ""),
+        )
+
+        if len(by_id) >= max_tweets:
+            break
+
+        if new_in_window == 0:
+            stale_rounds += 1
+        else:
+            stale_rounds = 0
+
+        # 必须连续多轮无新帖 + 已见到过旧帖，才停止（避免置顶老帖导致只抓 2 条）
+        if reached_old and stale_rounds >= 6:
+            _log(progress, f"{label}：已滚出时间窗且连续 {stale_rounds} 轮无新帖，停止")
+            break
+        if round_i >= 8 and stale_rounds >= 10:
+            _log(progress, f"{label}：连续 {stale_rounds} 轮无新帖，停止")
+            break
+
+        try:
+            _scroll_feed_page(page)
+        except Exception:
+            break
+        time.sleep(1.35)
+
+    items = list(by_id.values())
+
+    def _key(x: Dict[str, Any]):
+        dt = parse_dt(str(x.get("created_at") or ""))
+        return dt or datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+    items.sort(key=_key, reverse=True)
+    return {
+        "items": items[:max_tweets],
+        "page_seen": page_seen,
+        "page_old": page_old,
+        "count": min(len(items), max_tweets),
+    }
+
+
 def _log(cb: ProgressCb, msg: str) -> None:
     """有 progress 时交给控制台统一打印，避免重复。"""
     if cb:
@@ -88,11 +265,16 @@ def _log(cb: ProgressCb, msg: str) -> None:
 
 def _debugger_host() -> str:
     try:
-        from utils.crawl_cdp import resolve_crawl_debugger_url
+        from signals.store import resolve_signals_debugger_url
 
-        return resolve_crawl_debugger_url()
+        return resolve_signals_debugger_url()
     except Exception:
-        return "127.0.0.1:9223"
+        try:
+            from utils.crawl_cdp import resolve_crawl_debugger_url
+
+            return resolve_crawl_debugger_url()
+        except Exception:
+            return "127.0.0.1:9223"
 
 
 def download_image(url: str, tweet_id: str, index: int) -> Dict[str, Any]:
@@ -290,6 +472,151 @@ def crawl_list_timeline(
             "count": len(items),
             "page_seen": page_seen,
             "page_old": page_old,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "items": []}
+    finally:
+        try:
+            if page is not None:
+                page.detach()
+        except Exception:
+            pass
+        try:
+            if client is not None:
+                client.close()
+        except Exception:
+            pass
+        if _orig is not None:
+            try:
+                import allnews_mornitor.cdp_browser as cdp_mod
+
+                cdp_mod.get_debugger_url = _orig  # type: ignore
+            except Exception:
+                pass
+
+
+def crawl_user_timeline(
+    handle: str,
+    *,
+    since: datetime,
+    max_tweets: int = 80,
+    max_scroll: int = 24,
+    progress: ProgressCb = None,
+    should_abort: Optional[Callable[[], bool]] = None,
+) -> Dict[str, Any]:
+    """CDP 抓取博主近 N 周推文：优先 search(from+since)，不足再补主页时间线。"""
+    from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
+    from signals.store import parse_user_handle, user_profile_url
+
+    h = parse_user_handle(handle) or str(handle or "").strip().lstrip("@")
+    if not h:
+        return {"success": False, "error": "缺少博主链接或 @handle", "items": []}
+    profile_url = user_profile_url(h)
+    search_url = _user_search_url(h, since)
+    max_tweets = max(1, min(int(max_tweets or 80), 300))
+    max_scroll = max(20, min(int(max_scroll or 24), 150))
+
+    def _aborted() -> bool:
+        try:
+            return bool(should_abort and should_abort())
+        except Exception:
+            return False
+
+    host = _debugger_host()
+    _orig = None
+    try:
+        import allnews_mornitor.cdp_browser as cdp_mod
+
+        _orig = cdp_mod.get_debugger_url
+
+        def _patched() -> str:
+            return host
+
+        cdp_mod.get_debugger_url = _patched  # type: ignore
+    except Exception:
+        pass
+
+    client = None
+    page = None
+    try:
+        try:
+            _http_json("/json/version")
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"无法连接 Chrome CDP（{host}），请先 --remote-debugging-port=9223: {e}",
+                "items": [],
+            }
+
+        client = _CdpClient(_browser_ws_url())
+        page = BackgroundTarget.create(client, "about:blank")
+
+        merged: Dict[str, Dict[str, Any]] = {}
+        total_seen = 0
+        total_old = 0
+
+        search_res = _crawl_timeline_at_url(
+            url=search_url,
+            label="搜索时间线",
+            handle=h,
+            since=since,
+            max_tweets=max_tweets,
+            max_scroll=max_scroll,
+            progress=progress,
+            should_abort=_aborted,
+            page=page,
+        )
+        for it in search_res.get("items") or []:
+            tid = str(it.get("tweet_id") or "")
+            if tid:
+                merged[tid] = it
+        total_seen += int(search_res.get("page_seen") or 0)
+        total_old += int(search_res.get("page_old") or 0)
+
+        if len(merged) < max(10, max_tweets // 3):
+            _log(
+                progress,
+                f"搜索仅 {len(merged)} 条，补充抓取主页时间线…",
+            )
+            profile_res = _crawl_timeline_at_url(
+                url=profile_url,
+                label="博主主页",
+                handle=h,
+                since=since,
+                max_tweets=max_tweets,
+                max_scroll=max_scroll,
+                progress=progress,
+                should_abort=_aborted,
+                page=page,
+            )
+            for it in profile_res.get("items") or []:
+                tid = str(it.get("tweet_id") or "")
+                if tid and tid not in merged:
+                    merged[tid] = it
+            total_seen += int(profile_res.get("page_seen") or 0)
+            total_old += int(profile_res.get("page_old") or 0)
+
+        items = list(merged.values())
+
+        def _key(x: Dict[str, Any]):
+            dt = parse_dt(str(x.get("created_at") or ""))
+            return dt or datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+        items.sort(key=_key, reverse=True)
+        items = items[:max_tweets]
+        _log(
+            progress,
+            f"博主抓取结束：@{h} 窗口内 {len(items)} 条 · 页面累计见过 {total_seen}（过旧 {total_old}）",
+        )
+        return {
+            "success": True,
+            "handle": h,
+            "url": profile_url,
+            "search_url": search_url,
+            "items": items,
+            "count": len(items),
+            "page_seen": total_seen,
+            "page_old": total_old,
         }
     except Exception as e:
         return {"success": False, "error": str(e), "items": []}

@@ -28,6 +28,7 @@ from signals.tweet_log import (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CHANNELS_PATH = PROJECT_ROOT / "config" / "signals_channels.yaml"
 CARDS_SOURCE_APP = "python-ai-operate"
+DEFAULT_CARDS_API_KEY = "Gpf123456"
 
 
 def signal_ready_for_cards(sig: Dict[str, Any]) -> bool:
@@ -63,7 +64,7 @@ def resolve_cards_api_key(cfg: Optional[Dict[str, Any]] = None) -> str:
         return env
     cfg = cfg or load_channels_config()
     api = cfg.get("cards_api") if isinstance(cfg.get("cards_api"), dict) else {}
-    return str(api.get("api_key") or "").strip()
+    return str(api.get("api_key") or DEFAULT_CARDS_API_KEY).strip()
 
 
 def load_channels_config() -> Dict[str, Any]:
@@ -73,7 +74,7 @@ def load_channels_config() -> Dict[str, Any]:
                 "enabled": False,
                 "base_url": "http://127.0.0.1:3851",
                 "path": "/api/v1/cards",
-                "api_key": "",
+                "api_key": DEFAULT_CARDS_API_KEY,
                 "only_trade_signals": True,
                 "inject_channel_message": True,
                 "timeout_sec": 15,

@@ -45,6 +45,71 @@ def list_url(list_id: str) -> str:
     return f"https://x.com/i/lists/{lid}" if lid else ""
 
 
+_USER_PATH_SKIP = frozenset(
+    {
+        "i",
+        "home",
+        "search",
+        "explore",
+        "notifications",
+        "messages",
+        "settings",
+        "compose",
+        "intent",
+        "hashtag",
+        "lists",
+    }
+)
+
+
+def parse_user_handle(raw: str) -> str:
+    """从 x.com/用户名 或 @handle 解析博主 handle。"""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    m = re.search(r"(?:x\.com|twitter\.com)/([^/?#]+)", text, re.I)
+    if m:
+        handle = m.group(1).strip().lstrip("@")
+        if handle.lower() in _USER_PATH_SKIP:
+            return ""
+        return handle
+    if text.startswith("@"):
+        return text[1:].split("/")[0].strip()
+    if re.match(r"^[A-Za-z0-9_]{1,15}$", text):
+        return text
+    return ""
+
+
+def user_profile_url(handle: str) -> str:
+    h = parse_user_handle(handle) or (handle or "").strip().lstrip("@")
+    return f"https://x.com/{h}" if h else ""
+
+
+def user_scope_id(handle: str) -> str:
+    h = parse_user_handle(handle) or (handle or "").strip().lstrip("@")
+    return f"user:{h.lower()}" if h else ""
+
+
+def normalize_debugger_url(raw: str) -> str:
+    s = str(raw or "").strip()
+    s = re.sub(r"^https?://", "", s, flags=re.I).strip().strip("/")
+    return s
+
+
+def resolve_signals_debugger_url(cfg: Optional[Dict[str, Any]] = None) -> str:
+    """信号 CDP 地址：signals 配置 > 全局 crawl_cdp > 默认 9223。"""
+    c = cfg if cfg is not None else get_config()
+    raw = normalize_debugger_url(str(c.get("debugger_url") or ""))
+    if raw:
+        return raw
+    try:
+        from utils.crawl_cdp import resolve_crawl_debugger_url
+
+        return resolve_crawl_debugger_url()
+    except Exception:
+        return "127.0.0.1:9223"
+
+
 def _empty_state() -> Dict[str, Any]:
     return {
         "config": {
@@ -64,6 +129,10 @@ def _empty_state() -> Dict[str, Any]:
             "cycle_max_minutes": 15,
             # deep 时段：sleep=完全休眠到 07:30；patrol=30–60 分钟巡检
             "deep_sleep_mode": "sleep",
+            "user_profile_url": "",
+            "user_weeks": 1,
+            "user_max_tweets": 50,
+            "debugger_url": "127.0.0.1:9223",
         },
         "windows": [],
         "seen_tweet_ids": [],
@@ -156,6 +225,25 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
     if "deep_sleep_mode" in patch:
         mode = str(patch.get("deep_sleep_mode") or "sleep").strip().lower()
         cfg["deep_sleep_mode"] = mode if mode in ("sleep", "patrol") else "sleep"
+    if "user_profile_url" in patch or "user_handle" in patch:
+        raw = str(patch.get("user_profile_url") or patch.get("user_handle") or "")
+        handle = parse_user_handle(raw)
+        if handle:
+            cfg["user_profile_url"] = user_profile_url(handle)
+    if "user_weeks" in patch and patch["user_weeks"] is not None:
+        try:
+            cfg["user_weeks"] = max(1, min(int(patch["user_weeks"]), 52))
+        except Exception:
+            pass
+    if "user_max_tweets" in patch and patch["user_max_tweets"] is not None:
+        try:
+            cfg["user_max_tweets"] = max(5, min(int(patch["user_max_tweets"]), 300))
+        except Exception:
+            pass
+    if "debugger_url" in patch:
+        raw = normalize_debugger_url(str(patch.get("debugger_url") or ""))
+        if raw:
+            cfg["debugger_url"] = raw
     state["config"] = cfg
     save_state(state)
     return cfg
@@ -299,6 +387,52 @@ def list_cards(
     out.sort(key=_card_sort_ts, reverse=True)
     cap = max(1, int(limit))
     return out[:cap]
+
+
+def get_card_by_tweet_id(tweet_id: str) -> Optional[Dict[str, Any]]:
+    """按 tweet_id 查找本地卡片（含 cache_only 缓存项）。"""
+    tid = str(tweet_id or "").strip()
+    if not tid:
+        return None
+    for c in load_state().get("cards") or []:
+        if str(c.get("tweet_id") or "") == tid:
+            return dict(c)
+    return None
+
+
+def clear_user_cache(handle: str) -> Dict[str, Any]:
+    """清除博主回溯 scope 下的卡片与 seen/pushed 记录。"""
+    h = parse_user_handle(handle) or (handle or "").strip().lstrip("@")
+    if not h:
+        return {"success": False, "error": "请填写有效的博主 handle"}
+    scope = user_scope_id(h)
+    state = load_state()
+    cards: List[Dict[str, Any]] = list(state.get("cards") or [])
+    removed_tids: List[str] = []
+    kept: List[Dict[str, Any]] = []
+    for c in cards:
+        lid = str(c.get("list_id") or "")
+        author = parse_user_handle(str(c.get("author") or ""))
+        if lid == scope or (author and author.lower() == h.lower()):
+            tid = str(c.get("tweet_id") or "").strip()
+            if tid:
+                removed_tids.append(tid)
+            continue
+        kept.append(c)
+    rset = set(removed_tids)
+    seen = [t for t in list(state.get("seen_tweet_ids") or []) if t not in rset]
+    pushed = [t for t in list(state.get("pushed_tweet_ids") or []) if t not in rset]
+    state["cards"] = kept
+    state["seen_tweet_ids"] = seen
+    state["pushed_tweet_ids"] = pushed
+    save_state(state)
+    return {
+        "success": True,
+        "handle": h,
+        "scope_id": scope,
+        "removed_cards": len(removed_tids),
+        "tweet_ids": removed_tids,
+    }
 
 
 def is_seen(tweet_id: str) -> bool:

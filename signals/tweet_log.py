@@ -4,17 +4,27 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
-try:
-    from zoneinfo import ZoneInfo
 
-    BEIJING_TZ = ZoneInfo("Asia/Shanghai")
-except ImportError:
-    from datetime import timedelta
+def _load_beijing_tz():
+    """Windows 常缺 IANA tzdata，ZoneInfo 会抛 ZoneInfoNotFoundError。"""
+    try:
+        from zoneinfo import ZoneInfo
 
-    BEIJING_TZ = timezone(timedelta(hours=8))
+        return ZoneInfo("Asia/Shanghai")
+    except Exception:
+        pass
+    try:
+        import pytz
+
+        return pytz.timezone("Asia/Shanghai")
+    except Exception:
+        return timezone(timedelta(hours=8))
+
+
+BEIJING_TZ = _load_beijing_tz()
 
 from signals.labels import direction_cn
 from signals.store import parse_dt
@@ -128,3 +138,45 @@ def fmt_signal_line(signal: Dict[str, Any], *, time_s: str = "") -> str:
     if time_s:
         parts.append(f"时间={time_s}")
     return " | ".join(parts)
+
+
+def fmt_item_summary_line(
+    log: Dict[str, Any],
+    *,
+    index: int = 0,
+    total: int = 0,
+) -> str:
+    """单条解析摘要（前端验证用一行）。"""
+    idx = ""
+    if index and total:
+        idx = f"[{index}/{total}] "
+    elif index:
+        idx = f"[{index}] "
+    author = str(log.get("author") or "").strip() or "(未知)"
+    time_s = str(log.get("display_time") or "").strip()
+    if not time_s or time_s == "未知":
+        time_s = fmt_post_time(
+            str(log.get("created_at") or ""),
+            str(log.get("time_label") or ""),
+        )
+    preview = clip_text(str(log.get("preview") or ""), 80) or "（空）"
+    if log.get("skipped"):
+        flag = "跳过"
+        coins_s = "-"
+        dir_s = "-"
+    elif log.get("has_trade_signal"):
+        flag = "交易"
+        coins_s = ",".join(str(c) for c in (log.get("coins") or [])[:6]) or "-"
+        dir_s = direction_cn(str(log.get("direction") or "unknown"))
+    else:
+        flag = "非交易"
+        coins_s = "-"
+        dir_s = "-"
+    result = str(log.get("result") or "").strip()
+    cache = " · 缓存" if log.get("from_cache") else ""
+    head = (
+        f"{idx}{time_s} | {author} | {flag} | 币种={coins_s} | 方向={dir_s} | {preview}"
+    )
+    if result:
+        return f"{head} → {result}{cache}"
+    return head
