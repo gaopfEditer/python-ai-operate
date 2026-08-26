@@ -1,5 +1,5 @@
 # coding=utf-8
-"""CDP 发布共用：连接已登录 Chrome、开标签、传媒体。"""
+"""CDP 发布共用：连接已登录 Chrome、复用末页签导航、传媒体。"""
 
 from __future__ import annotations
 
@@ -62,28 +62,44 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
 
 
 def open_url_new_tab(driver, url: str) -> None:
-    """新标签打开 URL（尽量不替换用户当前标签）。"""
-    before = set(driver.window_handles or [])
+    """在最后一个已有页签打开 URL（不新建标签，避免反复发布撑爆内存）。"""
+    handles = list(driver.window_handles or [])
+    if not handles:
+        # 极端情况：没有任何页签时才新建一次
+        try:
+            driver.switch_to.new_window("tab")
+        except Exception:
+            driver.execute_script("window.open('about:blank','_blank');")
+            driver.switch_to.window(driver.window_handles[-1])
+        driver.get(url)
+        return
+
+    last = handles[-1]
     try:
-        driver.execute_cdp_cmd(
-            "Target.createTarget",
-            {"url": url, "background": False},
-        )
-        for _ in range(40):
-            now = list(driver.window_handles or [])
-            new_ones = [h for h in now if h not in before]
-            if new_ones:
-                driver.switch_to.window(new_ones[-1])
-                return
-            time.sleep(0.08)
+        driver.switch_to.window(last)
     except Exception:
-        pass
+        # 最后一个句柄失效时退到任意可用页签
+        for h in reversed(handles):
+            try:
+                driver.switch_to.window(h)
+                break
+            except Exception:
+                continue
+
     try:
-        driver.switch_to.new_window("tab")
+        driver.execute_cdp_cmd("Page.navigate", {"url": url})
     except Exception:
-        driver.execute_script("window.open('about:blank','_blank');")
-        driver.switch_to.window(driver.window_handles[-1])
-    driver.get(url)
+        driver.get(url)
+
+    # 等待导航起步，避免立刻操作旧 DOM
+    for _ in range(30):
+        try:
+            cur = (driver.current_url or "").strip()
+            if cur and cur != "about:blank":
+                break
+        except Exception:
+            pass
+        time.sleep(0.08)
 
 
 def wait_css(driver, css: str, timeout: float = 20):
