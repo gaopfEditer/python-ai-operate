@@ -476,7 +476,8 @@ def _patch_debugger_host(host: str):
         return None
 
 
-def _list_signal_tabs() -> List[Dict[str, Any]]:
+def _list_page_targets() -> List[Dict[str, Any]]:
+    """Chrome /json/list 中所有 page 类型标签（顺序与窗口一致，末项即最后一个页签）。"""
     from allnews_mornitor.cdp_browser import _http_json
 
     try:
@@ -487,10 +488,7 @@ def _list_signal_tabs() -> List[Dict[str, Any]]:
         return []
     out: List[Dict[str, Any]] = []
     for p in pages:
-        if not isinstance(p, dict) or p.get("type") != "page":
-            continue
-        url = str(p.get("url") or "")
-        if _SIGNALS_TAB_MARKER in url or "/i/lists/" in url:
+        if isinstance(p, dict) and p.get("type") == "page":
             out.append(p)
     return out
 
@@ -534,7 +532,7 @@ def _session_alive(sess: Dict[str, Any]) -> bool:
 
 def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[Any, Any]:
     """
-    复用单个后台标签抓取列表，避免周期任务每次 Target.createTarget 新开 tab。
+    复用 Chrome 最后一个页签抓取列表，避免周期任务每次 Target.createTarget 新开 tab。
     """
     from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
 
@@ -543,7 +541,7 @@ def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[A
     with _SESSION_LOCK:
         if _SESSION and _session_alive(_SESSION):
             page = _SESSION["page"]
-            _log(progress, f"CDP 复用列表标签 → {list_url}")
+            _log(progress, f"CDP 复用会话页签 → {list_url}")
             page.silent_navigate(list_url)
             return _SESSION["client"], page
 
@@ -558,24 +556,22 @@ def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[A
 
         client = _CdpClient(_browser_ws_url())
         page = None
-        marked = [p for p in _list_signal_tabs() if _SIGNALS_TAB_MARKER in str(p.get("url") or "")]
+        pages = _list_page_targets()
 
-        # 清理历史遗留的多个标记 tab，只保留一个
-        for extra in marked[1:]:
-            BackgroundTarget.close_target_id(client, str(extra.get("id") or ""))
-
-        if marked:
-            tid = str(marked[0].get("id") or "")
+        if pages:
+            tid = str(pages[-1].get("id") or "")
             try:
                 page = BackgroundTarget.attach(client, tid)
-                _log(progress, "CDP 附着已有列表抓取标签（未新建 tab）")
+                _log(
+                    progress,
+                    f"CDP 附着最后一个页签（未新建 tab，当前共 {len(pages)} 个）",
+                )
             except Exception:
-                BackgroundTarget.close_target_id(client, tid)
                 page = None
 
         if page is None:
             page = BackgroundTarget.create(client, _SIGNALS_TAB_BLANK)
-            _log(progress, "CDP 建立列表抓取专用标签（后台，仅此一个）")
+            _log(progress, "CDP 无可用页签，建立后台专用标签（仅此一次）")
 
         _SESSION = {
             "client": client,
@@ -837,7 +833,7 @@ def crawl_user_timeline(
     should_abort: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """CDP 抓取博主近 N 周推文：优先 search(from+since)，不足再补主页时间线。"""
-    from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
+    from allnews_mornitor.cdp_browser import _http_json
     from signals.store import parse_user_handle, user_profile_url
 
     h = parse_user_handle(handle) or str(handle or "").strip().lstrip("@")
@@ -864,20 +860,8 @@ def crawl_user_timeline(
             return False
 
     host = _debugger_host()
-    _orig = None
-    try:
-        import allnews_mornitor.cdp_browser as cdp_mod
+    _orig = _patch_debugger_host(host)
 
-        _orig = cdp_mod.get_debugger_url
-
-        def _patched() -> str:
-            return host
-
-        cdp_mod.get_debugger_url = _patched  # type: ignore
-    except Exception:
-        pass
-
-    client = None
     page = None
     try:
         try:
@@ -889,8 +873,8 @@ def crawl_user_timeline(
                 "items": [],
             }
 
-        client = _CdpClient(_browser_ws_url())
-        page = BackgroundTarget.create(client, "about:blank")
+        first_url = search_urls[0] if search_urls else profile_url
+        _, page = _acquire_list_page(first_url, progress=progress)
 
         merged: Dict[str, Dict[str, Any]] = {}
         total_seen = 0
@@ -985,18 +969,9 @@ def crawl_user_timeline(
             "page_old": total_old,
         }
     except Exception as e:
+        _close_session()
         return {"success": False, "error": str(e), "items": []}
     finally:
-        try:
-            if page is not None:
-                page.detach()
-        except Exception:
-            pass
-        try:
-            if client is not None:
-                client.close()
-        except Exception:
-            pass
         if _orig is not None:
             try:
                 import allnews_mornitor.cdp_browser as cdp_mod
@@ -1004,4 +979,5 @@ def crawl_user_timeline(
                 cdp_mod.get_debugger_url = _orig  # type: ignore
             except Exception:
                 pass
+        # 保留 _SESSION 供下次抓取复用，不 detach / 不 close tab
 
