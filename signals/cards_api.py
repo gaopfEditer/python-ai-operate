@@ -194,6 +194,7 @@ def fetch_validate_mock_sample(*, cfg: Optional[Dict[str, Any]] = None) -> Dict[
 
 def start_validate(
     *,
+    signals: Optional[List[Dict[str, Any]]] = None,
     days: Optional[int] = None,
     channel_id: str = "",
     symbol: str = "",
@@ -204,37 +205,68 @@ def start_validate(
     mock_count: int = 8,
     cfg: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """POST /api/v1/cards/validate — 传入 signals 列表回测（不读写 MySQL）。"""
     if mock:
-        body = {
+        body: Dict[str, Any] = {
             "mock": True,
             "mockCount": max(1, min(int(mock_count or 8), 20)),
         }
+    elif signals:
+        body = {"signals": signals[:500]}
     else:
-        body = {"limit": max(1, min(int(limit or 200), 500))}
-        if days is not None:
-            body["days"] = max(1, int(days))
-        if channel_id:
-            body["channelId"] = channel_id
-        if symbol:
-            body["symbol"] = symbol
-        if sources:
-            body["sources"] = sources
-        if card_ids:
-            body["cardIds"] = card_ids
+        body = {"mockCount": max(1, min(int(mock_count or 8), 20))}
     res = _request_json("POST", "/api/v1/cards/validate", body=body, cfg=cfg)
     data = res.get("data") if isinstance(res.get("data"), dict) else {}
     job_id = str(data.get("jobId") or "")
+    upstream_err = _upstream_error_message(res) if not res.get("success") else ""
+    hint = str(data.get("hint") or "").strip()
+    err = upstream_err or data.get("error") or res.get("error")
+    if hint and hint not in str(err):
+        err = f"{err} · {hint}" if err else hint
     return {
         "success": bool(res.get("success")) and bool(job_id),
         "job_id": job_id,
         "status": data.get("status"),
-        "filters": data.get("filters"),
+        "mode": data.get("mode"),
         "mock": bool(mock or data.get("mock")),
+        "read_only": data.get("readOnly"),
+        "window_days": data.get("windowDays"),
+        "signal_count": data.get("signalCount"),
+        "note": data.get("note"),
+        "filters": data.get("filters"),
         "ws": data.get("ws") or ws_config(cfg),
         "poll": data.get("poll") or (f"/api/v1/cards/validate/{job_id}" if job_id else ""),
-        "error": res.get("error") or data.get("error"),
+        "error": err,
+        "hint": hint,
+        "status_code": res.get("status"),
         "raw": data,
     }
+
+
+def start_local_backtest(
+    *,
+    signals: Optional[List[Dict[str, Any]]] = None,
+    handle: str = "",
+    list_id: str = "",
+    days: Optional[int] = None,
+    sources: str = "x",
+    symbol: str = "",
+    limit: int = 200,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """按 cards-api.md 传入 signals 启动 POST /api/v1/cards/validate（回测，不建卡）。"""
+    sigs = signals if isinstance(signals, list) else []
+    if not sigs:
+        return {
+            "success": False,
+            "error": "无有效回测信号（需 symbol · direction · signalAt）",
+            "hint": "请确保本地卡片含交易信号（币种 + 做多/做空）",
+        }
+    result = start_validate(signals=sigs, cfg=cfg)
+    meta = {"signal_count": len(sigs), "handle": str(handle or "").strip().lstrip("@")}
+    if not result.get("success"):
+        return {**result, "filters": meta}
+    return {**result, "filters": result.get("filters") or meta}
 
 
 def poll_validate(job_id: str, *, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

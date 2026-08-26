@@ -1840,7 +1840,182 @@ label.publish-media-add {
   margin-top: 8px;
 }
 .sig-validate-log { max-height: 220px; }
-.sig-remote-cards .sig-card { border-style: dashed; }
+
+/* —— 回测结果弹窗（与整体纸感主题一致） —— */
+#sigBacktestResultDialog.el-dialog {
+  box-sizing: border-box;
+  width: min(3040px, 98vw);
+  max-width: 98vw;
+  height: 85vh;
+  max-height: 85vh;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--body);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+#sigBacktestResultDialog.el-dialog::backdrop {
+  background: rgba(16, 24, 22, 0.45);
+}
+#sigBacktestResultDialog .sig-backtest-result-form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 85vh;
+  margin: 0;
+  overflow: hidden;
+}
+#sigBacktestResultDialog .el-dialog__header {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 18px 52px 14px 20px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+#sigBacktestResultDialog .el-dialog__title {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-family: var(--display);
+  color: var(--ink);
+  line-height: 1.3;
+}
+#sigBacktestResultDialog .el-dialog__headerbtn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+#sigBacktestResultDialog .el-dialog__headerbtn:hover {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.25);
+}
+#sigBacktestResultDialog .el-dialog__close-icon {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  font-style: normal;
+}
+#sigBacktestResultDialog .el-dialog__headerbtn:hover .el-dialog__close-icon {
+  color: var(--teal);
+}
+#sigBacktestResultDialog .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--panel);
+}
+#sigBacktestResultDialog .el-dialog__footer {
+  flex: 0 0 auto;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--line);
+  text-align: right;
+  background: var(--paper);
+}
+#sigBacktestResultDialog .el-dialog__footer .btn {
+  margin-bottom: 0;
+}
+#sigBacktestResultDialog .sig-backtest-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+#sigBacktestResultDialog .sig-backtest-meta-chip {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(16, 24, 22, 0.06);
+  color: var(--muted);
+  font-family: var(--mono);
+  border: 1px solid var(--line);
+}
+#sigBacktestResultDialog .sig-backtest-meta-chip.is-mock {
+  background: rgba(217, 119, 6, 0.12);
+  color: var(--signal);
+  border-color: rgba(217, 119, 6, 0.28);
+}
+#sigBacktestResultDialog .sig-backtest-meta-chip.is-note {
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  border-color: transparent;
+  max-width: 480px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sigBacktestResultDialog .sig-backtest-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+#sigBacktestResultDialog .sig-backtest-card {
+  min-width: 0;
+  padding: 10px 12px;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.28);
+  border-color: var(--line);
+  box-shadow: none;
+}
+#sigBacktestResultDialog .sig-backtest-card .sig-card-top {
+  gap: 4px;
+}
+#sigBacktestResultDialog .sig-backtest-card .sig-levels {
+  font-size: .78rem;
+  gap: 2px;
+}
+#sigBacktestResultDialog .sig-backtest-card .sig-card-foot {
+  font-size: .76rem;
+}
+#sigBacktestResultDialog .sig-backtest-card .sig-summary {
+  margin: 0;
+  font-size: .82rem;
+  line-height: 1.5;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  max-height: calc(1.5em * 2);
+  cursor: default;
+}
+#sigBacktestResultDialog .sig-backtest-mock {
+  font-size: .66rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.14);
+  color: var(--signal);
+}
+#sigBacktestResultDialog .sig-backtest-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
 .sig-action-bar {
   grid-column: 1 / -1;
   display: flex;
@@ -1853,31 +2028,55 @@ label.publish-media-add {
 }
 .sig-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 0;
   margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
 }
-.sig-meta-head {
+.sig-meta-block + .sig-meta-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.sig-meta-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px 14px;
+  gap: 8px 12px;
   margin-bottom: 6px;
 }
-.sig-meta-head .sig-sub {
+.sig-meta-row .sig-sub {
   margin: 0;
+}
+.sig-meta-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.sig-meta-bar-left,
+.sig-meta-bar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+.sig-meta-hint {
+  margin: 0 0 6px;
+  font-size: .78rem;
+  line-height: 1.45;
+}
+.sig-meta-hint code {
+  font-size: .76rem;
 }
 .sig-windows-toggle {
   margin: 0;
-}
-.sig-card-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  align-items: center;
-  justify-content: flex-end;
 }
 #sigCards.sig-hide-kol .sig-author,
 #sigCards.sig-hide-kol .sig-channel-id,
@@ -1893,7 +2092,6 @@ label.publish-media-add {
   font-size: .78rem;
   font-family: var(--mono);
   line-height: 1.5;
-  max-width: 520px;
 }
 .sig-cards {
   display: grid;
@@ -2001,11 +2199,26 @@ label.publish-media-add {
 }
 .sig-card-foot {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   align-items: center;
   margin-top: 2px;
 }
 .sig-card-foot a { font-size: .76rem; }
+.sig-card-foot .btn-link {
+  font-size: .76rem;
+  padding: 0;
+  color: #0f766e;
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.sig-card-edit-dialog textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem;
+  line-height: 1.45;
+}
 .sig-conf { font-size: .68rem; color: var(--muted); margin-left: auto; }
 
 .sig-run-log {

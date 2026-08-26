@@ -132,6 +132,10 @@ def _empty_state() -> Dict[str, Any]:
             "user_profile_url": "",
             "user_weeks": 1,
             "user_max_tweets": 50,
+            "user_skip_non_trade": True,
+            "user_reparse_seen": False,
+            "user_push_enabled": True,
+            "user_force_push": False,
             "debugger_url": "127.0.0.1:9223",
         },
         "windows": [],
@@ -240,6 +244,14 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
             cfg["user_max_tweets"] = max(5, min(int(patch["user_max_tweets"]), 300))
         except Exception:
             pass
+    if "user_skip_non_trade" in patch:
+        cfg["user_skip_non_trade"] = bool(patch["user_skip_non_trade"])
+    if "user_reparse_seen" in patch:
+        cfg["user_reparse_seen"] = bool(patch["user_reparse_seen"])
+    if "user_push_enabled" in patch:
+        cfg["user_push_enabled"] = bool(patch["user_push_enabled"])
+    if "user_force_push" in patch:
+        cfg["user_force_push"] = bool(patch["user_force_push"])
     if "debugger_url" in patch:
         raw = normalize_debugger_url(str(patch.get("debugger_url") or ""))
         if raw:
@@ -415,6 +427,27 @@ def get_card_by_tweet_id(tweet_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def save_card_remote_id(tweet_id: str, cards_api_id: int) -> None:
+    """推送成功后记住远端 Cards id，回测时可直接使用。"""
+    tid = str(tweet_id or "").strip()
+    if not tid or not cards_api_id:
+        return
+    state = load_state()
+    cards: List[Dict[str, Any]] = list(state.get("cards") or [])
+    changed = False
+    for i, c in enumerate(cards):
+        if str(c.get("tweet_id") or "") != tid:
+            continue
+        item = dict(c)
+        item["cards_api_id"] = int(cards_api_id)
+        cards[i] = item
+        changed = True
+        break
+    if changed:
+        state["cards"] = cards
+        save_state(state)
+
+
 def clear_user_cache(handle: str) -> Dict[str, Any]:
     """清除博主回溯 scope 下的卡片与 seen/pushed 记录。"""
     h = parse_user_handle(handle) or (handle or "").strip().lstrip("@")
@@ -482,4 +515,15 @@ def mark_pushed(tweet_ids: List[str], *, status: str = "ok") -> None:
         log.insert(0, {"tweet_id": t, "status": status, "at": now})
     state["pushed_tweet_ids"] = pushed[-8000:]
     state["push_log"] = log[:200]
+    save_state(state)
+
+
+def unmark_pushed(tweet_ids: List[str]) -> None:
+    """编辑/重解析后清除已推送标记，便于再次推送回测。"""
+    ids = {str(x).strip() for x in tweet_ids if str(x).strip()}
+    if not ids:
+        return
+    state = load_state()
+    pushed = [t for t in list(state.get("pushed_tweet_ids") or []) if t not in ids]
+    state["pushed_tweet_ids"] = pushed
     save_state(state)

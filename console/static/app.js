@@ -3776,6 +3776,9 @@ function bind() {
   setSigControlButtons({ running: false, paused: false });
   $("#btnSigPushOnly")?.addEventListener("click", () => pushSignalsOnly());
   $("#btnSigRefresh")?.addEventListener("click", () => loadSignalCards());
+  $("#btnSigBacktest")?.addEventListener("click", () => startSigCardsBacktest());
+  $("#btnSigBacktestResult")?.addEventListener("click", () => openSigBacktestResultDialog());
+  loadSigBacktestLast();
   $("#sigFilterTrade")?.addEventListener("change", () => loadSignalCards());
   $("#sigShowAllWindows")?.addEventListener("change", () => renderSigWindows(_sigWindowsCache));
   const sigHideKol = $("#sigHideKol");
@@ -3810,17 +3813,26 @@ function bind() {
     btn.addEventListener("click", () => switchSigMode(btn.getAttribute("data-sig-mode")));
   });
   $("#btnSigUserRun")?.addEventListener("click", () => runUserSignalsCrawl());
+  bindSigUserFormPersistence();
   $("#btnSigUserClearCache")?.addEventListener("click", () => clearSigUserCache());
   $("#btnSigUserPause")?.addEventListener("click", () => signalsControl("pause"));
   $("#btnSigUserResume")?.addEventListener("click", () => signalsControl("resume"));
   $("#btnSigUserStop")?.addEventListener("click", () => signalsControl("stop"));
-  $("#btnSigUserRemote")?.addEventListener("click", () => loadRemoteCards());
   $("#btnSigUserValidate")?.addEventListener("click", () => startCardsValidate());
   $("#btnSigMockSample")?.addEventListener("click", () => loadMockValidateSample());
   $("#btnSigMockValidate")?.addEventListener("click", () => startMockCardsValidate());
   $("#btnSigCdpConfig")?.addEventListener("click", () => openSigCdpDialog());
   $("#sigCdpConfigForm")?.addEventListener("submit", (e) => {
     if (e.submitter?.value === "save") saveSigCdpConfig(e);
+  });
+  $("#sigCardEditForm")?.addEventListener("submit", (e) => {
+    if (e.submitter?.value === "save") saveSigCardEdit(e);
+  });
+  $("#sigCards")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-sig-edit]");
+    if (!btn) return;
+    e.preventDefault();
+    openSigCardEdit(btn.getAttribute("data-sig-edit") || "");
   });
 
   $("#btnTcIngest")?.addEventListener("click", () => runTweetCardIngest());
@@ -3836,6 +3848,120 @@ function bind() {
   $("#tcKeyword")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") loadTweetCards();
   });
+}
+
+const SIG_USER_LS = "sigUserFormPrefs";
+let _sigUserSaveTimer = null;
+
+function readSigUserFormLocal() {
+  try {
+    const raw = localStorage.getItem(SIG_USER_LS);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeSigUserFormLocal(patch) {
+  const prev = readSigUserFormLocal();
+  localStorage.setItem(
+    SIG_USER_LS,
+    JSON.stringify({ ...prev, ...patch, savedAt: Date.now() })
+  );
+}
+
+function collectSigUserForm() {
+  const profile = $("#sigUserProfileUrl")?.value.trim() || "";
+  const handle = parseSigUserHandle(profile);
+  return {
+    user_profile_url: profile,
+    user_handle: handle,
+    user_weeks: Math.max(1, Math.min(52, Number($("#sigUserWeeks")?.value || 1) || 1)),
+    user_max_tweets: Math.max(10, Math.min(300, Number($("#sigUserMaxTweets")?.value || 50) || 50)),
+    user_skip_non_trade: !!$("#sigUserSkipNonTrade")?.checked,
+    user_reparse_seen: !!$("#sigUserReparse")?.checked,
+    user_push_enabled: !!$("#sigUserPush")?.checked,
+    user_force_push: !!$("#sigUserForcePush")?.checked,
+  };
+}
+
+function applySigUserForm(cfg) {
+  const local = readSigUserFormLocal();
+  const pick = (key, fallback) => {
+    const lv = local[key];
+    if (lv !== undefined && lv !== null && lv !== "") return lv;
+    const cv = cfg?.[key];
+    if (cv !== undefined && cv !== null && cv !== "") return cv;
+    return fallback;
+  };
+  if ($("#sigUserProfileUrl")) {
+    $("#sigUserProfileUrl").value =
+      pick("user_profile_url", "") || cfg?.user_profile_url || "";
+  }
+  if ($("#sigUserWeeks")) {
+    $("#sigUserWeeks").value = String(pick("user_weeks", 1));
+  }
+  if ($("#sigUserMaxTweets")) {
+    $("#sigUserMaxTweets").value = String(pick("user_max_tweets", 50));
+  }
+  if ($("#sigUserSkipNonTrade")) {
+    const v = pick("user_skip_non_trade", cfg?.user_skip_non_trade ?? cfg?.skip_non_trade ?? true);
+    $("#sigUserSkipNonTrade").checked = !!v;
+  }
+  if ($("#sigUserReparse")) {
+    $("#sigUserReparse").checked = !!pick("user_reparse_seen", false);
+  }
+  if ($("#sigUserPush")) {
+    const v = pick("user_push_enabled", cfg?.user_push_enabled ?? cfg?.push_enabled ?? true);
+    $("#sigUserPush").checked = !!v;
+  }
+  if ($("#sigUserForcePush")) {
+    $("#sigUserForcePush").checked = !!pick("user_force_push", false);
+  }
+  writeSigUserFormLocal(collectSigUserForm());
+}
+
+async function persistSigUserForm({ immediate = false } = {}) {
+  const body = collectSigUserForm();
+  writeSigUserFormLocal(body);
+  if (_sigUserSaveTimer) {
+    clearTimeout(_sigUserSaveTimer);
+    _sigUserSaveTimer = null;
+  }
+  const save = async () => {
+    try {
+      const data = await api("/api/signals/config", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      if (data?.config) writeSigUserFormLocal({ ...body, ...data.config });
+    } catch (_) {
+      /* localStorage 已缓存，下次加载仍可用 */
+    }
+  };
+  if (immediate) await save();
+  else _sigUserSaveTimer = setTimeout(save, 350);
+}
+
+function bindSigUserFormPersistence() {
+  const fields = [
+    "#sigUserProfileUrl",
+    "#sigUserWeeks",
+    "#sigUserMaxTweets",
+    "#sigUserSkipNonTrade",
+    "#sigUserReparse",
+    "#sigUserPush",
+    "#sigUserForcePush",
+  ];
+  for (const sel of fields) {
+    const el = $(sel);
+    if (!el) continue;
+    const evt = el.type === "checkbox" || el.type === "number" ? "change" : "input";
+    el.addEventListener(evt, () => persistSigUserForm());
+    if (el.type === "number" || el.tagName === "INPUT") {
+      el.addEventListener("blur", () => persistSigUserForm({ immediate: true }));
+    }
+  }
 }
 
 async function loadSignalsPanel() {
@@ -3860,14 +3986,8 @@ async function loadSignalsPanel() {
     if ($("#sigDeepMode") && cfg.deep_sleep_mode) {
       $("#sigDeepMode").value = cfg.deep_sleep_mode === "patrol" ? "patrol" : "sleep";
     }
-    if ($("#sigUserProfileUrl") && cfg.user_profile_url) {
-      $("#sigUserProfileUrl").value = cfg.user_profile_url;
-    }
-    if ($("#sigUserWeeks") && cfg.user_weeks != null) {
-      $("#sigUserWeeks").value = cfg.user_weeks;
-    }
-    if ($("#sigUserMaxTweets") && cfg.user_max_tweets != null) {
-      $("#sigUserMaxTweets").value = cfg.user_max_tweets;
+    if ($("#sigUserProfileUrl") || $("#sigUserWeeks")) {
+      applySigUserForm(cfg);
     }
     syncSigCdpBadge(data.debugger_url_effective || cfg.debugger_url || "127.0.0.1:9223");
     if ($("#sigDebuggerUrl")) {
@@ -3898,6 +4018,7 @@ async function loadSignalsPanel() {
     /* ignore */
   }
   await loadSignalCards();
+  loadSigBacktestLast();
 }
 
 function syncSigCdpBadge(url) {
@@ -4054,128 +4175,320 @@ function appendSigValidateLog(line) {
   pre.scrollTop = pre.scrollHeight;
 }
 
-function formatRemoteCard(c) {
-  const symbol = c.symbol || c.coin || "-";
-  const dir = sigDirectionLabel(c.direction || "");
-  const entry = c.entry || "";
-  const targets = (c.targets || c.takeProfits || []).join(" / ");
-  const sl = c.stopLoss || c.stop_loss || "";
-  const body = String(c.body || c.content || c.rawContent || "").slice(0, 200);
-  const ch = c.channelName || c.channelId || "";
-  const signalAt = c.signalAt || c.createdAt || c.time || "";
-  const exec = c.execution || {};
-  const prog = c.progress || c.backtest || {};
-  const pnl = prog.currentPnlPct ?? prog.pnlPct ?? exec.pnlPct;
-  const outcome = exec.outcome || prog.outcome || "";
-  return `<article class="sig-card is-trade sig-remote-card">
+function appendSigBacktestLog(line) {
+  const pre = $("#sigBacktestLog");
+  if (!pre) return;
+  pre.hidden = false;
+  pre.textContent = (pre.textContent ? `${pre.textContent}\n` : "") + line;
+  pre.scrollTop = pre.scrollHeight;
+}
+
+function _validateCtxFromOpts(opts = {}) {
+  const logSel = opts.logSel || "#sigValidateLog";
+  const progressSel = opts.progressSel || "#sigValidateProgress";
+  return {
+    _backtestOnly: !!opts.backtestOnly,
+    appendLog(line) {
+      const pre = $(logSel);
+      if (!pre) return;
+      pre.hidden = false;
+      pre.textContent = (pre.textContent ? `${pre.textContent}\n` : "") + line;
+      pre.scrollTop = pre.scrollHeight;
+    },
+    setProgress(text) {
+      const el = $(progressSel);
+      if (el) el.textContent = text;
+    },
+    onDone(data) {
+      if (typeof opts.onDone === "function") opts.onDone(data);
+    },
+  };
+}
+
+let _sigValidateCtx = null;
+let _sigBacktestLast = null;
+let _sigBacktestPending = null;
+const SIG_BACKTEST_LS = "sigBacktestLastResult";
+
+function persistSigBacktestLast() {
+  const r = _sigBacktestLast;
+  if (!r || !(r.items || []).length) return;
+  try {
+    localStorage.setItem(
+      SIG_BACKTEST_LS,
+      JSON.stringify({
+        start: r.start,
+        jobId: r.jobId,
+        mock: r.mock,
+        window_days: r.window_days,
+        signal_count: r.signal_count,
+        note: r.note,
+        mode: r.mode,
+        signals: r.signals,
+        items: r.items,
+        errors: r.errors || [],
+        finished: true,
+        savedAt: r.savedAt || Date.now(),
+      })
+    );
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+function loadSigBacktestLast() {
+  if (_sigBacktestLast?.items?.length) {
+    updateSigBacktestResultButton();
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(SIG_BACKTEST_LS);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data || !(data.items || []).length) return;
+    _sigBacktestLast = data;
+  } catch (_) {
+    /* ignore corrupt cache */
+  }
+  updateSigBacktestResultButton();
+}
+
+function updateSigBacktestResultButton() {
+  const btn = $("#btnSigBacktestResult");
+  if (btn) btn.disabled = !(_sigBacktestLast?.items || []).length;
+}
+
+function setSigBacktestLast(partial) {
+  if (!partial || !(partial.items || []).length) return;
+  _sigBacktestLast = {
+    ...(_sigBacktestLast || {}),
+    ...partial,
+    finished: true,
+    savedAt: Date.now(),
+  };
+  persistSigBacktestLast();
+  updateSigBacktestResultButton();
+}
+
+function toUtcIso(raw) {
+  if (!raw) return new Date().toISOString();
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString();
+  return d.toISOString();
+}
+
+function normalizeBacktestSymbol(coin) {
+  return String(coin || "")
+    .trim()
+    .toUpperCase()
+    .replace(/USDT$|USDC$|BUSD$/, "");
+}
+
+function cardToBacktestSignals(card) {
+  const sig = card?.signal || {};
+  if (!sig.has_trade_signal) return [];
+  const dir = String(sig.direction || "").toLowerCase();
+  if (dir !== "long" && dir !== "short") return [];
+  const coins = (sig.coins || [])
+    .map(normalizeBacktestSymbol)
+    .filter(Boolean);
+  if (!coins.length) return [];
+  const signalAt = toUtcIso(card.created_at || card.parsed_at || card.display_time);
+  const entryRaw = (sig.entries || [])[0];
+  const entry = entryRaw != null && String(entryRaw).trim() ? String(entryRaw).trim() : "";
+  const baseId = String(card.tweet_id || card.id || "");
+  return coins.map((symbol) => {
+    const row = {
+      id: baseId ? `${baseId}-${symbol}` : symbol,
+      symbol,
+      direction: dir,
+      signalAt,
+    };
+    if (entry) {
+      row.entry = entry;
+      row.entryMode = "limit";
+    } else {
+      row.entryMode = "market";
+    }
+    return row;
+  });
+}
+
+function collectBacktestSignalsFromCards(cards) {
+  const arr = Array.isArray(cards) ? cards : [];
+  const onlyTrade = !!$("#sigFilterTrade")?.checked;
+  const out = [];
+  const seen = new Set();
+  for (const card of arr) {
+    if (onlyTrade && !card?.signal?.has_trade_signal) continue;
+    for (const sig of cardToBacktestSignals(card)) {
+      const key = `${sig.id}|${sig.symbol}|${sig.signalAt}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(sig);
+    }
+  }
+  return out.slice(0, 500);
+}
+
+function formatBacktestTime(raw) {
+  if (!raw) return "-";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw).slice(0, 19);
+  return formatDateFullCST(d).replace(/ \+08:00$/, "").slice(0, 19);
+}
+
+function formatBacktestResultItem(it) {
+  if (!it || typeof it !== "object") return "";
+  const symbol = String(it.symbol || "?");
+  if (it.error) {
+    return `<article class="sig-card is-noise sig-backtest-card">
+      <div class="sig-card-top">
+        <span class="sig-coin">${escapeHtml(symbol)}</span>
+        <span class="muted">回测失败</span>
+      </div>
+      <p class="sig-summary">${escapeHtml(String(it.error))}</p>
+    </article>`;
+  }
+  const dirKey = String(it.direction || "unknown").toLowerCase();
+  const dir = sigDirectionLabel(it.direction);
+  const timeLabel = formatBacktestTime(it.signalAt);
+  const entryRaw = it.entry;
+  const hasEntry = entryRaw != null && entryRaw !== "";
+  const entry = hasEntry ? String(entryRaw) : "市价";
+  const entryMode = it.entryMode === "limit" || (hasEntry && it.entryMode !== "market") ? "限价" : "市价";
+  const windowDays = it.windowDays ?? 3;
+  const threshold = it.profitThresholdPct != null ? `${it.profitThresholdPct}%` : "-";
+  const maxP = it.maxProfitPct != null ? `${it.maxProfitPct}%` : "-";
+  const minP = it.minProfitPct != null ? `${it.minProfitPct}%` : "-";
+  const hitMax =
+    it.hitProfitThresholdBeforeMax == null ? "-" : it.hitProfitThresholdBeforeMax ? "是" : "否";
+  const hitMin =
+    it.hitProfitThresholdBeforeMin == null ? "-" : it.hitProfitThresholdBeforeMin ? "是" : "否";
+  const pnl = it.currentPnlPct != null ? `${it.currentPnlPct}%` : "-";
+  const mockBadge = it.mock ? `<span class="sig-backtest-mock">Mock</span>` : "";
+
+  const signalId = String(it.signalId || it.id || "");
+  const tweetId = signalId.split("-")[0];
+  const srcCard = _sigCardsCache.find((c) => String(c.tweet_id || "") === tweetId);
+  const summaryRaw = srcCard
+    ? stripSigTimePrefix(srcCard.signal?.summary || srcCard.text || "")
+    : "";
+  const summary = summaryRaw.trim();
+
+  const levels = [
+    `<div><b>入场</b>${escapeHtml(entry)} · ${escapeHtml(entryMode)}</div>`,
+    `<div><b>窗口</b>${windowDays} 天 · 阈值 ${escapeHtml(threshold)}</div>`,
+    `<div><b>最高盈利</b>${escapeHtml(maxP)}${
+      it.maxProfitAt ? ` · ${escapeHtml(formatBacktestTime(it.maxProfitAt))}` : ""
+    }</div>`,
+    `<div><b>最低盈利</b>${escapeHtml(minP)}${
+      it.minProfitAt ? ` · ${escapeHtml(formatBacktestTime(it.minProfitAt))}` : ""
+    }</div>`,
+    `<div><b>触顶前达阈值</b>${escapeHtml(hitMax)} · <b>触底前达阈值</b>${escapeHtml(hitMin)}</div>`,
+  ];
+
+  return `<article class="sig-card is-trade sig-backtest-card">
     <div class="sig-card-top">
-      <span class="sig-dir">${escapeHtml(dir)}</span>
-      <span class="sig-coin">${escapeHtml(String(symbol))}</span>
-      <span class="sig-author">${escapeHtml(String(ch))}</span>
-      <span class="sig-time">${escapeHtml(String(signalAt).slice(0, 19))}</span>
+      ${mockBadge}
+      <span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>
+      <span class="sig-coin">${escapeHtml(symbol)}</span>
+      <span class="sig-time" title="帖子时间">${escapeHtml(timeLabel)}</span>
     </div>
-    <p class="sig-summary">${escapeHtml(body)}</p>
-    <div class="sig-levels">
-      ${entry ? `<div><b>入场</b>${escapeHtml(String(entry))}</div>` : ""}
-      ${targets ? `<div><b>止盈</b>${escapeHtml(targets)}</div>` : ""}
-      ${sl ? `<div><b>止损</b>${escapeHtml(String(sl))}</div>` : ""}
-    </div>
+    ${summary ? `<p class="sig-summary" title="${escapeAttr(summary)}">${escapeHtml(summary)}</p>` : ""}
+    <div class="sig-levels">${levels.join("")}</div>
     <div class="sig-card-foot">
-      <span class="sig-conf">Cards #${escapeHtml(String(c.id || "?"))}${outcome ? ` · ${escapeHtml(String(outcome))}` : ""}${pnl != null ? ` · 盈亏 ${escapeHtml(String(pnl))}%` : ""}</span>
+      <span class="sig-conf">当前盈亏 ${escapeHtml(pnl)}</span>
     </div>
   </article>`;
+}
+
+function renderSigBacktestResultDialog() {
+  const meta = $("#sigBacktestResultMeta");
+  const body = $("#sigBacktestResultBody");
+  if (!meta || !body) return;
+  const r = _sigBacktestLast;
+  if (!r || !(r.items || []).length) {
+    meta.innerHTML = "";
+    body.innerHTML = `<p class="sig-backtest-empty">请先点击「发送回测」并等待任务完成。</p>`;
+    return;
+  }
+  const start = r.start || {};
+  const count = (r.items || []).length;
+  const isMock = !!(start.mock ?? r.mock);
+  const windowDays = start.windowDays ?? r.window_days ?? 3;
+  const note = start.note || r.note || "";
+  const jobShort = r.jobId ? `${String(r.jobId).slice(0, 8)}…` : "";
+  meta.innerHTML = [
+    `<span class="sig-backtest-meta-chip">${count} 条</span>`,
+    `<span class="sig-backtest-meta-chip">${windowDays} 天窗口</span>`,
+    isMock ? `<span class="sig-backtest-meta-chip is-mock">Mock</span>` : "",
+    jobShort ? `<span class="sig-backtest-meta-chip" title="${escapeAttr(String(r.jobId))}">${escapeHtml(jobShort)}</span>` : "",
+    note ? `<span class="sig-backtest-meta-chip is-note" title="${escapeAttr(note)}">${escapeHtml(note)}</span>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  body.innerHTML = (r.items || []).map((it) => formatBacktestResultItem(it)).join("");
+}
+
+function openSigBacktestResultDialog() {
+  renderSigBacktestResultDialog();
+  $("#sigBacktestResultDialog")?.showModal();
+}
+
+function handleValidateWsMessage(msg) {
+  const c = _sigValidateCtx || _validateCtxFromOpts({});
+  const kind = msg.kind || msg.type || "";
+  const data = msg.data || msg.payload || msg;
+  if (kind === "card_validate_started") {
+    c.appendLog(`开始验证 · 共 ${data.total || "?"} 张`);
+    c.setProgress(`0 / ${data.total || "?"}`);
+  } else if (kind === "card_validate_progress") {
+    c.setProgress(`${data.index || 0} / ${data.total || "?"}`);
+  } else if (kind === "card_validate_item") {
+    const item = data.item || data;
+    c.appendLog(formatValidateItem(item));
+  } else if (kind === "card_validate_done") {
+    const items = data.items || [];
+    c.appendLog(`验证完成 · ${items.length} 条结果`);
+    c.setProgress("完成");
+    closeSigValidateWs();
+    c.onDone(data);
+  } else if (kind === "card_validate_error") {
+    c.appendLog(`验证失败：${data.error || "未知错误"}`);
+    c.setProgress("失败");
+    closeSigValidateWs();
+  }
 }
 
 function formatValidateItem(it) {
   if (!it || typeof it !== "object") return "";
-  const mode = it.mode || "?";
+  if (it.error) {
+    return `[错误] ${it.symbol || "?"} · ${it.error}`;
+  }
   const parts = [
     it.mock ? "[Mock]" : "",
-    `#${it.cardId || it.id || "?"}`,
+    it.signalId ? `id=${it.signalId}` : it.cardId ? `#${it.cardId}` : "",
     it.symbol ? `币种=${it.symbol}` : "",
-    mode === "full" ? "已完结" : "进行中",
+    it.direction ? sigDirectionLabel(it.direction) : "",
   ].filter(Boolean);
-  if (it.maxProfitPct != null) parts.push(`最大盈利 ${it.maxProfitPct}%`);
+  if (it.entry != null) parts.push(`入场=${it.entry}`);
+  if (it.entryMode) parts.push(`方式=${it.entryMode}`);
+  if (it.windowDays != null) parts.push(`${it.windowDays}天窗口`);
+  if (it.maxProfitPct != null) parts.push(`最高盈利 ${it.maxProfitPct}%`);
+  if (it.minProfitPct != null) parts.push(`最低盈利 ${it.minProfitPct}%`);
   if (it.maxDrawdownPct != null) parts.push(`最大回撤 ${it.maxDrawdownPct}%`);
   if (it.currentPnlPct != null) parts.push(`当前盈亏 ${it.currentPnlPct}%`);
+  if (it.profitThresholdPct != null) parts.push(`阈值 ${it.profitThresholdPct}%`);
+  if (it.hitProfitThresholdBeforeMax != null) {
+    parts.push(`触顶前达阈值=${it.hitProfitThresholdBeforeMax ? "是" : "否"}`);
+  }
+  if (it.hitProfitThresholdBeforeMin != null) {
+    parts.push(`触底前达阈值=${it.hitProfitThresholdBeforeMin ? "是" : "否"}`);
+  }
   if (it.maxProfitAt) parts.push(`峰值@${String(it.maxProfitAt).slice(0, 19)}`);
+  if (it.minProfitAt) parts.push(`谷底@${String(it.minProfitAt).slice(0, 19)}`);
   return parts.join(" · ");
-}
-
-function formatMockValidateCard(it) {
-  if (!it || typeof it !== "object") return "";
-  const symbol = it.symbol || it.coin || "-";
-  const dir = sigDirectionLabel(it.direction || "");
-  const cardId = it.cardId || it.id || "?";
-  const outcome = it.outcome || (it.mode === "full" ? "已完结" : "进行中");
-  const pnl = it.currentPnlPct;
-  const maxP = it.maxProfitPct;
-  const maxD = it.maxDrawdownPct;
-  const body = String(it.body || it.summary || it.note || "Mock 回测样例").slice(0, 200);
-  return `<article class="sig-card is-trade sig-remote-card sig-mock-card">
-    <div class="sig-card-top">
-      <span class="sig-dir">${escapeHtml(dir)}</span>
-      <span class="sig-coin">${escapeHtml(String(symbol))}</span>
-      <span class="sig-author">Mock</span>
-      <span class="sig-time">${escapeHtml(String(it.signalAt || it.validatedAt || "").slice(0, 19))}</span>
-    </div>
-    <p class="sig-summary">${escapeHtml(body)}</p>
-    <div class="sig-card-foot">
-      <span class="sig-conf">Mock #${escapeHtml(String(cardId))} · ${escapeHtml(String(outcome))}${
-        maxP != null ? ` · 最大盈利 ${escapeHtml(String(maxP))}%` : ""
-      }${maxD != null ? ` · 最大回撤 ${escapeHtml(String(maxD))}%` : ""}${
-        pnl != null ? ` · 当前盈亏 ${escapeHtml(String(pnl))}%` : ""
-      }</span>
-    </div>
-  </article>`;
-}
-
-function renderMockValidateItems(items, { title = "Mock 回测样例" } = {}) {
-  const box = $("#sigRemoteCards");
-  if (!box) return;
-  const arr = Array.isArray(items) ? items : [];
-  if (!arr.length) {
-    box.innerHTML = `<p class="muted">${escapeHtml(title)}：无数据</p>`;
-    return;
-  }
-  box.innerHTML = `<p class="muted">${escapeHtml(title)} · ${arr.length} 条（非真实 Cards 列表）</p>${arr
-    .map((it) => formatMockValidateCard(it))
-    .join("")}`;
-}
-
-async function loadRemoteCards({ quiet = false } = {}) {
-  const box = $("#sigRemoteCards");
-  if (!box) return;
-  const handle = parseSigUserHandle($("#sigUserProfileUrl")?.value.trim() || "");
-  const weeks = Number($("#sigUserWeeks")?.value || 1);
-  if (!quiet) setStatus($("#sigUserStatus"), "拉取 Cards API…");
-  try {
-    const q = new URLSearchParams({
-      days: String(Math.max(1, weeks * 7)),
-      sources: "x",
-      limit: "200",
-    });
-    if (handle) q.set("handle", handle);
-    const data = await api(`/api/signals/cards/remote?${q.toString()}`);
-    if (!data.success) {
-      const msg = data.message || data.hint || data.error || "Cards API 不可用";
-      if (!quiet) setStatus($("#sigUserStatus"), msg, "error");
-      box.innerHTML = `<p class="muted">Cards API 拉取失败：${escapeHtml(msg)}${
-        data.upstream_url ? `<br><small>${escapeHtml(data.upstream_url)}</small>` : ""
-      }${data.status ? `<br><small>upstream HTTP ${escapeHtml(String(data.status))}</small>` : ""}</p>`;
-      return;
-    }
-    const cards = data.cards || [];
-    if (!cards.length) {
-      box.innerHTML = `<p class="muted">远端暂无卡片（近 ${weeks} 周）。先抓取推送或检查 channelId 映射。</p>`;
-    } else {
-      box.innerHTML = cards.map((c) => formatRemoteCard(c)).join("");
-    }
-    if (!quiet) setStatus($("#sigUserStatus"), `Cards API ${cards.length} 条`, "ok");
-  } catch (e) {
-    if (!quiet) setStatus($("#sigUserStatus"), String(e), "error");
-    box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
-  }
 }
 
 let _sigValidateWs = null;
@@ -4194,37 +4507,49 @@ function closeSigValidateWs() {
     clearInterval(_sigValidatePollTimer);
     _sigValidatePollTimer = null;
   }
+  _sigValidateCtx = null;
 }
 
-function handleValidateWsMessage(msg) {
-  const kind = msg.kind || msg.type || "";
-  const data = msg.data || msg.payload || msg;
-  if (kind === "card_validate_started") {
-    appendSigValidateLog(`开始验证 · 共 ${data.total || "?"} 张`);
-    if ($("#sigValidateProgress")) {
-      $("#sigValidateProgress").textContent = `0 / ${data.total || "?"}`;
-    }
-  } else if (kind === "card_validate_progress") {
-    if ($("#sigValidateProgress")) {
-      $("#sigValidateProgress").textContent = `${data.index || 0} / ${data.total || "?"}`;
-    }
-  } else if (kind === "card_validate_item") {
-    const item = data.item || data;
-    appendSigValidateLog(formatValidateItem(item));
-  } else if (kind === "card_validate_done") {
-    const items = data.items || [];
-    appendSigValidateLog(`验证完成 · ${items.length} 条结果`);
-    if (items.length && (data.mock || items.some((it) => it && it.mock))) {
-      renderMockValidateItems(items, { title: "Mock 验证结果" });
-    }
-    if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = "完成";
-    closeSigValidateWs();
-    if (!data.mock && !items.some((it) => it && it.mock)) loadRemoteCards({ quiet: true });
-  } else if (kind === "card_validate_error") {
-    appendSigValidateLog(`验证失败：${data.error || "未知错误"}`);
-    if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = "失败";
-    closeSigValidateWs();
+async function connectValidateJobWs(jobId, ctx, { mock = false } = {}) {
+  _sigValidateCtx = ctx;
+  try {
+    const wsCfg = await api("/api/signals/cards/ws-config");
+    const wsUrl = wsCfg.ws_url || "ws://127.0.0.1:3851/ws";
+    _sigValidateWs = new WebSocket(wsUrl);
+    _sigValidateWs.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.channel && msg.channel !== "meta") return;
+        handleValidateWsMessage(msg);
+      } catch (_) {
+        /* ignore malformed */
+      }
+    };
+    _sigValidateWs.onerror = () => ctx.appendLog("WebSocket 连接异常，将使用轮询");
+  } catch (_) {
+    ctx.appendLog("WebSocket 不可用，使用轮询");
   }
+
+  _sigValidatePollTimer = setInterval(async () => {
+    try {
+      const st = await api(`/api/signals/cards/validate/${encodeURIComponent(jobId)}`);
+      if (st.status === "done") {
+        const items = st.items || [];
+        items.forEach((it) => ctx.appendLog(formatValidateItem(it)));
+        ctx.appendLog(`${mock ? "[Mock] " : ""}轮询：验证完成`);
+        ctx.setProgress("完成");
+        closeSigValidateWs();
+        ctx.onDone({ items, errors: st.errors || [], mock, jobId });
+      } else if (st.status === "error") {
+        ctx.appendLog(`轮询：${st.error || "验证失败"}`);
+        closeSigValidateWs();
+      } else {
+        ctx.setProgress(st.status || "running");
+      }
+    } catch (_) {
+      /* ignore poll errors */
+    }
+  }, 2500);
 }
 
 async function runCardsValidateJob({ mock = false } = {}) {
@@ -4245,12 +4570,7 @@ async function runCardsValidateJob({ mock = false } = {}) {
   try {
     const body = mock
       ? { mock: true, mockCount }
-      : {
-          days: Math.max(1, weeks * 7),
-          handle,
-          sources: "x",
-          limit: 200,
-        };
+      : { mockCount };
     const data = await api("/api/signals/cards/validate", {
       method: "POST",
       body: JSON.stringify(body),
@@ -4260,54 +4580,96 @@ async function runCardsValidateJob({ mock = false } = {}) {
       return;
     }
     const jobId = data.job_id;
-    appendSigValidateLog(`${mock ? "[Mock] " : ""}jobId=${jobId}`);
-    if (mock) appendSigValidateLog(`mockCount=${mockCount} · 监听 WebSocket / 轮询…`);
+    const ctx = _validateCtxFromOpts({
+      onDone() {},
+    });
+    ctx.appendLog(`${mock ? "[Mock] " : ""}jobId=${jobId}`);
+    if (mock) ctx.appendLog(`mockCount=${mockCount} · 监听 WebSocket / 轮询…`);
     setStatus($("#sigUserStatus"), `${mock ? "Mock " : ""}验证任务 ${jobId} 运行中…`, "ok");
-
-    try {
-      const wsCfg = await api("/api/signals/cards/ws-config");
-      const wsUrl = wsCfg.ws_url || "ws://127.0.0.1:3851/ws";
-      _sigValidateWs = new WebSocket(wsUrl);
-      _sigValidateWs.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.channel && msg.channel !== "meta") return;
-          handleValidateWsMessage(msg);
-        } catch (_) {
-          /* ignore malformed */
-        }
-      };
-      _sigValidateWs.onerror = () => appendSigValidateLog("WebSocket 连接异常，将使用轮询");
-    } catch (_) {
-      appendSigValidateLog("WebSocket 不可用，使用轮询");
-    }
-
-    _sigValidatePollTimer = setInterval(async () => {
-      try {
-        const st = await api(`/api/signals/cards/validate/${encodeURIComponent(jobId)}`);
-        if (st.status === "done") {
-          const items = st.items || [];
-          items.forEach((it) => appendSigValidateLog(formatValidateItem(it)));
-          if (mock && items.length) renderMockValidateItems(items, { title: "Mock 验证结果" });
-          appendSigValidateLog(`${mock ? "[Mock] " : ""}轮询：验证完成`);
-          if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = "完成";
-          closeSigValidateWs();
-          if (!mock) await loadRemoteCards({ quiet: true });
-        } else if (st.status === "error") {
-          appendSigValidateLog(`轮询：${st.error || "验证失败"}`);
-          closeSigValidateWs();
-        } else if ($("#sigValidateProgress")) {
-          $("#sigValidateProgress").textContent = st.status || "running";
-        }
-      } catch (_) {
-        /* ignore poll errors */
-      }
-    }, 2500);
+    await connectValidateJobWs(jobId, ctx, { mock });
   } catch (e) {
     setStatus($("#sigUserStatus"), String(e), "error");
   } finally {
     if (btnReal) btnReal.disabled = false;
     if (btnMock) btnMock.disabled = false;
+  }
+}
+
+async function startSigCardsBacktest() {
+  const btn = $("#btnSigBacktest");
+  if (btn) btn.disabled = true;
+  closeSigValidateWs();
+  const log = $("#sigBacktestLog");
+  if (log) {
+    log.hidden = false;
+    log.textContent = "";
+  }
+  if ($("#sigBacktestProgress")) $("#sigBacktestProgress").textContent = "";
+  const signals = collectBacktestSignalsFromCards(_sigCardsCache);
+  if (!signals.length) {
+    toast("无有效交易信号可回测（需币种 + 做多/做空 + 时间）", "error");
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const body = { signals };
+  toast(`启动 Cards 回测（${signals.length} 条信号）…`, "info");
+  _sigBacktestPending = { signals };
+  try {
+    const data = await api("/api/signals/cards/validate", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const ctx = _validateCtxFromOpts({
+      logSel: "#sigBacktestLog",
+      progressSel: "#sigBacktestProgress",
+      backtestOnly: true,
+      onDone(doneData) {
+        const items = doneData.items || [];
+        if (items.length) {
+          setSigBacktestLast({
+            ...(_sigBacktestPending || {}),
+            items,
+            errors: doneData.errors || [],
+            jobId: doneData.jobId || _sigBacktestPending?.jobId,
+          });
+        }
+        _sigBacktestPending = null;
+        toast("回测验证完成", "ok");
+      },
+    });
+    if (!data.success || !data.job_id) {
+      const msg = data.error || data.hint || "回测启动失败";
+      ctx.appendLog(msg);
+      if (data.hint && data.error && !String(data.error).includes(data.hint)) {
+        ctx.appendLog(data.hint);
+      }
+      if (data.note) ctx.appendLog(data.note);
+      toast(msg.split(" · ")[0].slice(0, 120), "error");
+      return;
+    }
+    _sigBacktestPending = {
+      signals,
+      start: data.raw || {},
+      jobId: data.job_id,
+      mock: data.mock,
+      window_days: data.window_days,
+      signal_count: data.signal_count,
+      note: data.note,
+      mode: data.mode,
+    };
+    ctx.appendLog(
+      `POST /api/v1/cards/validate · signals=${signals.length} · windowDays=${data.window_days ?? 3}${
+        data.mock ? " · mock" : ""
+      }`
+    );
+    if (data.note) ctx.appendLog(data.note);
+    ctx.appendLog(`jobId=${data.job_id} · ws://127.0.0.1:3851/ws`);
+    await connectValidateJobWs(data.job_id, ctx, { mock: !!data.mock });
+  } catch (e) {
+    appendSigBacktestLog(String(e));
+    toast(String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -4340,7 +4702,6 @@ async function loadMockValidateSample() {
     const items = data.items || [];
     appendSigValidateLog(`[Mock 静态样例] 共 ${items.length} 条（不跑任务，立刻返回）`);
     items.forEach((it) => appendSigValidateLog(formatValidateItem(it)));
-    renderMockValidateItems(items, { title: "Mock 静态回测样例" });
     if ($("#sigValidateProgress")) $("#sigValidateProgress").textContent = `样例 ${items.length} 条`;
     setStatus($("#sigUserStatus"), `Mock 静态样例 ${items.length} 条`, "ok");
     toast(`Mock 静态样例 ${items.length} 条`, "ok");
@@ -4393,20 +4754,22 @@ async function runUserSignalsCrawl() {
     return;
   }
   if (btn) btn.disabled = true;
+  await persistSigUserForm({ immediate: true });
   setStatus($("#sigUserStatus"), "提交博主回溯任务…");
   renderSigUserRunLog([]);
   setSigUserControlButtons({ running: false, paused: false });
+  const form = collectSigUserForm();
   try {
     const start = await api("/api/signals/user/run", {
       method: "POST",
       body: JSON.stringify({
-        profile_url: profile,
-        weeks: Number($("#sigUserWeeks")?.value || 1),
-        max_tweets: Number($("#sigUserMaxTweets")?.value || 80),
-        skip_non_trade: !!$("#sigUserSkipNonTrade")?.checked,
-        reparse_seen: !!$("#sigUserReparse")?.checked,
-        push: !!$("#sigUserPush")?.checked,
-        force_push: !!$("#sigUserForcePush")?.checked,
+        profile_url: form.user_profile_url,
+        weeks: form.user_weeks,
+        max_tweets: form.user_max_tweets,
+        skip_non_trade: form.user_skip_non_trade,
+        reparse_seen: form.user_reparse_seen,
+        push: form.user_push_enabled,
+        force_push: form.user_force_push,
       }),
     });
     if (!start.success || !start.job_id) {
@@ -4441,7 +4804,6 @@ async function runUserSignalsCrawl() {
         if (ok) {
           toast(result.message || "博主回溯完成", "ok");
           await loadSignalsPanel();
-          await loadRemoteCards({ quiet: true });
         }
         break;
       }
@@ -4985,6 +5347,58 @@ function formatSigCardTime(c) {
   return formatDateFullCST(new Date()).replace(/ \+08:00$/, "");
 }
 
+let _sigCardsCache = [];
+
+function openSigCardEdit(tweetId) {
+  const tid = String(tweetId || "").trim();
+  const card = _sigCardsCache.find((c) => String(c.tweet_id || "") === tid);
+  if (!card) {
+    toast("未找到卡片", "error");
+    return;
+  }
+  const dlg = $("#sigCardEditDialog");
+  if (!dlg) return;
+  $("#sigEditTweetId").value = tid;
+  $("#sigEditText").value = stripSigTimePrefix(card.text || "");
+  $("#sigEditSupplement").value = "";
+  setStatus($("#sigEditStatus"), "");
+  dlg.showModal();
+}
+
+async function saveSigCardEdit(e) {
+  e.preventDefault();
+  const tid = $("#sigEditTweetId")?.value.trim() || "";
+  const text = $("#sigEditText")?.value ?? "";
+  const supplement = $("#sigEditSupplement")?.value ?? "";
+  if (!tid) return;
+  const btn = $("#btnSigEditSave");
+  if (btn) btn.disabled = true;
+  setStatus($("#sigEditStatus"), "重新 AI 解析中…");
+  try {
+    const data = await api("/api/signals/cards/reparse", {
+      method: "POST",
+      body: JSON.stringify({ tweet_id: tid, text, supplement }),
+    });
+    if (!data.success) {
+      setStatus($("#sigEditStatus"), data.error || "解析失败", "error");
+      return;
+    }
+    const sig = data.signal || {};
+    const trade = !!sig.has_trade_signal;
+    const msg = trade
+      ? `已更新为交易信号 · ${(sig.coins || []).join("/") || "?"} · ${sigDirectionLabel(sig.direction)}`
+      : "已更新（当前判定为非交易信号）";
+    setStatus($("#sigEditStatus"), msg, trade ? "ok" : "");
+    toast(msg, trade ? "ok" : "info");
+    $("#sigCardEditDialog")?.close();
+    await loadSignalCards();
+  } catch (err) {
+    setStatus($("#sigEditStatus"), String(err), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function loadSignalCards() {
   const box = $("#sigCards");
   if (!box) return;
@@ -4998,6 +5412,7 @@ async function loadSignalCards() {
     const data = await api(url);
     renderSigWindows(data.windows || []);
     const items = (data.items || []).slice().sort((a, b) => sigCardTimeMs(b) - sigCardTimeMs(a));
+    _sigCardsCache = items;
     const badge = $("#countSignals");
     if (badge) badge.textContent = String(items.length);
     if (!items.length) {
@@ -5047,7 +5462,8 @@ async function loadSignalCards() {
           : "";
         const timeLabel = formatSigCardTime(c);
         const summaryText = stripSigTimePrefix(sig.summary || c.text || "");
-        return `<article class="sig-card${trade ? " is-trade" : " is-noise"}">
+        const tid = escapeAttr(String(c.tweet_id || ""));
+        return `<article class="sig-card${trade ? " is-trade" : " is-noise"}" data-tweet-id="${tid}">
           <div class="sig-card-top">
             <span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>
             ${coins}
@@ -5062,7 +5478,8 @@ async function loadSignalCards() {
           <pre class="sig-text">${escapeHtml(stripSigTimePrefix(c.text || ""))}</pre>
           <div class="sig-card-foot">
             <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">原帖</a>
-            <span class="sig-conf">${trade ? "信号" : "非交易"} · 置信度 ${escapeHtml(String(sig.confidence ?? ""))} · ${escapeHtml(sig.provider === "heuristic" ? "规则解析" : "AI 解析")}</span>
+            ${tid ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
+            <span class="sig-conf">${trade ? "信号" : "非交易"} · 置信度 ${escapeHtml(String(sig.confidence ?? ""))} · ${escapeHtml(sig.provider === "heuristic" ? "规则解析" : "AI 解析")}${c.cache_only ? " · 缓存" : ""}</span>
           </div>
         </article>`;
       })

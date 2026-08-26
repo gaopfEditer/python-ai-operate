@@ -437,6 +437,8 @@ def run_user_signal_pipeline(
             "user_profile_url": user_profile_url(handle),
             "user_weeks": wks,
             "user_max_tweets": limit,
+            "user_skip_non_trade": skip_nt,
+            "user_push_enabled": do_push,
             "skip_non_trade": skip_nt,
             "push_enabled": do_push,
         }

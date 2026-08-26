@@ -676,7 +676,6 @@
               <button id="btnSigUserPause" class="btn ghost" type="button" disabled>暂停</button>
               <button id="btnSigUserResume" class="btn ghost" type="button" disabled hidden>继续</button>
               <button id="btnSigUserStop" class="btn danger" type="button" disabled>终止</button>
-              <button id="btnSigUserRemote" class="btn ghost" type="button">刷新 Cards 列表</button>
               <button id="btnSigUserValidate" class="btn ghost" type="button">验证执行情况</button>
               <button id="btnSigMockSample" class="btn ghost" type="button">Mock 静态样例</button>
               <button id="btnSigMockValidate" class="btn ghost" type="button">Mock 验证任务</button>
@@ -693,17 +692,11 @@
             <span id="sigValidateProgress" class="muted"></span>
           </div>
           <pre id="sigValidateLog" class="sig-run-log sig-validate-log" hidden></pre>
-          <div class="sig-meta-head" style="margin-top:12px">
-            <h3 class="sig-sub">Cards API 卡片（远端）</h3>
-          </div>
-          <div id="sigRemoteCards" class="sig-cards sig-remote-cards">
-            <p class="muted">需 discord-collector（3851）开启 CARDS_API_KEY 后，点「刷新 Cards 列表」拉取远端卡片。</p>
-          </div>
         </div>
 
         <div class="sig-meta">
-          <div class="sig-meta-windows">
-            <div class="sig-meta-head">
+          <section class="sig-meta-block">
+            <div class="sig-meta-row">
               <h3 class="sig-sub">已爬时间段</h3>
               <label class="field check sig-windows-toggle">
                 <input id="sigShowAllWindows" type="checkbox" />
@@ -711,20 +704,77 @@
               </label>
             </div>
             <div id="sigWindows" class="sig-windows muted">暂无记录</div>
-          </div>
-          <div class="toolbar sig-card-toolbar">
-            <label class="field check" style="margin:0">
-              <input id="sigFilterTrade" type="checkbox" />
-              <span>仅显示交易卡</span>
-            </label>
-            <label class="field check" style="margin:0">
-              <input id="sigHideKol" type="checkbox" />
-              <span>隐藏 KOL 名称</span>
-            </label>
-            <button id="btnSigRefresh" class="btn ghost" type="button">刷新卡片</button>
-          </div>
+          </section>
+
+          <section class="sig-meta-block sig-meta-bar">
+            <div class="sig-meta-bar-left">
+              <label class="field check" style="margin:0">
+                <input id="sigFilterTrade" type="checkbox" />
+                <span>仅显示交易卡</span>
+              </label>
+              <label class="field check" style="margin:0">
+                <input id="sigHideKol" type="checkbox" />
+                <span>隐藏 KOL 名称</span>
+              </label>
+            </div>
+            <div class="sig-meta-bar-right">
+              <button id="btnSigRefresh" class="btn ghost" type="button">刷新卡片</button>
+              <button id="btnSigBacktest" class="btn ghost" type="button" title="将当前交易信号列表提交回测">发送回测</button>
+              <button id="btnSigBacktestResult" class="btn ghost" type="button" disabled title="查看最近一次回测结果">显示回测结果</button>
+            </div>
+          </section>
+
+          <section class="sig-meta-block sig-meta-backtest">
+            <div class="sig-meta-row">
+              <h3 class="sig-sub">回测</h3>
+              <span id="sigBacktestProgress" class="muted"></span>
+            </div>
+            <p class="sig-meta-hint muted">POST /api/v1/cards/validate · <code>signals[]</code> · 完成后点「显示回测结果」</p>
+            <pre id="sigBacktestLog" class="sig-run-log sig-validate-log" hidden></pre>
+          </section>
         </div>
         <div id="sigCards" class="sig-cards"></div>
+
+        <dialog id="sigBacktestResultDialog" class="el-dialog sig-backtest-result-dialog">
+          <form method="dialog" class="sig-backtest-result-form">
+            <header class="el-dialog__header">
+              <span class="el-dialog__title">回测结果</span>
+              <button type="submit" value="close" class="el-dialog__headerbtn" aria-label="关闭">
+                <span class="el-dialog__close-icon">&times;</span>
+              </button>
+            </header>
+            <div class="el-dialog__body">
+              <div id="sigBacktestResultMeta" class="sig-backtest-result-meta"></div>
+              <div id="sigBacktestResultBody" class="sig-backtest-result-grid"></div>
+            </div>
+            <footer class="el-dialog__footer">
+              <button type="submit" value="close" class="btn primary">关闭</button>
+            </footer>
+          </form>
+        </dialog>
+
+        <dialog id="sigCardEditDialog" class="corpus-dialog sig-card-edit-dialog">
+          <form method="dialog" id="sigCardEditForm" class="form-grid">
+            <h3 style="grid-column:1/-1;margin:0">编辑卡片正文</h3>
+            <p class="muted" style="grid-column:1/-1;margin:0;font-size:.82rem">
+              补充漏掉的价位、币种、方向等信息后保存，将重新 AI 解析并更新交易信号状态。
+            </p>
+            <input type="hidden" id="sigEditTweetId" />
+            <label class="field full">
+              <span>正文</span>
+              <textarea id="sigEditText" rows="8" placeholder="推文原文…"></textarea>
+            </label>
+            <label class="field full">
+              <span>补充说明（可选，追加到正文末尾）</span>
+              <textarea id="sigEditSupplement" rows="3" placeholder="例如：止损 92000 · 止盈 98000/100000 · BTC 做多"></textarea>
+            </label>
+            <p id="sigEditStatus" class="status" style="grid-column:1/-1"></p>
+            <div class="field full" style="flex-direction:row;gap:8px;justify-content:flex-end">
+              <button value="cancel" class="btn ghost" type="submit">取消</button>
+              <button id="btnSigEditSave" value="save" class="btn primary" type="submit">保存并重新解析</button>
+            </div>
+          </form>
+        </dialog>
 
         <dialog id="sigCdpConfigDialog" class="corpus-dialog sig-cdp-dialog">
           <form method="dialog" id="sigCdpConfigForm" class="form-grid">
@@ -773,6 +823,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260825c"></script>
+  <script src="/app.js?v=20260826o"></script>
 </body>
 </html>

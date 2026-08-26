@@ -57,6 +57,17 @@ def format_cards_source(origin: str = "", *, cfg: Optional[Dict[str, Any]] = Non
     return f"{CARDS_SOURCE_APP}:{suffix}"
 
 
+def cards_api_source_platform(*, cfg: Optional[Dict[str, Any]] = None) -> str:
+    """开放 API POST /api/v1/cards 的 source 字段（见 cards-api.md：x / telegram …）。"""
+    api = {}
+    if cfg and isinstance(cfg.get("cards_api"), dict):
+        api = cfg["cards_api"]
+    raw = str(api.get("source_origin") or api.get("source") or "x").strip()
+    if raw.startswith(f"{CARDS_SOURCE_APP}:"):
+        raw = raw.split(":", 1)[-1].strip()
+    return raw or "x"
+
+
 def resolve_cards_api_key(cfg: Optional[Dict[str, Any]] = None) -> str:
     """环境变量 CARDS_API_KEY 优先，其次 signals_channels.yaml 的 api_key。"""
     env = os.environ.get("CARDS_API_KEY", "").strip()
@@ -141,13 +152,17 @@ def resolve_channel(author: str, cfg: Optional[Dict[str, Any]] = None) -> Dict[s
 
 
 def _signal_at_iso(card: Dict[str, Any]) -> str:
+    """Cards API signalAt：UTC ISO（与 cards-api.md 示例一致）。"""
     raw = str(card.get("created_at") or "").strip()
     dt = parse_dt(raw)
     if dt is None:
         dt = datetime.now(timezone.utc)
     elif dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return fmt_beijing_iso(dt)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    ms = int(dt.microsecond / 1000)
+    return dt.strftime(f"%Y-%m-%dT%H:%M:%S.{ms:03d}Z")
 
 
 def _image_urls(card: Dict[str, Any]) -> List[str]:
@@ -216,7 +231,7 @@ def build_cards_payload(
         "channelId": ch["channelId"],
         "channelName": ch["channelName"],
         "channelAvatar": ch["channelAvatar"],
-        "source": format_cards_source(cfg=cfg),
+        "source": cards_api_source_platform(cfg=cfg),
         "body": body,
         "images": _image_urls(card),
         "symbol": symbol,
@@ -226,9 +241,8 @@ def build_cards_payload(
         "signalAt": _signal_at_iso(card),
         "note": " · ".join(note_parts) if note_parts else "列表交易信号",
     }
-    dir_out = direction_for_cards(direction)
-    if dir_out:
-        payload["direction"] = dir_out
+    if direction in ("long", "short"):
+        payload["direction"] = direction
 
     inject = (
         bool(inject_channel_message)
@@ -236,6 +250,10 @@ def build_cards_payload(
         else bool(api.get("inject_channel_message", True))
     )
     payload["injectChannelMessage"] = inject
+    tid = str(card.get("tweet_id") or "").strip()
+    if tid:
+        payload["messageId"] = f"x-{tid}"
+        payload["sourceRef"] = tid
     return payload
 
 
@@ -255,7 +273,7 @@ def _error_detail(status: Any, error: Any, response: Any) -> str:
     if error:
         parts.append(str(error))
     if isinstance(response, dict):
-        for key in ("error", "message", "detail", "msg", "reason"):
+        for key in ("error", "message", "detail", "msg", "reason", "hint"):
             val = response.get(key)
             if val not in (None, ""):
                 parts.append(f"{key}={val}")
@@ -263,6 +281,23 @@ def _error_detail(status: Any, error: Any, response: Any) -> str:
         if raw and not any(k in response for k in ("error", "message", "detail", "msg")):
             parts.append(f"raw={str(raw)[:800]}")
     return " · ".join(parts) if parts else "未知错误"
+
+
+def _friendly_cards_api_error(status: Any, error: Any, response: Any) -> str:
+    blob = _error_detail(status, error, response)
+    low = blob.lower()
+    if "cards_by_style" in low or "signalcardtoclient" in low:
+        return (
+            "Cards API 已连通，但 discord-collector 未写入 MySQL（collect:ui 离线模式）。"
+            " POST /api/v1/cards 需要 MySQL 持久化；请启动 MySQL 并重启 pnpm run collect:ui。"
+            f" 原始错误：{blob}"
+        )
+    if status == 503 or "mysql" in low or "离线" in blob:
+        return (
+            "Cards API MySQL 不可用，无法建卡。请检查 discord-collector 的 MYSQL_* 配置并启动 MySQL。"
+            f" 详情：{blob}"
+        )
+    return blob
 
 
 def build_request_meta(
@@ -338,7 +373,7 @@ def post_card(
             }
             if not ok:
                 out["error"] = _error_detail(status, None, body)
-                out["error_detail"] = out["error"]
+                out["error_detail"] = _friendly_cards_api_error(status, None, body)
             return out
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="replace") if e.fp else ""
@@ -346,7 +381,7 @@ def post_card(
             parsed = json.loads(err_body) if err_body else {}
         except Exception:
             parsed = {"raw": err_body}
-        detail = _error_detail(e.code, str(e), parsed)
+        detail = _friendly_cards_api_error(e.code, str(e), parsed)
         return {
             "success": False,
             "status": e.code,
@@ -407,8 +442,24 @@ def push_card_if_needed(
 
     payload = build_cards_payload(card, cfg=cfg)
     result = post_card(payload, cfg=cfg)
+    resp = result.get("response") if isinstance(result.get("response"), dict) else {}
+    card_obj = resp.get("card") if isinstance(resp.get("card"), dict) else {}
+    remote_id = card_obj.get("id")
+    if remote_id is not None:
+        try:
+            result["cards_api_id"] = int(remote_id)
+        except (TypeError, ValueError):
+            pass
     if result.get("success") and tid:
         mark_pushed([tid], status="ok")
+        remote_id = result.get("cards_api_id")
+        if remote_id:
+            try:
+                from signals.store import save_card_remote_id
+
+                save_card_remote_id(tid, int(remote_id))
+            except Exception:
+                pass
     result["tweet_id"] = tid
     result["payload"] = payload
     result["channel"] = {

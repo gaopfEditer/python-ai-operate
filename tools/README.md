@@ -6,7 +6,16 @@
 
 ```
 tools/
-├── chrome-extension/     # Chrome 浏览器插件
+├── chrome-extension/       # Chrome 浏览器插件（视频转文字稿）
+├── chrome-comment-assistant/  # 多平台评论角度助手
+├── chrome-x-toolkit/       # X/Twitter 批量清理 + 评论生成
+│   ├── manifest.json
+│   ├── inject.js           # 捕获 X 站内 API 参数
+│   ├── x-api.js            # GraphQL 客户端
+│   ├── popup.html/js       # 批量清理控制
+│   ├── comment-panel.js    # 贴文详情评论助手
+│   └── README.md
+├── chrome-tab-transcribe/  # 标签页转写
 │   ├── manifest.json    # 插件配置文件
 │   ├── popup.html       # 插件弹窗界面
 │   ├── popup.js         # 插件主要逻辑

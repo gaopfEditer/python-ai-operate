@@ -3095,41 +3095,25 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
     if path == "/api/signals/cards/validate" and method == "POST":
         from signals.cards_api import start_validate
-        from signals.push import resolve_channel
 
-        try:
-            days = int(body.get("days") or 7)
-        except Exception:
-            days = 7
-        channel_id = str(body.get("channelId") or body.get("channel_id") or "")
-        symbol = str(body.get("symbol") or body.get("coin") or "")
-        sources = str(body.get("sources") or body.get("source") or "x")
-        handle = str(body.get("handle") or "")
-        if handle and not channel_id:
-            ch = resolve_channel(handle)
-            channel_id = ch.get("channelId") or ""
-        card_ids = body.get("cardIds") if isinstance(body.get("cardIds"), list) else None
-        try:
-            limit = int(body.get("limit") or 200)
-        except Exception:
-            limit = 200
+        signals = body.get("signals")
+        if signals is None:
+            signals = body.get("items") or body.get("coins") or body.get("list")
+        if not isinstance(signals, list):
+            signals = None
         mock_flag = bool(body.get("mock"))
         try:
             mock_count = int(body.get("mockCount") or body.get("mock_count") or 8)
         except Exception:
             mock_count = 8
-        result = start_validate(
-            days=days,
-            channel_id=channel_id,
-            symbol=symbol,
-            sources=sources,
-            limit=limit,
-            card_ids=card_ids,
-            mock=mock_flag,
-            mock_count=mock_count,
-        )
-        code = 202 if result.get("success") else 400
-        return _json_bytes(result, code)
+        if mock_flag:
+            result = start_validate(mock=True, mock_count=mock_count)
+        elif signals:
+            result = start_validate(signals=signals)
+        else:
+            result = start_validate(mock_count=mock_count)
+        code = 202 if result.get("success") else (503 if result.get("status_code") == 503 else 400)
+        return _json_bytes({"success": bool(result.get("success")), **result}, code)
 
     if path == "/api/signals/cards/validate/mock/sample" and method == "GET":
         from signals.cards_api import fetch_validate_mock_sample
@@ -3151,6 +3135,32 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         job_id = path.split("/api/signals/cards/validate/", 1)[-1].strip("/")
         result = poll_validate(job_id)
         code = 200 if result.get("success") else 404
+        return _json_bytes(result, code)
+
+    if path == "/api/signals/cards/backtest" and method == "POST":
+        from signals.cards_api import start_local_backtest
+
+        signals = body.get("signals")
+        if signals is None:
+            signals = body.get("items") or body.get("coins") or body.get("list")
+        if not isinstance(signals, list):
+            signals = []
+        result = start_local_backtest(
+            signals=signals,
+            handle=str(body.get("handle") or ""),
+            list_id=str(body.get("list_id") or ""),
+        )
+        code = 202 if result.get("success") else 400
+        return _json_bytes(result, code)
+
+    if path == "/api/signals/cards/reparse" and method == "POST":
+        from signals.reparse import reparse_local_card
+
+        tweet_id = str(body.get("tweet_id") or body.get("tweetId") or "")
+        text = body.get("text")
+        supplement = str(body.get("supplement") or "")
+        result = reparse_local_card(tweet_id, text=text, supplement=supplement)
+        code = 200 if result.get("success") else 400
         return _json_bytes(result, code)
 
     # ——— 推文卡片（粘贴链接解析） ———
