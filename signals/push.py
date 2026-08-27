@@ -13,7 +13,13 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from signals.labels import direction_cn, direction_for_cards, provider_cn
+from signals.labels import (
+    direction_cn,
+    direction_for_cards,
+    is_trade_signal,
+    normalize_direction,
+    provider_cn,
+)
 from signals.store import (
     is_pushed,
     mark_pushed,
@@ -33,11 +39,7 @@ DEFAULT_CARDS_API_KEY = "Gpf123456"
 
 def signal_ready_for_cards(sig: Dict[str, Any]) -> bool:
     """Cards API 仅推送：有币种 + 明确做多/做空。"""
-    if not isinstance(sig, dict):
-        return False
-    coins = [str(c).strip() for c in (sig.get("coins") or []) if str(c).strip()]
-    direction = str(sig.get("direction") or "").lower()
-    return bool(coins) and direction in ("long", "short")
+    return is_trade_signal(sig)
 
 
 def format_cards_source(origin: str = "", *, cfg: Optional[Dict[str, Any]] = None) -> str:
@@ -424,7 +426,7 @@ def push_card_if_needed(
         return {"success": True, "skipped": True, "reason": "already_pushed", "tweet_id": tid}
 
     sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
-    if api.get("only_trade_signals", True) and not sig.get("has_trade_signal"):
+    if api.get("only_trade_signals", True) and not is_trade_signal(sig):
         if tid:
             # 非交易也记已处理推送队列，避免反复尝试
             mark_pushed([tid], status="skipped_non_trade")

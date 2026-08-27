@@ -11,6 +11,46 @@ DIRECTION_CN = {
     "unknown": "未知",
 }
 
+DIRECTION_ALIASES = {
+    "long": "long",
+    "short": "short",
+    "flat": "flat",
+    "watch": "watch",
+    "unknown": "unknown",
+    "做多": "long",
+    "做空": "short",
+    "看多": "long",
+    "看空": "short",
+    "买入": "long",
+    "卖出": "short",
+    "中性": "flat",
+    "观望": "watch",
+}
+
+
+def normalize_direction(direction: str) -> str:
+    """统一方向为 long/short/flat/watch/unknown（兼容中文）。"""
+    raw = str(direction or "").strip()
+    if not raw:
+        return "unknown"
+    if raw in DIRECTION_ALIASES:
+        return DIRECTION_ALIASES[raw]
+    key = raw.lower()
+    if key in DIRECTION_ALIASES:
+        return DIRECTION_ALIASES[key]
+    if key in ("long", "short", "flat", "watch", "unknown"):
+        return key
+    return "unknown"
+
+
+def is_trade_signal(sig: dict) -> bool:
+    """有币种 + 明确做多/做空即视为交易信号（与筛选/推送一致）。"""
+    if not isinstance(sig, dict):
+        return False
+    coins = [str(c).strip() for c in (sig.get("coins") or []) if str(c).strip()]
+    direction = normalize_direction(str(sig.get("direction") or ""))
+    return bool(coins) and direction in ("long", "short")
+
 PROVIDER_CN = {
     "heuristic": "规则解析",
     "openai": "AI 解析",
@@ -20,8 +60,8 @@ PROVIDER_CN = {
 
 
 def direction_cn(direction: str) -> str:
-    key = str(direction or "").lower().strip()
-    return DIRECTION_CN.get(key, key if key in DIRECTION_CN.values() else "未知")
+    key = normalize_direction(direction)
+    return DIRECTION_CN.get(key, "未知")
 
 
 def direction_for_cards(direction: str) -> str:

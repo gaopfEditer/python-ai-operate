@@ -4286,9 +4286,8 @@ function normalizeBacktestSymbol(coin) {
 
 function cardToBacktestSignals(card) {
   const sig = card?.signal || {};
-  if (!sig.has_trade_signal) return [];
-  const dir = String(sig.direction || "").toLowerCase();
-  if (dir !== "long" && dir !== "short") return [];
+  if (!isSigTradeSignal(sig)) return [];
+  const dir = normalizeSigDirectionKey(sig.direction);
   const coins = (sig.coins || [])
     .map(normalizeBacktestSymbol)
     .filter(Boolean);
@@ -4320,7 +4319,7 @@ function collectBacktestSignalsFromCards(cards) {
   const out = [];
   const seen = new Set();
   for (const card of arr) {
-    if (onlyTrade && !card?.signal?.has_trade_signal) continue;
+    if (onlyTrade && !isSigTradeSignal(card?.signal)) continue;
     for (const sig of cardToBacktestSignals(card)) {
       const key = `${sig.id}|${sig.symbol}|${sig.signalAt}`;
       if (seen.has(key)) continue;
@@ -5061,20 +5060,38 @@ function collectSigTestPayload(extra = {}) {
 }
 
 function sigDirectionLabel(dir) {
-  const key = String(dir || "unknown").toLowerCase();
+  const key = normalizeSigDirectionKey(dir) || String(dir || "unknown").toLowerCase();
   const map = {
     long: "做多",
     short: "做空",
     flat: "中性",
     watch: "观望",
     unknown: "未知",
-    做多: "做多",
-    做空: "做空",
-    中性: "中性",
-    观望: "观望",
-    未知: "未知",
   };
-  return map[key] || map.unknown;
+  return map[key] || "未知";
+}
+
+function normalizeSigDirectionKey(dir) {
+  const raw = String(dir || "").trim();
+  const key = raw.toLowerCase();
+  const map = {
+    long: "long",
+    short: "short",
+    做多: "long",
+    做空: "short",
+    看多: "long",
+    看空: "short",
+    买入: "long",
+    卖出: "short",
+  };
+  return map[raw] || map[key] || "";
+}
+
+function isSigTradeSignal(sig) {
+  if (!sig || typeof sig !== "object") return false;
+  const coins = (sig.coins || []).map((c) => String(c).trim()).filter(Boolean);
+  const dir = normalizeSigDirectionKey(sig.direction);
+  return coins.length > 0 && (dir === "long" || dir === "short");
 }
 
 function formatSigTestSignal(sig) {
@@ -5384,7 +5401,7 @@ async function saveSigCardEdit(e) {
       return;
     }
     const sig = data.signal || {};
-    const trade = !!sig.has_trade_signal;
+    const trade = isSigTradeSignal(sig);
     const msg = trade
       ? `已更新为交易信号 · ${(sig.coins || []).join("/") || "?"} · ${sigDirectionLabel(sig.direction)}`
       : "已更新（当前判定为非交易信号）";
@@ -5422,8 +5439,8 @@ async function loadSignalCards() {
     box.innerHTML = items
       .map((c) => {
         const sig = c.signal || {};
-        const trade = !!sig.has_trade_signal;
-        const dirKey = String(sig.direction || "unknown").toLowerCase();
+        const trade = isSigTradeSignal(sig);
+        const dirKey = normalizeSigDirectionKey(sig.direction) || "unknown";
         const dir = sigDirectionLabel(sig.direction);
         const coins = (sig.coins || [])
           .map((x) => `<span class="sig-coin">${escapeHtml(String(x))}</span>`)

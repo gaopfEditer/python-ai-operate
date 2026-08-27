@@ -50,16 +50,17 @@ def _extract_json(text: str) -> Dict[str, Any]:
         return {}
 
 
+from signals.labels import normalize_direction
+
+
 def _normalize_trade_signal(data: Dict[str, Any]) -> Dict[str, Any]:
     """推送/入库判定：必须同时有币种 + 做多/做空方向。"""
     coins = [str(c).upper() for c in (data.get("coins") or []) if str(c).strip()][:8]
-    direction = str(data.get("direction") or "unknown").lower()
-    if direction not in ("long", "short", "flat", "watch", "unknown"):
-        direction = "unknown"
+    direction = normalize_direction(str(data.get("direction") or "unknown"))
     ready = bool(coins) and direction in ("long", "short")
     data["coins"] = coins
     data["direction"] = direction
-    data["has_trade_signal"] = bool(data.get("has_trade_signal")) and ready
+    data["has_trade_signal"] = ready
     return data
 
 
@@ -161,7 +162,7 @@ def analyze_tweet_signal(
                 out = {
                     "has_trade_signal": bool(data.get("has_trade_signal")),
                     "coins": [str(c).upper() for c in (data.get("coins") or []) if c][:8],
-                    "direction": str(data.get("direction") or "unknown").lower(),
+                    "direction": normalize_direction(str(data.get("direction") or "unknown")),
                     "entries": [str(x) for x in (data.get("entries") or []) if x][:6],
                     "take_profits": [str(x) for x in (data.get("take_profits") or []) if x][:6],
                     "stop_loss": str(data.get("stop_loss") or ""),
@@ -173,8 +174,6 @@ def analyze_tweet_signal(
                     "image_notes": str(data.get("image_notes") or ""),
                     "provider": provider or "ai",
                 }
-                if out["direction"] not in ("long", "short", "flat", "watch", "unknown"):
-                    out["direction"] = "unknown"
                 return _normalize_trade_signal(out)
     except Exception as e:
         provider = f"error:{e}"

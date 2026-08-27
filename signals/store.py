@@ -388,6 +388,8 @@ def list_cards(
 ) -> List[Dict[str, Any]]:
     from signals.crawl import normalize_twimg_url
 
+    from signals.labels import is_trade_signal
+
     state = load_state()
     lid = parse_list_id(list_id) if list_id else ""
     out: List[Dict[str, Any]] = []
@@ -395,7 +397,7 @@ def list_cards(
         if lid and str(c.get("list_id") or "") not in ("", lid):
             continue
         sig = c.get("signal") if isinstance(c.get("signal"), dict) else {}
-        if only_trade and not sig.get("has_trade_signal"):
+        if only_trade and not is_trade_signal(sig):
             continue
         card = dict(c)
         imgs = card.get("images")
