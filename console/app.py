@@ -2529,7 +2529,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
     if path == "/api/signals/config" and method == "GET":
         from signals.push import channels_summary
         from signals.schedule import describe_schedule, estimate_daily_runs
-        from signals.store import get_config, load_state
+        from signals.store import get_config, load_state, card_count
         from signals.cycle_watcher import status as cycle_status
         from signals.watcher import status as watch_status
         from signals.store import resolve_signals_debugger_url
@@ -2542,7 +2542,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 "config": cfg,
                 "debugger_url_effective": resolve_signals_debugger_url(cfg),
                 "windows": (st.get("windows") or [])[:12],
-                "card_count": len(st.get("cards") or []),
+                "card_count": card_count(),
                 "seen_count": len(st.get("seen_tweet_ids") or []),
                 "pushed_count": len(st.get("pushed_tweet_ids") or []),
                 "channels": channels_summary(),
@@ -2694,7 +2694,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
     if path == "/api/signals/cards" and method == "GET":
         from signals.push import enrich_card_channel, load_channels_config
-        from signals.store import list_cards, load_state
+        from signals.store import card_count, list_cards, load_state
 
         try:
             limit = int((query.get("limit") or ["80"])[0])
@@ -2702,10 +2702,28 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             limit = 80
         only_trade = str((query.get("trade") or [""])[0]).lower() in ("1", "true", "yes")
         lid = (query.get("list_id") or [""])[0]
+        handle = (query.get("handle") or query.get("user_id") or query.get("user") or [""])[0]
+        from_raw = (query.get("from") or query.get("from_time") or [""])[0]
+        to_raw = (query.get("to") or query.get("to_time") or [""])[0]
+        days_raw = (query.get("days") or [""])[0]
+        days = None
+        if days_raw:
+            try:
+                days = max(1, int(days_raw))
+            except Exception:
+                days = None
         cfg_ch = load_channels_config()
         items = [
             enrich_card_channel(c, cfg_ch)
-            for c in list_cards(list_id=lid, only_trade=only_trade, limit=limit)
+            for c in list_cards(
+                list_id=lid,
+                user_handle=str(handle or ""),
+                only_trade=only_trade,
+                limit=limit,
+                days=days,
+                from_raw=str(from_raw or ""),
+                to_raw=str(to_raw or ""),
+            )
         ]
         st = load_state()
         return _json_bytes(
@@ -2714,7 +2732,10 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 "items": items,
                 "windows": (st.get("windows") or [])[:8],
                 "config": st.get("config") or {},
+                "card_count": card_count(),
                 "pushed_count": len(st.get("pushed_tweet_ids") or []),
+                "storage": "sqlite",
+                "db_path": "output/signals/cards.db",
                 "channels": {
                     "mappings": [
                         {

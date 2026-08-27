@@ -279,26 +279,21 @@ def resolve_media(rel: str) -> Path:
 
 
 def upsert_card(card: Dict[str, Any]) -> Dict[str, Any]:
+    from signals.card_db import db_upsert_card, ensure_migrated
+
     state = load_state()
-    cards: List[Dict[str, Any]] = list(state.get("cards") or [])
+    ensure_migrated(list(state.get("cards") or []))
+    saved = db_upsert_card(card)
     tid = str(card.get("tweet_id") or "")
-    replaced = False
-    if tid:
-        for i, old in enumerate(cards):
-            if str(old.get("tweet_id") or "") == tid:
-                cards[i] = card
-                replaced = True
-                break
-    if not replaced:
-        cards.insert(0, card)
-    # 保留最近 500
-    state["cards"] = cards[:500]
     seen = list(state.get("seen_tweet_ids") or [])
     if tid and tid not in seen:
         seen.append(tid)
     state["seen_tweet_ids"] = seen[-5000:]
+    # cards 数组仅作兼容占位，主存储在 SQLite
+    if not state.get("cards"):
+        state["cards"] = []
     save_state(state)
-    return card
+    return saved
 
 
 def mark_seen(tweet_ids: List[str]) -> None:
@@ -380,50 +375,61 @@ def _card_sort_ts(card: Dict[str, Any]) -> datetime:
     return datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
+def card_count() -> int:
+    from signals.card_db import db_count, ensure_migrated
+
+    state = load_state()
+    ensure_migrated(list(state.get("cards") or []))
+    return db_count()
+
+
 def list_cards(
     *,
     list_id: str = "",
+    user_handle: str = "",
     only_trade: bool = False,
     limit: int = 100,
+    from_ts: Optional[int] = None,
+    to_ts: Optional[int] = None,
+    days: Optional[int] = None,
+    from_raw: str = "",
+    to_raw: str = "",
 ) -> List[Dict[str, Any]]:
-    from signals.crawl import normalize_twimg_url
-
-    from signals.labels import is_trade_signal
+    from signals.card_db import db_list_cards, ensure_migrated, resolve_time_range
 
     state = load_state()
-    lid = parse_list_id(list_id) if list_id else ""
-    out: List[Dict[str, Any]] = []
-    for c in state.get("cards") or []:
-        if lid and str(c.get("list_id") or "") not in ("", lid):
-            continue
-        sig = c.get("signal") if isinstance(c.get("signal"), dict) else {}
-        if only_trade and not is_trade_signal(sig):
-            continue
-        card = dict(c)
-        imgs = card.get("images")
-        if isinstance(imgs, list) and imgs:
-            fixed_imgs = []
-            for im in imgs:
-                if not isinstance(im, dict):
-                    continue
-                item = dict(im)
-                item["url"] = normalize_twimg_url(str(item.get("url") or "")) or str(
-                    item.get("url") or ""
-                )
-                fixed_imgs.append(item)
-            card["images"] = fixed_imgs
-        out.append(card)
-    out.sort(key=_card_sort_ts, reverse=True)
-    cap = max(1, int(limit))
-    return out[:cap]
+    cards_json = list(state.get("cards") or [])
+    if ensure_migrated(cards_json) and cards_json:
+        state["cards"] = []
+        save_state(state)
+    f_ts, t_ts = resolve_time_range(days=days, from_raw=from_raw, to_raw=to_raw)
+    if from_ts is not None:
+        f_ts = from_ts
+    if to_ts is not None:
+        t_ts = to_ts
+    return db_list_cards(
+        list_id=list_id,
+        user_handle=user_handle,
+        only_trade=only_trade,
+        limit=limit,
+        from_ts=f_ts,
+        to_ts=t_ts,
+    )
 
 
 def get_card_by_tweet_id(tweet_id: str) -> Optional[Dict[str, Any]]:
     """按 tweet_id 查找本地卡片（含 cache_only 缓存项）。"""
+    from signals.card_db import db_get_card_by_tweet_id, ensure_migrated
+
     tid = str(tweet_id or "").strip()
     if not tid:
         return None
-    for c in load_state().get("cards") or []:
+    state = load_state()
+    ensure_migrated(list(state.get("cards") or []))
+    row = db_get_card_by_tweet_id(tid)
+    if row:
+        return row
+    for c in state.get("cards") or []:
         if str(c.get("tweet_id") or "") == tid:
             return dict(c)
     return None
@@ -431,50 +437,33 @@ def get_card_by_tweet_id(tweet_id: str) -> Optional[Dict[str, Any]]:
 
 def save_card_remote_id(tweet_id: str, cards_api_id: int) -> None:
     """推送成功后记住远端 Cards id，回测时可直接使用。"""
+    from signals.card_db import db_save_card_remote_id, ensure_migrated
+
     tid = str(tweet_id or "").strip()
     if not tid or not cards_api_id:
         return
     state = load_state()
-    cards: List[Dict[str, Any]] = list(state.get("cards") or [])
-    changed = False
-    for i, c in enumerate(cards):
-        if str(c.get("tweet_id") or "") != tid:
-            continue
-        item = dict(c)
-        item["cards_api_id"] = int(cards_api_id)
-        cards[i] = item
-        changed = True
-        break
-    if changed:
-        state["cards"] = cards
-        save_state(state)
+    ensure_migrated(list(state.get("cards") or []))
+    db_save_card_remote_id(tid, int(cards_api_id))
 
 
 def clear_user_cache(handle: str) -> Dict[str, Any]:
     """清除博主回溯 scope 下的卡片与 seen/pushed 记录。"""
+    from signals.card_db import db_delete_user_cards, ensure_migrated
+
     h = parse_user_handle(handle) or (handle or "").strip().lstrip("@")
     if not h:
         return {"success": False, "error": "请填写有效的博主 handle"}
     scope = user_scope_id(h)
     state = load_state()
-    cards: List[Dict[str, Any]] = list(state.get("cards") or [])
-    removed_tids: List[str] = []
-    kept: List[Dict[str, Any]] = []
-    for c in cards:
-        lid = str(c.get("list_id") or "")
-        author = parse_user_handle(str(c.get("author") or ""))
-        if lid == scope or (author and author.lower() == h.lower()):
-            tid = str(c.get("tweet_id") or "").strip()
-            if tid:
-                removed_tids.append(tid)
-            continue
-        kept.append(c)
+    ensure_migrated(list(state.get("cards") or []))
+    removed_tids = db_delete_user_cards(h)
     rset = set(removed_tids)
     seen = [t for t in list(state.get("seen_tweet_ids") or []) if t not in rset]
     pushed = [t for t in list(state.get("pushed_tweet_ids") or []) if t not in rset]
-    state["cards"] = kept
     state["seen_tweet_ids"] = seen
     state["pushed_tweet_ids"] = pushed
+    state["cards"] = []
     save_state(state)
     return {
         "success": True,

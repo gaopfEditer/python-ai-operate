@@ -5423,7 +5423,15 @@ async function loadSignalCards() {
   let url = `/api/signals/cards?limit=80${onlyTrade ? "&trade=1" : ""}`;
   if (state.sigMode === "user") {
     const handle = parseSigUserHandle($("#sigUserProfileUrl")?.value.trim() || "");
-    if (handle) url += `&list_id=${encodeURIComponent(`user:${handle.toLowerCase()}`)}`;
+    const weeks = Number($("#sigUserWeeks")?.value || 1);
+    if (handle) {
+      url += `&handle=${encodeURIComponent(handle)}`;
+      url += `&list_id=${encodeURIComponent(`user:${handle.toLowerCase()}`)}`;
+    }
+    url += `&days=${Math.max(1, weeks * 7)}`;
+  } else {
+    const hours = Number($("#sigCutoffHours")?.value || 24);
+    url += `&days=${Math.max(1, Math.ceil(hours / 24))}`;
   }
   try {
     const data = await api(url);
