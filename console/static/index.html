@@ -562,24 +562,8 @@
             </select>
           </label>
           <label class="field check">
-            <input id="sigSkipNonTrade" type="checkbox" />
-            <span>只留有交易信号的卡片</span>
-          </label>
-          <label class="field check">
             <input id="sigIgnoreWindows" type="checkbox" />
             <span>忽略已爬时间段（整段重扫）</span>
-          </label>
-          <label class="field check">
-            <input id="sigReparseSeen" type="checkbox" />
-            <span>重新解析已见贴文</span>
-          </label>
-          <label class="field check">
-            <input id="sigPushEnabled" type="checkbox" checked />
-            <span>解析后推送 Cards API</span>
-          </label>
-          <label class="field check">
-            <input id="sigForcePush" type="checkbox" />
-            <span>强制重推（忽略已推送）</span>
           </label>
           <div class="field full">
             <span class="muted" id="sigChannelsHint">频道映射：config/signals_channels.yaml</span>
@@ -629,7 +613,6 @@
           <div class="field full sig-action-bar">
             <button id="btnSigSaveCfg" class="btn ghost" type="button">保存配置</button>
             <button id="btnSigCycle" class="btn ghost" type="button">开启周期抓取</button>
-            <button id="btnSigPushOnly" class="btn ghost" type="button">仅推送已存卡片</button>
             <button id="btnSigRun" class="btn primary" type="button">立即抓取一轮</button>
             <button id="btnSigPause" class="btn ghost" type="button" disabled>暂停</button>
             <button id="btnSigResume" class="btn ghost" type="button" disabled hidden>继续</button>
@@ -642,33 +625,37 @@
 
         <div id="sigModeUser" hidden>
           <div class="sig-config form-grid">
+            <div class="field full">
+              <div class="sig-blogger-head">
+                <span>博主名单</span>
+                <span class="sig-blogger-actions">
+                  <button type="button" class="btn-link" id="btnSigUserSelectAll">全选</button>
+                  <button type="button" class="btn-link" id="btnSigUserSelectNone">清空</button>
+                </span>
+              </div>
+              <div id="sigUserBloggerList" class="sig-blogger-list" role="group" aria-label="博主多选"></div>
+              <p class="muted sig-blogger-hint">来自 <code>config/signals_channels.yaml</code> 的 <code>channels</code>（<code>enabled: true</code>）· id 默认拼 <code>https://x.com/{id}</code></p>
+            </div>
             <label class="field full">
-              <span>博主主页链接</span>
-              <input id="sigUserProfileUrl" type="text" placeholder="https://x.com/some_kol 或 @handle" />
+              <span>额外博主（可选）</span>
+              <input id="sigUserProfileUrl" type="text" placeholder="未在名单中时可填 https://x.com/xxx 或 @handle" />
             </label>
             <label class="field">
-              <span>回溯周数</span>
-              <input id="sigUserWeeks" type="number" min="1" max="52" value="1" />
+              <span>回溯范围</span>
+              <select id="sigUserBackfillRange">
+                <option value="last_7d">近7天</option>
+                <option value="last_14d">近14天</option>
+                <option value="last_2w">两周内</option>
+                <option value="last_30d">近30天</option>
+                <option value="last_90d">近90天</option>
+                <option value="this_week">本周</option>
+                <option value="this_month" selected>本月</option>
+                <option value="this_quarter">本季度</option>
+              </select>
             </label>
             <label class="field">
               <span>最多条数</span>
               <input id="sigUserMaxTweets" type="number" min="10" max="300" value="50" />
-            </label>
-            <label class="field check">
-              <input id="sigUserSkipNonTrade" type="checkbox" checked />
-              <span>只保留有交易信号的贴文</span>
-            </label>
-            <label class="field check">
-              <input id="sigUserReparse" type="checkbox" />
-              <span>重新解析已见贴文</span>
-            </label>
-            <label class="field check">
-              <input id="sigUserPush" type="checkbox" checked />
-              <span>解析后推送 Cards API</span>
-            </label>
-            <label class="field check">
-              <input id="sigUserForcePush" type="checkbox" />
-              <span>强制重推（忽略已推送）</span>
             </label>
             <div class="field full sig-action-bar">
               <button id="btnSigUserRun" class="btn primary" type="button">一键抓取并解析</button>
@@ -676,22 +663,10 @@
               <button id="btnSigUserPause" class="btn ghost" type="button" disabled>暂停</button>
               <button id="btnSigUserResume" class="btn ghost" type="button" disabled hidden>继续</button>
               <button id="btnSigUserStop" class="btn danger" type="button" disabled>终止</button>
-              <button id="btnSigUserValidate" class="btn ghost" type="button">验证执行情况</button>
-              <button id="btnSigMockSample" class="btn ghost" type="button">Mock 静态样例</button>
-              <button id="btnSigMockValidate" class="btn ghost" type="button">Mock 验证任务</button>
-              <label class="field sig-mock-count">
-                <span>Mock 条数</span>
-                <input id="sigMockCount" type="number" min="1" max="20" value="8" />
-              </label>
             </div>
           </div>
           <p id="sigUserStatus" class="status"></p>
           <pre id="sigUserRunLog" class="sig-run-log" hidden></pre>
-          <div class="sig-validate-head">
-            <h3 class="sig-sub">Cards 验证进度</h3>
-            <span id="sigValidateProgress" class="muted"></span>
-          </div>
-          <pre id="sigValidateLog" class="sig-run-log sig-validate-log" hidden></pre>
         </div>
 
         <div class="sig-meta">
@@ -724,6 +699,40 @@
             </div>
           </section>
 
+          <section class="sig-meta-block sig-cards-filters" aria-label="卡片筛选">
+            <div class="sig-filter-row">
+              <label class="field sig-filter-field">
+                <span>博主</span>
+                <select id="sigFilterName">
+                  <option value="">全部</option>
+                </select>
+              </label>
+              <label class="field sig-filter-field">
+                <span>时间</span>
+                <select id="sigFilterRange">
+                  <option value="">全部</option>
+                  <option value="last_7d">近7天</option>
+                  <option value="last_14d">近14天</option>
+                  <option value="last_30d">近30天</option>
+                  <option value="this_week">本周</option>
+                  <option value="this_month">本月</option>
+                  <option value="this_quarter">本季度</option>
+                  <option value="custom">自定义</option>
+                </select>
+              </label>
+              <label class="field sig-filter-field" id="sigFilterFromWrap" hidden>
+                <span>从</span>
+                <input id="sigFilterFrom" type="datetime-local" />
+              </label>
+              <label class="field sig-filter-field" id="sigFilterToWrap" hidden>
+                <span>到</span>
+                <input id="sigFilterTo" type="datetime-local" />
+              </label>
+              <button type="button" class="btn ghost" id="btnSigFilterApply">筛选</button>
+              <button type="button" class="btn-link" id="btnSigFilterReset">重置</button>
+            </div>
+          </section>
+
           <section class="sig-meta-block sig-meta-backtest">
             <div class="sig-meta-row">
               <h3 class="sig-sub">回测</h3>
@@ -733,6 +742,7 @@
             <pre id="sigBacktestLog" class="sig-run-log sig-validate-log" hidden></pre>
           </section>
         </div>
+        <nav id="sigCardsPager" class="sig-cards-pager" hidden aria-label="信号卡片分页"></nav>
         <div id="sigCards" class="sig-cards"></div>
 
         <dialog id="sigBacktestResultDialog" class="el-dialog sig-backtest-result-dialog">
@@ -823,6 +833,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260827b"></script>
+  <script src="/app.js?v=20260828j"></script>
 </body>
 </html>

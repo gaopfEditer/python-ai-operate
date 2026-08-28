@@ -7,7 +7,7 @@ import re
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from signals.store import media_root, parse_dt, parse_list_id
@@ -163,40 +163,102 @@ return out;
     return base + filter_tail
 
 
-def _scroll_feed_page(page, *, rounds: int = 4) -> None:
+def _scroll_feed_page(page, *, rounds: int = 4, aggressive: bool = False) -> None:
+    """滚动时间线；卡顿时用更猛的策略把最后一条推文滚进视口并触底。"""
+    n = max(1, int(rounds))
     page.eval_js(
         f"""
 (() => {{
-  const delta = Math.max(window.innerHeight * 0.95, 1400);
-  for (let r = 0; r < {max(1, int(rounds))}; r++) {{
-    window.scrollBy(0, delta);
-    const col = document.querySelector('[data-testid="primaryColumn"]');
-    if (col) col.scrollTop = col.scrollTop + delta;
-    const main = document.querySelector('main');
-    if (main && main.scrollHeight > main.clientHeight + 40) {{
-      main.scrollTop = main.scrollHeight;
-    }}
+  const aggressive = {str(aggressive).lower()};
+  const delta = Math.max(window.innerHeight * (aggressive ? 1.35 : 0.95), aggressive ? 1800 : 1400);
+  const tweets = [...document.querySelectorAll("article[data-testid='tweet']")];
+  const last = tweets.length ? tweets[tweets.length - 1] : null;
+  if (last) {{
+    try {{ last.scrollIntoView({{ block: 'end', inline: 'nearest' }}); }} catch (e) {{}}
   }}
-  window.scrollTo(0, document.body.scrollHeight);
+  const findScrollable = (start) => {{
+    let el = start;
+    while (el && el !== document.documentElement) {{
+      const st = window.getComputedStyle(el);
+      const oy = st.overflowY || '';
+      if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && el.scrollHeight > el.clientHeight + 40) {{
+        return el;
+      }}
+      el = el.parentElement;
+    }}
+    return null;
+  }};
+  const candidates = [
+    last && findScrollable(last),
+    document.querySelector('[data-testid="primaryColumn"]'),
+    document.querySelector('main[role="main"]'),
+    document.scrollingElement,
+    document.documentElement,
+    document.body,
+  ].filter(Boolean);
+  for (let r = 0; r < {n}; r++) {{
+    for (const el of candidates) {{
+      try {{
+        el.scrollTop = el.scrollTop + delta;
+        if (aggressive) el.scrollTop = el.scrollHeight;
+      }} catch (e) {{}}
+    }}
+    window.scrollBy(0, delta);
+  }}
+  window.scrollTo(0, Math.max(
+    document.body.scrollHeight,
+    document.documentElement.scrollHeight,
+    (document.scrollingElement && document.scrollingElement.scrollHeight) || 0
+  ));
+  if (aggressive && last) {{
+    try {{ last.scrollIntoView({{ block: 'start', inline: 'nearest' }}); }} catch (e) {{}}
+    window.scrollBy(0, delta);
+  }}
   return document.querySelectorAll("article[data-testid='tweet']").length;
 }})()
 """
     )
-
-
-def _prepare_timeline_page(page, *, kind: str) -> None:
-    """搜索/主页：点对应 Tab，尽量等首屏推文渲染。"""
-    kind_l = (kind or "").lower()
-    if kind_l == "search":
+    # 键盘翻页兜底（X 虚拟列表有时只认按键滚动）
+    try:
         page.eval_js(
             """
 (() => {
-  const tabs = [...document.querySelectorAll('a[role="tab"]')];
-  const pick = tabs.find(t => /Latest|最新|Recent|实时|Live/i.test((t.textContent||'').trim()))
-    || tabs.find(t => /Top|热门|Relevant/i.test((t.textContent||'').trim()));
-  if (pick) pick.click();
+  const tgt = document.querySelector('[data-testid="primaryColumn"]')
+    || document.querySelector('main')
+    || document.body;
+  if (tgt && tgt.focus) try { tgt.focus(); } catch (e) {}
+  for (const key of ['PageDown', 'PageDown', 'End']) {
+    for (const type of ['keydown', 'keyup']) {
+      window.dispatchEvent(new KeyboardEvent(type, { key, code: key, bubbles: true, cancelable: true }));
+      document.dispatchEvent(new KeyboardEvent(type, { key, code: key, bubbles: true, cancelable: true }));
+    }
+  }
   return true;
 })()
+"""
+        )
+    except Exception:
+        pass
+
+
+def _prepare_timeline_page(page, *, kind: str, prefer_live: bool = True) -> None:
+    """搜索/主页：点对应 Tab，尽量等首屏推文渲染。"""
+    kind_l = (kind or "").lower()
+    if kind_l == "search":
+        prefer = "live" if prefer_live else "top"
+        page.eval_js(
+            f"""
+(() => {{
+  const prefer = "{prefer}";
+  const tabs = [...document.querySelectorAll('a[role="tab"]')];
+  const isLive = t => /Latest|最新|Recent|实时|Live/i.test((t.textContent||'').trim());
+  const isTop = t => /Top|热门|Relevant/i.test((t.textContent||'').trim());
+  const pick = prefer === "live"
+    ? (tabs.find(isLive) || tabs.find(isTop))
+    : (tabs.find(isTop) || tabs.find(isLive));
+  if (pick) pick.click();
+  return true;
+}})()
 """
         )
         time.sleep(2.0)
@@ -266,7 +328,13 @@ def _diagnose_feed_dom(page, *, limit: int = 4) -> List[Dict[str, Any]]:
     return []
 
 
-def _user_search_url(handle: str, since: datetime, *, live: bool = False) -> str:
+def _user_search_url(
+    handle: str,
+    since: datetime,
+    *,
+    live: bool = False,
+    until: Optional[datetime] = None,
+) -> str:
     from urllib.parse import quote
 
     h = re.sub(r"[^A-Za-z0-9_]", "", (handle or "").lstrip("@"))
@@ -275,16 +343,56 @@ def _user_search_url(handle: str, since: datetime, *, live: bool = False) -> str
         since_local = since_local.replace(tzinfo=timezone.utc)
     since_date = since_local.astimezone().strftime("%Y-%m-%d")
     q = f"from:{h} since:{since_date}"
+    if until is not None:
+        until_local = until
+        if until_local.tzinfo is None:
+            until_local = until_local.replace(tzinfo=timezone.utc)
+        # X until: 为开区间，用次日日期更稳
+        until_date = (until_local.astimezone() + timedelta(days=1)).strftime("%Y-%m-%d")
+        q = f"{q} until:{until_date}"
     base = f"https://x.com/search?q={quote(q)}&src=typed_query"
     return f"{base}&f=live" if live else base
 
 
 def _user_search_urls(handle: str, since: datetime) -> List[str]:
-    """搜索优先 Top，再试 Latest（live）。"""
+    """兼容旧调用：整段 since → Latest 优先，再 Top。"""
     return [
-        _user_search_url(handle, since, live=False),
         _user_search_url(handle, since, live=True),
+        _user_search_url(handle, since, live=False),
     ]
+
+
+def _iter_backfill_chunks(
+    since: datetime,
+    *,
+    until: Optional[datetime] = None,
+    chunk_days: int = 5,
+) -> List[Tuple[datetime, datetime]]:
+    """
+    将 [since, until] 切成若干短窗口（新→旧），避免 X 搜索深滚失效。
+    返回 [(chunk_since, chunk_until_inclusive), ...]
+    """
+    end = until or datetime.now(timezone.utc).astimezone()
+    start = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    if end < start:
+        start, end = end, start
+    days = max(1, int(chunk_days or 5))
+    chunks: List[Tuple[datetime, datetime]] = []
+    cursor = end
+    while cursor > start:
+        chunk_start = max(start, cursor - timedelta(days=days - 1))
+        # 归一到本地日界，便于 since/until 日期串
+        cs = chunk_start.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        ce = cursor.astimezone()
+        if cs < start.astimezone():
+            cs = start.astimezone()
+        chunks.append((cs, ce))
+        cursor = cs - timedelta(seconds=1)
+        if len(chunks) >= 40:
+            break
+    return chunks
 
 
 def _crawl_timeline_at_url(
@@ -300,6 +408,8 @@ def _crawl_timeline_at_url(
     page,
     filter_author: bool = True,
     page_kind: str = "profile",
+    prefer_live: bool = True,
+    stall_limit: int = 18,
 ) -> Dict[str, Any]:
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     feed_js = _feed_js(handle, filter_author=filter_author)
@@ -309,12 +419,13 @@ def _crawl_timeline_at_url(
     page_old = 0
     window_exhausted = False
     lazy_stall = 0
+    stall_stop = max(8, min(int(stall_limit or 18), 40))
 
     _log(progress, f"打开 {label}：{url}")
     page.silent_navigate(url)
     wait_s = 5.0 if page_kind == "search" else 3.5
     time.sleep(wait_s)
-    _prepare_timeline_page(page, kind=page_kind)
+    _prepare_timeline_page(page, kind=page_kind, prefer_live=prefer_live)
 
     for round_i in range(max_scroll):
         if should_abort and should_abort():
@@ -407,7 +518,7 @@ def _crawl_timeline_at_url(
                 f"{label}：已滚出时间窗且连续 {lazy_stall} 轮无新帖，停止",
             )
             break
-        if lazy_stall >= 14:
+        if lazy_stall >= stall_stop:
             _log(
                 progress,
                 f"{label}：连续 {lazy_stall} 轮 DOM 无新帖，停止（可检查 CDP 是否已登录 X）",
@@ -415,10 +526,14 @@ def _crawl_timeline_at_url(
             break
 
         try:
-            _scroll_feed_page(page, rounds=3 if lazy_stall >= 3 else 2)
+            _scroll_feed_page(
+                page,
+                rounds=4 if lazy_stall >= 3 else 2,
+                aggressive=lazy_stall >= 2,
+            )
         except Exception:
             break
-        time.sleep(1.6 if lazy_stall >= 3 else 1.35)
+        time.sleep(2.2 if lazy_stall >= 3 else (1.8 if lazy_stall else 1.35))
 
     items = list(by_id.values())
 
@@ -832,7 +947,7 @@ def crawl_user_timeline(
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
-    """CDP 抓取博主近 N 周推文：优先 search(from+since)，不足再补主页时间线。"""
+    """CDP 抓取博主时间窗推文：按日期切片搜索(Latest)，不足再补主页/回复。"""
     from allnews_mornitor.cdp_browser import _http_json
     from signals.store import parse_user_handle, user_profile_url
 
@@ -840,9 +955,15 @@ def crawl_user_timeline(
     if not h:
         return {"success": False, "error": "缺少博主链接或 @handle", "items": []}
     profile_url = user_profile_url(h)
-    search_urls = _user_search_urls(h, since)
     max_tweets = max(1, min(int(max_tweets or 80), 300))
-    max_scroll = max(25, min(int(max_scroll or 24), 150))
+    # 单段深滚上限；整月靠切片叠加，不必单次滚上百轮
+    max_scroll = max(18, min(int(max_scroll or 24), 60))
+    now = datetime.now(timezone.utc).astimezone()
+    span_days = max(1, (now - (since if since.tzinfo else since.replace(tzinfo=timezone.utc))).days + 1)
+    # >7 天按 4~5 天切片，避免 X 搜索深滚失效只拿到最近几条
+    chunk_days = 4 if span_days > 14 else (5 if span_days > 7 else span_days)
+    chunks = _iter_backfill_chunks(since, until=now, chunk_days=chunk_days)
+    search_urls: List[str] = []
 
     def _merge_items(into: Dict[str, Dict[str, Any]], res: Dict[str, Any]) -> Tuple[int, int]:
         seen = int(res.get("page_seen") or 0)
@@ -873,41 +994,62 @@ def crawl_user_timeline(
                 "items": [],
             }
 
-        first_url = search_urls[0] if search_urls else profile_url
+        first_url = _user_search_url(h, since, live=True, until=now)
         _, page = _acquire_list_page(first_url, progress=progress)
 
         merged: Dict[str, Dict[str, Any]] = {}
         total_seen = 0
         total_old = 0
 
-        for si, search_url in enumerate(search_urls):
+        _log(
+            progress,
+            f"搜索切片 {len(chunks)} 段（每段约 {chunk_days} 天）· 目标最多 {max_tweets} 条",
+        )
+        for ci, (chunk_since, chunk_until) in enumerate(chunks, 1):
             if _aborted():
                 break
-            if si > 0 and len(merged) >= max(10, max_tweets // 3):
+            if len(merged) >= max_tweets:
                 break
-            tag = "搜索(热门)" if si == 0 else "搜索(实时)"
+            live_url = _user_search_url(h, chunk_since, live=True, until=chunk_until)
+            search_urls.append(live_url)
+            label = (
+                f"搜索切片{ci}/{len(chunks)}"
+                f"（{chunk_since.strftime('%m-%d')}→{chunk_until.strftime('%m-%d')}）"
+            )
+            remain = max_tweets - len(merged)
+            # 单段不必滚太深：短窗 + Latest 通常一屏到几屏就够
+            seg_scroll = max(12, min(max_scroll, 28))
             search_res = _crawl_timeline_at_url(
-                url=search_url,
-                label=tag,
+                url=live_url,
+                label=label,
                 handle=h,
-                since=since,
-                max_tweets=max_tweets,
-                max_scroll=max_scroll,
+                since=chunk_since,
+                max_tweets=remain,
+                max_scroll=seg_scroll,
                 progress=progress,
                 should_abort=_aborted,
                 page=page,
                 filter_author=False,
                 page_kind="search",
+                prefer_live=True,
+                stall_limit=12,
             )
+            before = len(merged)
             ps, po = _merge_items(merged, search_res)
             total_seen += ps
             total_old += po
-
-        min_want = max(10, max_tweets // 3)
-        if len(merged) < min_want:
+            gained = len(merged) - before
             _log(
                 progress,
-                f"搜索仅 {len(merged)} 条，补充抓取主页时间线…",
+                f"{label} 本段新增 {gained} · 累计窗口内 {len(merged)}",
+            )
+            # 空段继续往更早切（可能该周没发帖），不要提前 break 整月
+
+        min_want = max(10, min(max_tweets // 3, 40))
+        if len(merged) < min_want and not _aborted():
+            _log(
+                progress,
+                f"切片搜索仅 {len(merged)} 条，补充抓取主页时间线…",
             )
             profile_res = _crawl_timeline_at_url(
                 url=profile_url,
@@ -921,12 +1063,13 @@ def crawl_user_timeline(
                 page=page,
                 filter_author=True,
                 page_kind="profile",
+                stall_limit=18,
             )
             ps, po = _merge_items(merged, profile_res)
             total_seen += ps
             total_old += po
 
-        if len(merged) < min_want:
+        if len(merged) < min_want and not _aborted():
             replies_url = f"{profile_url.rstrip('/')}/with_replies"
             _log(progress, f"主页仍仅 {len(merged)} 条，尝试回复时间线…")
             replies_res = _crawl_timeline_at_url(
@@ -941,6 +1084,7 @@ def crawl_user_timeline(
                 page=page,
                 filter_author=True,
                 page_kind="profile",
+                stall_limit=16,
             )
             ps, po = _merge_items(merged, replies_res)
             total_seen += ps
@@ -953,16 +1097,28 @@ def crawl_user_timeline(
             return dt or datetime(1970, 1, 1, tzinfo=timezone.utc)
 
         items.sort(key=_key, reverse=True)
-        items = items[:max_tweets]
+        # 最终再按总 since 过滤，防止切片边界混入
+        since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+        filtered: List[Dict[str, Any]] = []
+        for it in items:
+            created = parse_dt(str(it.get("created_at") or ""))
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created and created < since_cmp:
+                continue
+            filtered.append(it)
+        items = filtered[:max_tweets]
         _log(
             progress,
-            f"博主抓取结束：@{h} 窗口内 {len(items)} 条 · 页面累计见过 {total_seen}（过旧 {total_old}）",
+            f"博主抓取结束：@{h} 窗口内 {len(items)} 条 · 页面累计见过 {total_seen}（过旧 {total_old}）"
+            f" · 切片 {len(chunks)}",
         )
         return {
             "success": True,
             "handle": h,
             "url": profile_url,
             "search_urls": search_urls,
+            "chunks": len(chunks),
             "items": items,
             "count": len(items),
             "page_seen": total_seen,

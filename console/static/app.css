@@ -1787,6 +1787,62 @@ label.publish-media-add {
 
 /* X List 交易信号 */
 .sig-config { margin-bottom: 8px; }
+.sig-blogger-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: .84rem;
+}
+.sig-blogger-actions {
+  display: inline-flex;
+  gap: 12px;
+}
+.sig-blogger-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  min-height: 44px;
+}
+.sig-blogger-list:empty::before {
+  content: "暂无 channels 配置，请编辑 signals_channels.yaml";
+  color: var(--muted);
+  font-size: .82rem;
+}
+.sig-blogger-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .82rem;
+  cursor: pointer;
+  user-select: none;
+  background: var(--panel);
+}
+.sig-blogger-item:has(input:checked) {
+  border-color: rgba(15, 118, 110, .4);
+  background: rgba(15, 118, 110, .08);
+  color: #0f766e;
+}
+.sig-blogger-item input {
+  margin: 0;
+}
+.sig-blogger-item .sig-blogger-id {
+  color: var(--muted);
+  font-size: .75rem;
+}
+.sig-blogger-hint {
+  margin: 6px 0 0;
+  font-size: .75rem;
+}
 .sig-panel-head {
   display: flex;
   align-items: flex-start;
@@ -1812,19 +1868,24 @@ label.publish-media-add {
 .sig-cdp-dialog { max-width: min(420px, 94vw); }
 .sig-mode-tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 20px;
+  padding: 0 2px 14px;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 8px;
 }
 .sig-mode-tab {
   border: 1px solid transparent;
   border-radius: 999px;
-  padding: 6px 14px;
+  padding: 8px 18px;
+  margin: 0;
   background: transparent;
-  font-size: .82rem;
+  font-size: .84rem;
+  line-height: 1.2;
   cursor: pointer;
   color: var(--muted);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .sig-mode-tab.on {
   border-color: rgba(15, 118, 110, .35);
@@ -2067,6 +2128,29 @@ label.publish-media-add {
   align-items: center;
   gap: 10px 14px;
 }
+.sig-cards-filters {
+  padding-top: 4px;
+}
+.sig-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+}
+.sig-filter-field {
+  margin: 0;
+  min-width: 140px;
+}
+.sig-filter-field span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: .78rem;
+  color: var(--muted);
+}
+.sig-filter-field select,
+.sig-filter-field input {
+  min-width: 150px;
+}
 .sig-meta-hint {
   margin: 0 0 6px;
   font-size: .78rem;
@@ -2097,6 +2181,43 @@ label.publish-media-add {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
+}
+.sig-cards-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  margin: 12px 0 14px;
+  padding: 8px 0;
+}
+.sig-cards-pager[hidden] {
+  display: none !important;
+}
+.sig-cards-pager-meta {
+  font-size: .82rem;
+  color: var(--muted);
+}
+.sig-cards-pager-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .82rem;
+  color: var(--muted);
+}
+.sig-cards-pager-input {
+  width: 3.2rem;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: center;
+  font-size: .82rem;
+  background: var(--panel);
+  color: inherit;
+}
+.sig-cards-pager-input:focus {
+  outline: none;
+  border-color: rgba(15, 118, 110, .45);
 }
 .sig-card {
   border: 1px solid var(--line);

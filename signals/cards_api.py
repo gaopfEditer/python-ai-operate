@@ -174,24 +174,6 @@ def fetch_channels(
     return {"success": bool(res.get("success")), "channels": channels, "error": res.get("error")}
 
 
-def fetch_validate_mock_sample(*, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """静态 Mock 验证样例（立刻返回，不跑任务）。"""
-    res = _request_json("GET", "/api/v1/cards/validate/mock/sample", cfg=cfg)
-    data = res.get("data") if isinstance(res.get("data"), dict) else {}
-    items = data.get("items") if isinstance(data.get("items"), list) else []
-    err = _upstream_error_message(res) if not res.get("success") else ""
-    return {
-        "success": bool(res.get("success")),
-        "items": items,
-        "mock": True,
-        "total": data.get("total") or len(items),
-        "error": err,
-        "status": res.get("status"),
-        "upstream_url": res.get("url"),
-        "raw": data,
-    }
-
-
 def start_validate(
     *,
     signals: Optional[List[Dict[str, Any]]] = None,

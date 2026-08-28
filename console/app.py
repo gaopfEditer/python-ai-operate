@@ -2527,7 +2527,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
     # ——— X List 交易信号 ———
     if path == "/api/signals/config" and method == "GET":
-        from signals.push import channels_summary
+        from signals.push import bloggers_summary, channels_summary
         from signals.schedule import describe_schedule, estimate_daily_runs
         from signals.store import get_config, load_state, card_count
         from signals.cycle_watcher import status as cycle_status
@@ -2546,6 +2546,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 "seen_count": len(st.get("seen_tweet_ids") or []),
                 "pushed_count": len(st.get("pushed_tweet_ids") or []),
                 "channels": channels_summary(),
+                "bloggers": bloggers_summary(),
                 "schedule": describe_schedule(),
                 "daily_estimate": estimate_daily_runs(
                     str(cfg.get("deep_sleep_mode") or "sleep")
@@ -2706,8 +2707,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         from_raw = (query.get("from") or query.get("from_time") or [""])[0]
         to_raw = (query.get("to") or query.get("to_time") or [""])[0]
         days_raw = (query.get("days") or [""])[0]
+        range_raw = (query.get("range") or query.get("backfill_range") or [""])[0]
+        merge_raw = (query.get("merge") or query.get("merge_sources") or ["1"])[0]
+        merge_sources = str(merge_raw).lower() not in ("0", "false", "no")
         days = None
-        if days_raw:
+        if days_raw and not range_raw:
             try:
                 days = max(1, int(days_raw))
             except Exception:
@@ -2723,6 +2727,8 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 days=days,
                 from_raw=str(from_raw or ""),
                 to_raw=str(to_raw or ""),
+                backfill_range=str(range_raw or ""),
+                merge_sources=merge_sources,
             )
         ]
         st = load_state()
@@ -2799,18 +2805,11 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             try:
                 from signals.pipeline import run_list_signal_pipeline
 
-                push_flag = body.get("push")
-                if push_flag is None:
-                    push_flag = body.get("push_enabled")
                 result = run_list_signal_pipeline(
                     list_id=str(body.get("list_id") or body.get("list_url") or ""),
                     cutoff_hours=body.get("cutoff_hours"),
                     max_tweets=body.get("max_tweets"),
                     ignore_windows=bool(body.get("ignore_windows")),
-                    skip_non_trade=body.get("skip_non_trade"),
-                    reparse_seen=bool(body.get("reparse_seen")),
-                    push=None if push_flag is None else bool(push_flag),
-                    force_push=bool(body.get("force_push")),
                     progress=_progress,
                     control=ctl,
                 )
@@ -2892,6 +2891,25 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         job_id = uuid.uuid4().hex[:12]
 
         from signals.control import RunControl, register, unregister
+        from signals.push import resolve_blogger_targets
+
+        handles_raw = body.get("handles") or body.get("blogger_ids") or body.get("ids") or []
+        if isinstance(handles_raw, str):
+            handles_raw = [x.strip() for x in handles_raw.replace(",", " ").split() if x.strip()]
+        if not isinstance(handles_raw, list):
+            handles_raw = []
+        targets = resolve_blogger_targets(
+            handles=handles_raw,
+            profile_url=str(
+                body.get("profile_url")
+                or body.get("user_url")
+                or body.get("user_handle")
+                or ""
+            ),
+            user_handle=str(body.get("user_handle") or ""),
+        )
+        if not targets:
+            return _json_bytes({"success": False, "error": "请选择博主或填写链接/@handle"}, 400)
 
         ctl = register(job_id, RunControl(job_id))
         log_buf: List[str] = []
@@ -2905,14 +2923,14 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             except Exception:
                 print(f"[signals-user] {text}", flush=True)
             log_buf.append(text)
-            if len(log_buf) > 400:
-                del log_buf[:120]
+            if len(log_buf) > 500:
+                del log_buf[:150]
             st = ctl.status()
             _set_job(
                 job_id,
                 status="paused" if st == "paused" else "running",
                 message=text[:300],
-                logs=list(log_buf[-120:]),
+                logs=list(log_buf[-160:]),
                 control_status=st,
             )
 
@@ -2921,7 +2939,8 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 from utils.stdio_encoding import safe_print
 
                 safe_print("=" * 60)
-                safe_print(" [signals-user] 博主回溯 · 开始")
+                names = "、".join(f"@{t['id']}" for t in targets)
+                safe_print(f" [signals-user] 博主回溯 · 开始（{len(targets)}）：{names}")
                 safe_print("=" * 60)
             except Exception:
                 pass
@@ -2929,7 +2948,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 job_id,
                 status="running",
                 type="signals_user",
-                message="开始抓取博主时间线…",
+                message=f"开始抓取 {len(targets)} 位博主…",
                 logs=[],
                 control_status="running",
                 started_at=datetime.now().isoformat(timespec="seconds"),
@@ -2937,46 +2956,70 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             try:
                 from signals.pipeline import run_user_signal_pipeline
 
-                push_flag = body.get("push")
-                if push_flag is None:
-                    push_flag = body.get("push_enabled")
-                result = run_user_signal_pipeline(
-                    profile_url=str(
-                        body.get("profile_url")
-                        or body.get("user_url")
-                        or body.get("user_handle")
-                        or ""
-                    ),
-                    user_handle=str(body.get("user_handle") or ""),
-                    weeks=body.get("weeks"),
-                    max_tweets=body.get("max_tweets"),
-                    skip_non_trade=body.get("skip_non_trade"),
-                    reparse_seen=bool(body.get("reparse_seen")),
-                    push=None if push_flag is None else bool(push_flag),
-                    force_push=bool(body.get("force_push")),
-                    progress=_progress_u,
-                    control=ctl,
-                )
-                aborted = bool(result.get("aborted"))
+                batch_results: List[Dict[str, Any]] = []
+                all_item_logs: List[Dict[str, Any]] = []
+                aborted = False
+                last_result: Dict[str, Any] = {}
+                for i, target in enumerate(targets, 1):
+                    if ctl.is_stopped():
+                        aborted = True
+                        _progress_u(f"用户终止于批量进度 {i - 1}/{len(targets)}")
+                        break
+                    _progress_u(
+                        f"======== 批量 {i}/{len(targets)} · @{target['id']}"
+                        f"（{target.get('name') or target['id']}） ========"
+                    )
+                    result = run_user_signal_pipeline(
+                        profile_url=str(target.get("profile_url") or ""),
+                        user_handle=str(target.get("id") or ""),
+                        weeks=body.get("weeks"),
+                        backfill_range=body.get("backfill_range") or body.get("range"),
+                        max_tweets=body.get("max_tweets"),
+                        progress=_progress_u,
+                        control=ctl,
+                    )
+                    last_result = result
+                    batch_results.append(
+                        {
+                            "id": target["id"],
+                            "name": target.get("name") or target["id"],
+                            "success": bool(result.get("success")),
+                            "aborted": bool(result.get("aborted")),
+                            "fetched": result.get("fetched"),
+                            "parsed": result.get("parsed"),
+                            "trade_count": result.get("trade_count"),
+                            "message": result.get("message") or result.get("error") or "",
+                        }
+                    )
+                    for ilog in result.get("item_logs") or []:
+                        if isinstance(ilog, dict):
+                            all_item_logs.append(ilog)
+                    if result.get("aborted"):
+                        aborted = True
+                        break
+                    if not result.get("success"):
+                        _progress_u(
+                            f"@{target['id']} 失败：{result.get('error') or result.get('message') or '未知错误'}"
+                        )
+
+                ok_n = sum(1 for r in batch_results if r.get("success") and not r.get("aborted"))
+                fail_n = sum(1 for r in batch_results if not r.get("success") and not r.get("aborted"))
                 if aborted:
                     final_status = "cancelled"
-                elif result.get("success"):
-                    final_status = "done"
-                else:
+                elif fail_n and not ok_n:
                     final_status = "error"
-                _set_job(
-                    job_id,
-                    status=final_status,
-                    message=result.get("message") or result.get("error") or "完成",
-                    logs=list(log_buf[-120:]),
-                    control_status=ctl.status(),
-                    result={
-                        k: result.get(k)
+                else:
+                    final_status = "done"
+                if len(targets) == 1 and last_result:
+                    msg = last_result.get("message") or last_result.get("error") or "完成"
+                    result_payload = {
+                        k: last_result.get(k)
                         for k in (
                             "handle",
                             "profile_url",
                             "scope_id",
-                            "weeks",
+                            "backfill_range",
+                            "range_label",
                             "since",
                             "fetched",
                             "candidates",
@@ -2991,8 +3034,57 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                             "aborted",
                             "item_logs",
                         )
-                        if k in result
-                    },
+                        if k in last_result
+                    }
+                else:
+                    fail_rows = [
+                        r for r in batch_results if not r.get("success") and not r.get("aborted")
+                    ]
+                    fail_detail = "；".join(
+                        f"@{r.get('id')}: {(r.get('message') or '未知错误')[:120]}"
+                        for r in fail_rows
+                    )
+                    msg = (
+                        f"批量完成：成功 {ok_n}/{len(targets)}"
+                        + (f" · 失败 {fail_n}" if fail_n else "")
+                        + (" · 已终止" if aborted else "")
+                    )
+                    if fail_detail:
+                        msg = f"{msg} · {fail_detail}"
+                        _progress_u("")
+                        _progress_u("======== 批量失败明细 ========")
+                        for r in fail_rows:
+                            _progress_u(
+                                f"✗ @{r.get('id')}（{r.get('name') or r.get('id')}）："
+                                f"{r.get('message') or '未知错误'}"
+                            )
+                    _progress_u(msg)
+                    result_payload = {
+                        "batch": True,
+                        "targets": [t["id"] for t in targets],
+                        "items": batch_results,
+                        "ok": ok_n,
+                        "failed": fail_n,
+                        "aborted": aborted,
+                        "failures": [
+                            {
+                                "id": r.get("id"),
+                                "name": r.get("name"),
+                                "error": r.get("message") or "未知错误",
+                            }
+                            for r in fail_rows
+                        ],
+                        "item_logs": all_item_logs[-200:],
+                        "message": msg,
+                        "backfill_range": body.get("backfill_range") or body.get("range"),
+                    }
+                _set_job(
+                    job_id,
+                    status=final_status,
+                    message=msg,
+                    logs=list(log_buf[-160:]),
+                    control_status=ctl.status(),
+                    result=result_payload,
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
             except Exception as e:
@@ -3000,7 +3092,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                     job_id,
                     status="error",
                     message=str(e),
-                    logs=list(log_buf[-120:]),
+                    logs=list(log_buf[-160:]),
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
             finally:
@@ -3015,25 +3107,46 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             control_status="running",
         )
         threading.Thread(target=_worker_user, daemon=True).start()
-        return _json_bytes({"success": True, "job_id": job_id})
+        return _json_bytes({"success": True, "job_id": job_id, "targets": [t["id"] for t in targets]})
 
     if path == "/api/signals/user/clear-cache" and method == "POST":
-        from signals.store import clear_user_cache, parse_user_handle
+        from signals.push import resolve_blogger_targets
+        from signals.store import clear_user_cache
 
-        raw = str(
-            body.get("profile_url")
-            or body.get("user_url")
-            or body.get("user_handle")
-            or ""
-        ).strip()
-        handle = parse_user_handle(raw) or str(body.get("user_handle") or "").strip().lstrip("@")
-        result = clear_user_cache(handle)
-        if not result.get("success"):
-            return _json_bytes(result, 400)
+        handles_raw = body.get("handles") or body.get("blogger_ids") or body.get("ids") or []
+        if isinstance(handles_raw, str):
+            handles_raw = [x.strip() for x in handles_raw.replace(",", " ").split() if x.strip()]
+        if not isinstance(handles_raw, list):
+            handles_raw = []
+        targets = resolve_blogger_targets(
+            handles=handles_raw,
+            profile_url=str(
+                body.get("profile_url")
+                or body.get("user_url")
+                or body.get("user_handle")
+                or ""
+            ),
+            user_handle=str(body.get("user_handle") or ""),
+        )
+        if not targets:
+            return _json_bytes({"success": False, "error": "请选择博主或填写有效的博主 handle"}, 400)
+        cleared = []
+        total_removed = 0
+        for t in targets:
+            result = clear_user_cache(t["id"])
+            if result.get("success"):
+                n = int(result.get("removed_cards") or 0)
+                total_removed += n
+                cleared.append({"id": t["id"], "removed_cards": n})
+            else:
+                return _json_bytes(result, 400)
+        names = "、".join(f"@{c['id']}" for c in cleared)
         return _json_bytes(
             {
-                **result,
-                "message": f"已清除 @{result.get('handle')} 缓存 {result.get('removed_cards', 0)} 条",
+                "success": True,
+                "cleared": cleared,
+                "removed_cards": total_removed,
+                "message": f"已清除 {names} 缓存共 {total_removed} 条",
             }
         )
 
@@ -3132,23 +3245,12 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         elif signals:
             result = start_validate(signals=signals)
         else:
-            result = start_validate(mock_count=mock_count)
+            result = {
+                "success": False,
+                "error": "请提供 signals[] 或使用回测入口",
+            }
         code = 202 if result.get("success") else (503 if result.get("status_code") == 503 else 400)
         return _json_bytes({"success": bool(result.get("success")), **result}, code)
-
-    if path == "/api/signals/cards/validate/mock/sample" and method == "GET":
-        from signals.cards_api import fetch_validate_mock_sample
-
-        result = fetch_validate_mock_sample()
-        if not result.get("success"):
-            code = 502
-            payload = {
-                "success": False,
-                **result,
-                "message": result.get("hint") or result.get("error") or "Mock 样例不可用",
-            }
-            return _json_bytes(payload, code)
-        return _json_bytes({"success": True, **result})
 
     if path.startswith("/api/signals/cards/validate/") and method == "GET":
         from signals.cards_api import poll_validate
@@ -3260,12 +3362,43 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
     return _json_bytes({"success": False, "error": f"未知接口: {path}"}, 404)
 
 
+# 前端轮询接口 — 不在控制台打印每条 HTTP 访问
+_QUIET_GET_PATHS = (
+    "/api/health",
+    "/api/crawl/tasks",
+    "/api/publish/queue",
+    "/api/posts/stats",
+    "/api/corpus/stats",
+    "/api/signals/config",
+    "/api/signals/cards",
+    "/api/signals/watch",
+    "/api/signals/cycle",
+    "/api/jobs/",
+)
+
+
 class ConsoleHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
     def log_message(self, fmt: str, *args) -> None:
-        print(f"[console] {self.address_string()} - {fmt % args}")
+        try:
+            msg = fmt % args
+        except Exception:
+            msg = str(fmt)
+        # 成功的 GET（含静态资源、轮询）不打印；仅记录写操作与失败
+        if '"GET ' in msg:
+            if not re.search(r"\s(4\d\d|5\d\d)\s", msg):
+                if any(p in msg for p in _QUIET_GET_PATHS):
+                    return
+                if any(ext in msg for ext in ('.js"', '.css"', '.html"', '.ico"', '.png"', '.svg"', '.woff"')):
+                    return
+                return
+        if any(m in msg for m in ('"POST ', '"PUT ', '"PATCH ', '"DELETE ')):
+            print(f"[console] {msg}", flush=True)
+            return
+        if re.search(r"\s(4\d\d|5\d\d)\s", msg):
+            print(f"[console] {msg}", flush=True)
 
     def _send(self, payload: bytes, status: int, content_type: str) -> None:
         self.send_response(status)

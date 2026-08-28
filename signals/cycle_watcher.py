@@ -93,10 +93,7 @@ def _run_once() -> Dict[str, Any]:
             list_id=lid,
             cutoff_hours=cutoff,
             max_tweets=int(cfg.get("max_tweets") or 40),
-            skip_non_trade=bool(cfg.get("skip_non_trade")),
-            push=bool(cfg.get("push_enabled", True)),
             ignore_windows=False,
-            reparse_seen=False,
             progress=lambda m: print(f"[signals-cycle] {m}", flush=True),
             control=ctl,
         )

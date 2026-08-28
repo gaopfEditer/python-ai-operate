@@ -130,6 +130,7 @@ def _empty_state() -> Dict[str, Any]:
             # deep 时段：sleep=完全休眠到 07:30；patrol=30–60 分钟巡检
             "deep_sleep_mode": "sleep",
             "user_profile_url": "",
+            "user_backfill_range": "last_7d",
             "user_weeks": 1,
             "user_max_tweets": 50,
             "user_skip_non_trade": True,
@@ -230,13 +231,22 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
         mode = str(patch.get("deep_sleep_mode") or "sleep").strip().lower()
         cfg["deep_sleep_mode"] = mode if mode in ("sleep", "patrol") else "sleep"
     if "user_profile_url" in patch or "user_handle" in patch:
-        raw = str(patch.get("user_profile_url") or patch.get("user_handle") or "")
+        raw = str(patch.get("user_profile_url") or patch.get("user_handle") or "").strip()
         handle = parse_user_handle(raw)
-        if handle:
-            cfg["user_profile_url"] = user_profile_url(handle)
+        # 显式传空字符串时清空，避免删了输入框又被配置回填
+        cfg["user_profile_url"] = user_profile_url(handle) if handle else ""
+    if "user_backfill_range" in patch and patch["user_backfill_range"] is not None:
+        from signals.backfill_range import normalize_backfill_range
+
+        cfg["user_backfill_range"] = normalize_backfill_range(patch["user_backfill_range"])
     if "user_weeks" in patch and patch["user_weeks"] is not None:
         try:
-            cfg["user_weeks"] = max(1, min(int(patch["user_weeks"]), 52))
+            wks = max(1, min(int(patch["user_weeks"]), 52))
+            cfg["user_weeks"] = wks
+            if "user_backfill_range" not in patch:
+                from signals.backfill_range import weeks_to_backfill_range
+
+                cfg["user_backfill_range"] = weeks_to_backfill_range(wks)
         except Exception:
             pass
     if "user_max_tweets" in patch and patch["user_max_tweets"] is not None:
@@ -317,6 +327,9 @@ def add_window(
     fetched: int = 0,
     parsed: int = 0,
     skipped: int = 0,
+    backfill_range: str = "",
+    range_label: str = "",
+    since: str = "",
 ) -> Dict[str, Any]:
     state = load_state()
     win = {
@@ -328,6 +341,12 @@ def add_window(
         "skipped": int(skipped),
         "fetched_at": _now_iso(),
     }
+    if backfill_range:
+        win["backfill_range"] = str(backfill_range)
+    if range_label:
+        win["range_label"] = str(range_label)
+    if since:
+        win["since"] = str(since)
     windows = list(state.get("windows") or [])
     windows.insert(0, win)
     state["windows"] = windows[:100]
@@ -394,27 +413,70 @@ def list_cards(
     days: Optional[int] = None,
     from_raw: str = "",
     to_raw: str = "",
+    backfill_range: str = "",
+    merge_sources: bool = False,
 ) -> List[Dict[str, Any]]:
-    from signals.card_db import db_list_cards, ensure_migrated, resolve_time_range
+    from signals.backfill_range import resolve_backfill_time_range
+    from signals.card_db import db_list_cards, dedup_cards_by_user_time, ensure_migrated, resolve_time_range
 
     state = load_state()
     cards_json = list(state.get("cards") or [])
     if ensure_migrated(cards_json) and cards_json:
         state["cards"] = []
         save_state(state)
-    f_ts, t_ts = resolve_time_range(days=days, from_raw=from_raw, to_raw=to_raw)
+    range_key = str(backfill_range or "").strip()
+    if range_key:
+        f_ts, t_ts = resolve_backfill_time_range(range_key)
+    else:
+        f_ts, t_ts = resolve_time_range(days=days, from_raw=from_raw, to_raw=to_raw)
     if from_ts is not None:
         f_ts = from_ts
     if to_ts is not None:
         t_ts = to_ts
-    return db_list_cards(
+    items = db_list_cards(
         list_id=list_id,
         user_handle=user_handle,
         only_trade=only_trade,
         limit=limit,
         from_ts=f_ts,
         to_ts=t_ts,
+        merge_sources=merge_sources,
     )
+    if merge_sources:
+        return dedup_cards_by_user_time(items)
+    return items
+
+
+def get_card_by_dedup(
+    *,
+    tweet_id: str = "",
+    author: str = "",
+    created_at: str = "",
+    user_handle: str = "",
+) -> Optional[Dict[str, Any]]:
+    """按 tweet_id 或 博主+发帖时间 查找已存卡片（列表/博主来源合并）。"""
+    from signals.card_db import _card_created_ts, db_get_card_by_tweet_id, db_get_card_by_user_time, ensure_migrated
+
+    tid = str(tweet_id or "").strip()
+    state = load_state()
+    ensure_migrated(list(state.get("cards") or []))
+    if tid:
+        row = db_get_card_by_tweet_id(tid)
+        if row:
+            return row
+        for c in state.get("cards") or []:
+            if str(c.get("tweet_id") or "") == tid:
+                return dict(c)
+    h = parse_user_handle(user_handle or author)
+    ts = 0
+    dt = parse_dt(str(created_at or ""))
+    if dt is not None:
+        ts = int(dt.timestamp())
+    if h and ts > 0:
+        row = db_get_card_by_user_time(h, ts)
+        if row:
+            return row
+    return None
 
 
 def get_card_by_tweet_id(tweet_id: str) -> Optional[Dict[str, Any]]:

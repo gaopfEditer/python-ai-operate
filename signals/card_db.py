@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STORE_DIR = PROJECT_ROOT / "output" / "signals"
 DB_PATH = STORE_DIR / "cards.db"
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
 _MIGRATED = False
 
 _USER_PATH_SKIP = frozenset(
@@ -108,6 +108,96 @@ def _card_created_ts(card: Dict[str, Any]) -> int:
     return 0
 
 
+def card_dedup_key(user_handle: str, created_at_ts: int) -> str:
+    h = str(user_handle or "").strip().lower()
+    ts = int(created_at_ts or 0)
+    if h and ts > 0:
+        return f"{h}:{ts}"
+    return ""
+
+
+def _merge_cards(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    from signals.labels import is_trade_signal
+
+    out = dict(existing)
+    for key in ("url", "text", "author", "time_label", "display_time", "created_at", "parsed_at"):
+        val = incoming.get(key)
+        if val:
+            out[key] = val
+    if incoming.get("tweet_id"):
+        out["tweet_id"] = incoming["tweet_id"]
+    if incoming.get("user_handle"):
+        out["user_handle"] = str(incoming["user_handle"]).strip().lower()
+    elif not out.get("user_handle"):
+        out["user_handle"] = _card_user_handle(out)
+
+    lids: set[str] = set()
+    for src in (existing, incoming):
+        lid = str(src.get("list_id") or "").strip()
+        if lid:
+            lids.add(lid)
+        for x in src.get("list_ids") or []:
+            xs = str(x or "").strip()
+            if xs:
+                lids.add(xs)
+    numeric = sorted(x for x in lids if x and not x.startswith("user:"))
+    if numeric:
+        out["list_id"] = numeric[0]
+    elif lids:
+        out["list_id"] = sorted(lids)[0]
+    if len(lids) > 1:
+        out["list_ids"] = sorted(lids)
+
+    modes: set[str] = set()
+    for src in (existing, incoming):
+        sm = str(src.get("source_mode") or "").strip()
+        if sm:
+            modes.add(sm)
+        for x in src.get("source_modes") or []:
+            xs = str(x or "").strip()
+            if xs:
+                modes.add(xs)
+    if modes:
+        out["source_modes"] = sorted(modes)
+        out["source_mode"] = str(incoming.get("source_mode") or out.get("source_mode") or sorted(modes)[-1])
+
+    ex_sig = existing.get("signal") if isinstance(existing.get("signal"), dict) else {}
+    in_sig = incoming.get("signal") if isinstance(incoming.get("signal"), dict) else {}
+    if is_trade_signal(in_sig) and not is_trade_signal(ex_sig):
+        out["signal"] = in_sig
+    elif is_trade_signal(ex_sig):
+        out["signal"] = ex_sig
+    else:
+        out["signal"] = in_sig or ex_sig
+
+    if incoming.get("images"):
+        out["images"] = incoming["images"]
+    if incoming.get("cards_api_id"):
+        out["cards_api_id"] = incoming["cards_api_id"]
+    elif existing.get("cards_api_id"):
+        out["cards_api_id"] = existing["cards_api_id"]
+    if incoming.get("id"):
+        out["id"] = incoming["id"]
+    return out
+
+
+def dedup_cards_by_user_time(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    for card in cards:
+        handle = _card_user_handle(card)
+        ts = _card_created_ts(card)
+        key = card_dedup_key(handle, ts) or str(card.get("tweet_id") or card.get("id") or id(card))
+        if key not in merged:
+            merged[key] = dict(card)
+            order.append(key)
+        else:
+            merged[key] = _merge_cards(merged[key], card)
+    out = [merged[k] for k in order]
+    out.sort(key=lambda c: (_card_created_ts(c), str(c.get("tweet_id") or "")), reverse=True)
+    return out
+
+
 def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
     extra_keys = (
         "id",
@@ -115,6 +205,10 @@ def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
         "cache_only",
         "channel",
         "time_label",
+        "source_mode",
+        "source_modes",
+        "list_ids",
+        "user_handle",
     )
     extra = {k: card[k] for k in extra_keys if k in card}
     return {
@@ -239,75 +333,99 @@ def _find_row_id(conn: sqlite3.Connection, fields: Dict[str, Any]) -> Optional[i
     return None
 
 
+def _upsert_fields(conn: sqlite3.Connection, fields: Dict[str, Any], now: str) -> int:
+    row_id = _find_row_id(conn, fields)
+    if row_id:
+        conn.execute(
+            """
+            UPDATE signal_cards SET
+                tweet_id=?, list_id=?, user_handle=?, author=?, url=?, text=?,
+                created_at=?, created_at_ts=?, time_label=?, display_time=?,
+                parsed_at=?, signal_json=?, images_json=?, extra_json=?,
+                card_uid=?, updated_at=?
+            WHERE id=?
+            """,
+            (
+                fields["tweet_id"],
+                fields["list_id"],
+                fields["user_handle"],
+                fields["author"],
+                fields["url"],
+                fields["text"],
+                fields["created_at"],
+                fields["created_at_ts"],
+                fields["time_label"],
+                fields["display_time"],
+                fields["parsed_at"],
+                fields["signal_json"],
+                fields["images_json"],
+                fields["extra_json"],
+                fields["card_uid"],
+                now,
+                row_id,
+            ),
+        )
+        return row_id
+    conn.execute(
+        """
+        INSERT INTO signal_cards (
+            tweet_id, list_id, user_handle, author, url, text,
+            created_at, created_at_ts, time_label, display_time,
+            parsed_at, signal_json, images_json, extra_json,
+            card_uid, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            fields["tweet_id"],
+            fields["list_id"],
+            fields["user_handle"],
+            fields["author"],
+            fields["url"],
+            fields["text"],
+            fields["created_at"],
+            fields["created_at_ts"],
+            fields["time_label"],
+            fields["display_time"],
+            fields["parsed_at"],
+            fields["signal_json"],
+            fields["images_json"],
+            fields["extra_json"],
+            fields["card_uid"],
+            now,
+        ),
+    )
+    return int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+
 def db_upsert_card(card: Dict[str, Any]) -> Dict[str, Any]:
     init_db()
-    fields = _split_card_fields(card)
     now = _now_iso()
     with _LOCK:
         with connect() as conn:
+            fields = _split_card_fields(card)
             row_id = _find_row_id(conn, fields)
             if row_id:
-                conn.execute(
-                    """
-                    UPDATE signal_cards SET
-                        tweet_id=?, list_id=?, user_handle=?, author=?, url=?, text=?,
-                        created_at=?, created_at_ts=?, time_label=?, display_time=?,
-                        parsed_at=?, signal_json=?, images_json=?, extra_json=?,
-                        card_uid=?, updated_at=?
-                    WHERE id=?
-                    """,
-                    (
-                        fields["tweet_id"],
-                        fields["list_id"],
-                        fields["user_handle"],
-                        fields["author"],
-                        fields["url"],
-                        fields["text"],
-                        fields["created_at"],
-                        fields["created_at_ts"],
-                        fields["time_label"],
-                        fields["display_time"],
-                        fields["parsed_at"],
-                        fields["signal_json"],
-                        fields["images_json"],
-                        fields["extra_json"],
-                        fields["card_uid"],
-                        now,
-                        row_id,
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO signal_cards (
-                        tweet_id, list_id, user_handle, author, url, text,
-                        created_at, created_at_ts, time_label, display_time,
-                        parsed_at, signal_json, images_json, extra_json,
-                        card_uid, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        fields["tweet_id"],
-                        fields["list_id"],
-                        fields["user_handle"],
-                        fields["author"],
-                        fields["url"],
-                        fields["text"],
-                        fields["created_at"],
-                        fields["created_at_ts"],
-                        fields["time_label"],
-                        fields["display_time"],
-                        fields["parsed_at"],
-                        fields["signal_json"],
-                        fields["images_json"],
-                        fields["extra_json"],
-                        fields["card_uid"],
-                        now,
-                    ),
-                )
-                row_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+                row = conn.execute("SELECT * FROM signal_cards WHERE id=?", (row_id,)).fetchone()
+                if row:
+                    card = _merge_cards(_row_to_card(row), card)
+                    fields = _split_card_fields(card)
+            row_id = _upsert_fields(conn, fields, now)
             row = conn.execute("SELECT * FROM signal_cards WHERE id=?", (row_id,)).fetchone()
     return _row_to_card(row) if row else dict(card)
+
+
+def db_get_card_by_user_time(user_handle: str, created_at_ts: int) -> Optional[Dict[str, Any]]:
+    h = _parse_user_handle(user_handle) or str(user_handle or "").strip().lstrip("@")
+    ts = int(created_at_ts or 0)
+    if not h or ts <= 0:
+        return None
+    init_db()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM signal_cards WHERE user_handle=? AND created_at_ts=? LIMIT 1",
+            (h.lower(), ts),
+        ).fetchone()
+    return _row_to_card(row) if row else None
 
 
 def db_get_card_by_tweet_id(tweet_id: str) -> Optional[Dict[str, Any]]:
@@ -342,6 +460,7 @@ def db_list_cards(
     limit: int = 100,
     from_ts: Optional[int] = None,
     to_ts: Optional[int] = None,
+    merge_sources: bool = False,
 ) -> List[Dict[str, Any]]:
     from signals.crawl import normalize_twimg_url
     from signals.labels import is_trade_signal
@@ -355,14 +474,18 @@ def db_list_cards(
     clauses: List[str] = []
     params: List[Any] = []
 
-    if lid and not lid.startswith("user:"):
+    if not merge_sources and lid and not lid.startswith("user:"):
         clauses.append("(list_id=? OR list_id='')")
         params.append(lid)
     if handle:
         scope = _user_scope_id(handle)
         hlow = handle.lower()
-        clauses.append("(user_handle=? OR list_id=? OR lower(author) LIKE ?)")
-        params.extend([hlow, scope, f"@{hlow}"])
+        if merge_sources:
+            clauses.append("(user_handle=? OR list_id=? OR lower(author) LIKE ?)")
+            params.extend([hlow, scope, f"@{hlow}"])
+        elif not lid or lid.startswith("user:"):
+            clauses.append("(user_handle=? OR list_id=? OR lower(author) LIKE ?)")
+            params.extend([hlow, scope, f"@{hlow}"])
 
     if from_ts is not None:
         clauses.append("created_at_ts>=?")
@@ -396,6 +519,8 @@ def db_list_cards(
                 fixed.append(item)
             card["images"] = fixed
         out.append(card)
+    if merge_sources:
+        out = dedup_cards_by_user_time(out)
     return out
 
 
@@ -439,15 +564,19 @@ def migrate_from_state_cards(cards: List[Dict[str, Any]]) -> int:
     if not cards:
         return 0
     init_db()
+    now = _now_iso()
     n = 0
-    for c in cards:
-        if not isinstance(c, dict):
-            continue
-        try:
-            db_upsert_card(c)
-            n += 1
-        except Exception:
-            continue
+    with _LOCK:
+        with connect() as conn:
+            for c in cards:
+                if not isinstance(c, dict):
+                    continue
+                try:
+                    fields = _split_card_fields(c)
+                    _upsert_fields(conn, fields, now)
+                    n += 1
+                except Exception:
+                    continue
     return n
 
 
@@ -460,7 +589,8 @@ def ensure_migrated(state_cards: Optional[List[Dict[str, Any]]]) -> bool:
         if _MIGRATED:
             return False
         migrated = False
-        if db_count() == 0 and state_cards:
+        cnt = db_count()
+        if cnt == 0 and state_cards:
             migrated = migrate_from_state_cards(state_cards) > 0
         _MIGRATED = True
         return migrated

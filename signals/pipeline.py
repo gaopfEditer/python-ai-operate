@@ -7,19 +7,22 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
+from signals.labels import is_trade_signal
 from signals.analyze import analyze_tweet_signal
 from signals.control import RunControl
 from signals.crawl import crawl_list_timeline, crawl_user_timeline, download_image
 from signals.push import push_cards_batch
 from signals.store import (
     add_window,
-    get_card_by_tweet_id,
+    get_card_by_dedup,
+    get_card_by_tweet_id,  # noqa: F401 — 兼容旧热加载/残留调用
     get_config,
     is_seen,
     latest_window_end,
     list_url,
     parse_dt,
     parse_list_id,
+    parse_user_handle,
     save_config,
     upsert_card,
 )
@@ -61,10 +64,6 @@ def run_list_signal_pipeline(
     cutoff_hours: Optional[int] = None,
     max_tweets: Optional[int] = None,
     ignore_windows: bool = False,
-    skip_non_trade: Optional[bool] = None,
-    reparse_seen: bool = False,
-    push: Optional[bool] = None,
-    force_push: bool = False,
     progress: ProgressCb = None,
     control: Optional[RunControl] = None,
 ) -> Dict[str, Any]:
@@ -77,20 +76,15 @@ def run_list_signal_pipeline(
     hours = max(1, min(hours, 24 * 14))
     limit = int(max_tweets if max_tweets is not None else cfg.get("max_tweets") or 40)
     limit = max(1, min(limit, 120))
-    skip_nt = (
-        bool(skip_non_trade)
-        if skip_non_trade is not None
-        else bool(cfg.get("skip_non_trade"))
-    )
-    do_push = bool(cfg.get("push_enabled", True)) if push is None else bool(push)
+    skip_nt = False
+    reparse_seen = False
+    do_push = False
 
     save_config(
         {
             "list_id": lid,
             "cutoff_hours": hours,
             "max_tweets": limit,
-            "skip_non_trade": skip_nt,
-            "push_enabled": do_push,
         }
     )
 
@@ -237,6 +231,38 @@ def run_list_signal_pipeline(
             _log(progress, f"用户终止于解析前 {i}/{len(fresh)}")
             break
 
+        cached_card = (
+            get_card_by_dedup(tweet_id=tid, author=author, created_at=created_raw)
+            if not reparse_seen
+            else None
+        )
+        from_cache = bool(cached_card and isinstance(cached_card.get("signal"), dict))
+
+        if from_cache and cached_card:
+            sig = cached_card.get("signal") if isinstance(cached_card.get("signal"), dict) else {}
+            if skip_nt and not is_trade_signal(sig):
+                skipped += 1
+                if tid:
+                    from signals.store import mark_seen
+
+                    mark_seen([tid])
+                _log(progress, "结果: 继承缓存 · 无交易信号，已跳过")
+                continue
+            saved = upsert_card(
+                {
+                    **dict(cached_card),
+                    "list_id": lid,
+                    "tweet_id": tid or cached_card.get("tweet_id") or "",
+                    "author": author or cached_card.get("author") or "",
+                    "user_handle": parse_user_handle(author),
+                    "source_mode": "list_realtime",
+                }
+            )
+            cards.append(saved)
+            parsed += 1
+            _log(progress, "结果: 继承缓存 · 已合并入库")
+            continue
+
         signal = analyze_tweet_signal(
             text=text or "（无文字，见配图）",
             author=author,
@@ -278,6 +304,7 @@ def run_list_signal_pipeline(
             "id": f"sig_{uuid4().hex[:10]}",
             "list_id": lid,
             "tweet_id": tid,
+            "user_handle": parse_user_handle(author),
             "url": str(it.get("url") or ""),
             "author": author,
             "text": text,
@@ -287,6 +314,7 @@ def run_list_signal_pipeline(
             "images": images_meta,
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
+            "source_mode": "list_realtime",
         }
         upsert_card(card)
         cards.append(card)
@@ -353,7 +381,7 @@ def run_list_signal_pipeline(
                 "message": f"已终止（推送前）：解析 {parsed}",
             }
         _log(progress, f"推送增量卡片到 Cards API（{len(cards)}）…")
-        push_result = push_cards_batch(cards, force=force_push, progress=progress)
+        push_result = push_cards_batch(cards, force=False, progress=progress)
     elif not do_push:
         push_result["reason"] = "push_disabled"
 
@@ -408,15 +436,18 @@ def run_user_signal_pipeline(
     profile_url: str = "",
     user_handle: str = "",
     weeks: Optional[int] = None,
+    backfill_range: Optional[str] = None,
     max_tweets: Optional[int] = None,
-    skip_non_trade: Optional[bool] = None,
-    reparse_seen: bool = False,
-    push: Optional[bool] = None,
-    force_push: bool = False,
     progress: ProgressCb = None,
     control: Optional[RunControl] = None,
 ) -> Dict[str, Any]:
-    """博主主页回溯：CDP 抓取 N 周 → AI 判交易信号 → 卡片入库 → Cards API。"""
+    """博主主页回溯：CDP 抓取时间范围内推文 → AI 判交易信号 → 卡片入库。"""
+    from signals.backfill_range import (
+        backfill_range_span_days,
+        resolve_backfill_range,
+        resolve_backfill_since,
+        weeks_to_backfill_range,
+    )
     from signals.store import parse_user_handle, user_profile_url, user_scope_id
 
     cfg = get_config()
@@ -424,23 +455,26 @@ def run_user_signal_pipeline(
     if not handle:
         return {"success": False, "error": "请填写博主链接或 @handle"}
 
-    wks = int(weeks if weeks is not None else cfg.get("user_weeks") or 1)
-    wks = max(1, min(wks, 52))
-    limit = int(max_tweets if max_tweets is not None else cfg.get("user_max_tweets") or wks * 50)
+    if backfill_range is not None:
+        range_key = resolve_backfill_range(backfill_range)
+    elif weeks is not None:
+        range_key = weeks_to_backfill_range(weeks)
+    else:
+        range_key = resolve_backfill_range(None, cfg=cfg)
+
+    span_days = backfill_range_span_days(range_key)
+    limit = int(max_tweets if max_tweets is not None else cfg.get("user_max_tweets") or min(span_days * 5, 300))
     limit = max(10, min(limit, 300))
-    skip_nt = True if skip_non_trade is None else bool(skip_non_trade)
-    do_push = bool(cfg.get("push_enabled", True)) if push is None else bool(push)
+    skip_nt = False
+    reparse_seen = False
+    do_push = False
     scope = user_scope_id(handle)
 
     save_config(
         {
             "user_profile_url": user_profile_url(handle),
-            "user_weeks": wks,
+            "user_backfill_range": range_key,
             "user_max_tweets": limit,
-            "user_skip_non_trade": skip_nt,
-            "user_push_enabled": do_push,
-            "skip_non_trade": skip_nt,
-            "push_enabled": do_push,
         }
     )
 
@@ -448,11 +482,11 @@ def run_user_signal_pipeline(
         return {"success": False, "error": "已终止", "aborted": True}
 
     now = datetime.now(timezone.utc).astimezone()
-    since = now - timedelta(days=wks * 7)
-    max_scroll = max(35, min(wks * 30, 150))
+    since, range_label = resolve_backfill_since(range_key, now=now)
+    max_scroll = max(35, min(span_days * 2 + 20, 150))
 
     _log(progress, "=" * 56)
-    _log(progress, f"博主回溯：@{handle} · 近 {wks} 周（自 {since.isoformat()}）")
+    _log(progress, f"博主回溯：@{handle} · {range_label}（自 {since.isoformat(timespec='seconds')}）")
     if _wait_if_paused(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "message": "用户终止"}
 
@@ -480,7 +514,11 @@ def run_user_signal_pipeline(
             _log(progress, f"[过滤] 早于窗口 · {fmt_tweet_line(it)}")
             continue
         if tid and is_seen(tid) and not reparse_seen:
-            cached = get_card_by_tweet_id(tid)
+            cached = get_card_by_dedup(
+                tweet_id=tid,
+                author=str(it.get("author") or ""),
+                created_at=str(it.get("created_at") or ""),
+            )
             if cached and isinstance(cached.get("signal"), dict):
                 fresh.append(it)
                 filtered_cache += 1
@@ -539,7 +577,16 @@ def run_user_signal_pipeline(
         _log(progress, f"发帖时间: {time_s}")
         _log(progress, f"正文前200字: {preview}")
 
-        cached_card = get_card_by_tweet_id(tid) if tid and not reparse_seen else None
+        cached_card = (
+            get_card_by_dedup(
+                tweet_id=tid,
+                author=author,
+                created_at=created_raw,
+                user_handle=handle,
+            )
+            if not reparse_seen
+            else None
+        )
         from_cache = bool(cached_card and isinstance(cached_card.get("signal"), dict))
 
         images_meta = []
@@ -642,11 +689,12 @@ def run_user_signal_pipeline(
             continue
 
         if from_cache and cached_card:
-            cards.append(cached_card)
-            if signal.get("has_trade_signal"):
-                trade_cards.append(cached_card)
+            saved = upsert_card(dict(cached_card))
+            cards.append(saved)
+            if is_trade_signal(signal):
+                trade_cards.append(saved)
             parsed += 1
-            result_txt = "继承缓存 · 有交易信号" if signal.get("has_trade_signal") else "继承缓存"
+            result_txt = "继承缓存 · 有交易信号" if is_trade_signal(signal) else "继承缓存"
             ilog = {
                 "author": author,
                 "created_at": created_raw,
@@ -724,7 +772,7 @@ def run_user_signal_pipeline(
             aborted = True
         else:
             _log(progress, f"推送交易卡片到 Cards API（{len(push_targets)}）…")
-            push_result = push_cards_batch(push_targets, force=force_push, progress=progress)
+            push_result = push_cards_batch(push_targets, force=False, progress=progress)
     elif not do_push:
         push_result["reason"] = "push_disabled"
 
@@ -737,6 +785,9 @@ def run_user_signal_pipeline(
         fetched=len(raw_items),
         parsed=parsed,
         skipped=skipped + (len(raw_items) - len(fresh)),
+        backfill_range=range_key,
+        range_label=range_label,
+        since=since.isoformat(timespec="seconds"),
     )
 
     if item_logs:
@@ -746,12 +797,16 @@ def run_user_signal_pipeline(
             line = str(ilog.get("summary_line") or fmt_item_summary_line(ilog, index=j, total=len(item_logs)))
             _log(progress, line)
 
+    from signals.store import card_count
+
+    db_total = card_count()
     msg = (
         f"博主 @{handle} 完成：抓取 {len(raw_items)} · 解析入库 {parsed}"
         f" · 无交易跳过 {skipped}"
         f" · 交易信号 {len(trade_cards)}"
         f" · 缓存复用 {reused_cache}"
         f" · 推送 {push_result.get('pushed', 0)}"
+        f" · SQLite 共 {db_total} 条"
     )
     _log(progress, msg)
     _log(progress, "=" * 56)
@@ -761,7 +816,8 @@ def run_user_signal_pipeline(
         "handle": handle,
         "profile_url": user_profile_url(handle),
         "scope_id": scope,
-        "weeks": wks,
+        "backfill_range": range_key,
+        "range_label": range_label,
         "since": since.isoformat(timespec="seconds"),
         "window": win,
         "fetched": len(raw_items),
@@ -774,5 +830,7 @@ def run_user_signal_pipeline(
         "trade_cards": trade_cards,
         "item_logs": item_logs,
         "push": push_result,
+        "db_total": db_total,
+        "storage": "sqlite",
         "message": msg,
     }

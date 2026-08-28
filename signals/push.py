@@ -108,7 +108,124 @@ def load_channels_config() -> Dict[str, Any]:
     data.setdefault("cards_api", {})
     data.setdefault("default_channel", {})
     data.setdefault("channels", {})
+    # 兼容旧版独立 bloggers：合并进 channels（不覆盖已有字段）
+    legacy = data.get("bloggers") if isinstance(data.get("bloggers"), dict) else {}
+    channels = data["channels"] if isinstance(data["channels"], dict) else {}
+    for key, val in legacy.items():
+        if not isinstance(val, dict):
+            continue
+        bid = normalize_handle(str(val.get("id") or key))
+        if not bid:
+            continue
+        existing = channels.get(bid) if isinstance(channels.get(bid), dict) else None
+        if existing is None:
+            for ck, cv in list(channels.items()):
+                if normalize_handle(str(ck)) == bid and isinstance(cv, dict):
+                    existing = cv
+                    bid = normalize_handle(str(ck))
+                    break
+        if existing is None:
+            channels[bid] = dict(val)
+            continue
+        for field in ("name", "aliases", "enabled", "profile_url", "url", "notes"):
+            if field in val and field not in existing:
+                existing[field] = val[field]
+        if val.get("name") and not existing.get("channelName"):
+            existing["channelName"] = val["name"]
+    data["channels"] = channels
     return data
+
+
+def list_bloggers(cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """
+    从 channels 合一配置读取博主回溯名单。
+    id = X handle；默认 profile_url = https://x.com/{id}；enabled=false 跳过。
+    """
+    cfg = cfg or load_channels_config()
+    raw = cfg.get("channels") if isinstance(cfg.get("channels"), dict) else {}
+    rows: List[Dict[str, Any]] = []
+    for key, val in raw.items():
+        if not isinstance(val, dict):
+            continue
+        if val.get("enabled") is False:
+            continue
+        bid = normalize_handle(str(val.get("id") or key))
+        if not bid:
+            continue
+        profile = str(val.get("profile_url") or val.get("url") or "").strip()
+        if not profile:
+            profile = f"https://x.com/{bid}"
+        aliases = val.get("aliases") if isinstance(val.get("aliases"), list) else []
+        name = str(val.get("name") or val.get("channelName") or bid)
+        rows.append(
+            {
+                "id": bid,
+                "handle": bid,
+                "name": name,
+                "aliases": [str(a).strip() for a in aliases if str(a).strip()],
+                "profile_url": profile,
+                "channelId": str(val.get("channelId") or ""),
+                "channelName": str(val.get("channelName") or name),
+                "notes": str(val.get("notes") or ""),
+            }
+        )
+    rows.sort(key=lambda x: (x.get("name") or x.get("id") or "").lower())
+    return rows
+
+
+def bloggers_summary() -> Dict[str, Any]:
+    rows = list_bloggers()
+    return {
+        "path": str(CHANNELS_PATH).replace("\\", "/"),
+        "count": len(rows),
+        "items": rows,
+        "ids": [r["id"] for r in rows],
+    }
+
+
+def resolve_blogger_targets(
+    *,
+    handles: Optional[List[Any]] = None,
+    profile_url: str = "",
+    user_handle: str = "",
+    cfg: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, str]]:
+    """将请求中的 handles / 链接 解析为去重后的 [{id, profile_url, name}]。"""
+    from signals.store import parse_user_handle, user_profile_url
+
+    cfg = cfg or load_channels_config()
+    catalog = {b["id"]: b for b in list_bloggers(cfg)}
+    out: List[Dict[str, str]] = []
+    seen: set = set()
+
+    def _add(raw: str, name: str = "") -> None:
+        h = normalize_handle(parse_user_handle(raw) or raw)
+        if not h or h in seen:
+            return
+        seen.add(h)
+        meta = catalog.get(h) or {}
+        out.append(
+            {
+                "id": h,
+                "handle": h,
+                "name": str(name or meta.get("name") or h),
+                "profile_url": str(meta.get("profile_url") or user_profile_url(h)),
+            }
+        )
+
+    for item in handles or []:
+        if isinstance(item, dict):
+            _add(
+                str(item.get("id") or item.get("handle") or item.get("profile_url") or ""),
+                str(item.get("name") or ""),
+            )
+        else:
+            _add(str(item or ""))
+
+    if profile_url or user_handle:
+        _add(str(profile_url or user_handle))
+
+    return out
 
 
 def normalize_handle(author: str) -> str:

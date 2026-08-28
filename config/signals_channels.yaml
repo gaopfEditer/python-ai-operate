@@ -1,7 +1,9 @@
-# X List 交易信号 → Cards API 推送配置
+# X List 交易信号 → Cards API 推送 + 博主回溯（合一配置）
 #
-# 推特用户名（不含 @，大小写不敏感）→ 频道 ID + 展示名。
-# 产生交易信号后 POST 到 cards_api；已推送的 tweet_id 不会重复发。
+# key = X handle（不含 @，大小写不敏感）
+# - channelId / channelName / channelAvatar：推送 Cards 用（channelId 空则走 default_channel）
+# - name / aliases / enabled / profile_url / notes：博主回溯用（enabled=false 不出现在名单）
+# profile 默认 https://x.com/{key}
 
 cards_api:
   enabled: true
@@ -19,17 +21,56 @@ cards_api:
 # 无映射时的默认频道
 default_channel:
   channelId: "api"
-  channelName: "未映射推特源"
+  channelName: "未映射"
   channelAvatar: ""
 
-# 推特 handle → 频道
-# key 建议小写；CryptoDanta / @CryptoDanta 均可匹配
 channels:
-  cryptodanta:
-    channelId: "88888886666661"
-    channelName: "蛋挞"
-    channelAvatar: ""
   thankucrypto:
     channelId: "444962489551814726"
     channelName: "熬鹰"
     channelAvatar: ""
+    name: "熬鹰资本"
+    aliases: ["熬鹰", "allincrypto"]
+    enabled: true
+  cryptodanta:
+    channelId: "88888886666661"
+    channelName: "蛋挞"
+    channelAvatar: ""
+    name: "蛋挞"
+    aliases: ["蛋挞", "CryptoDanta"]
+    enabled: true
+  seffafnet:
+    channelId: ""
+    channelName: "Crypto Bond"
+    channelAvatar: ""
+    name: "Crypto Bond"
+    aliases: ["SeffafNet"]
+    enabled: true
+  "0xtaibai":
+    channelId: ""
+    channelName: "太白"
+    channelAvatar: ""
+    name: "太白"
+    aliases: ["0xTaiBai", "Tai Bai"]
+    enabled: true
+  "17zxhold":
+    channelId: ""
+    channelName: "5块的糖"
+    channelAvatar: ""
+    name: "5块的糖"
+    aliases: ["17zxhold"]
+    enabled: true
+  tradermige:
+    channelId: ""
+    channelName: "米哥"
+    channelAvatar: ""
+    name: "米哥"
+    aliases: ["Trader米哥", "tradermige"]
+    enabled: true
+  luge517:
+    channelId: ""
+    channelName: "鲁哥"
+    channelAvatar: ""
+    name: "鲁哥"
+    aliases: ["藤蔓鲁哥", "luge517"]
+    enabled: true
