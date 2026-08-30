@@ -211,6 +211,9 @@ def run_list_signal_pipeline(
             saved = download_image(u, tid or f"x{i}", j)
             saved["alt"] = alt
             images_meta.append(saved)
+        if images_meta:
+            ok_n = sum(1 for x in images_meta if x.get("rel") or x.get("local"))
+            _log(progress, f"配图 {len(images_meta)} 张（本地成功 {ok_n}）")
 
         if not text and not images_meta:
             skipped += 1
@@ -592,12 +595,34 @@ def run_user_signal_pipeline(
         images_meta = []
         alts: List[str] = []
         urls: List[str] = []
+        crawl_imgs = [im for im in (it.get("images") or []) if isinstance(im, dict)]
         if from_cache and cached_card:
             images_meta = list(cached_card.get("images") or [])
+            # 旧缓存无图、本次 CDP 抽到图 → 补下载
+            if (not images_meta) and crawl_imgs:
+                for j, im in enumerate(crawl_imgs):
+                    u = str(im.get("url") or "")
+                    alt = str(im.get("alt") or "")
+                    if alt:
+                        alts.append(alt)
+                    if u:
+                        urls.append(u)
+                    saved = download_image(u, tid or f"x{i}", j)
+                    saved["alt"] = alt
+                    images_meta.append(saved)
+                _log(progress, f"缓存无图，已补下载 {len(images_meta)} 张")
+            else:
+                for im in images_meta:
+                    if not isinstance(im, dict):
+                        continue
+                    alt = str(im.get("alt") or "")
+                    u = str(im.get("url") or "")
+                    if alt:
+                        alts.append(alt)
+                    if u:
+                        urls.append(u)
         else:
-            for j, im in enumerate(it.get("images") or []):
-                if not isinstance(im, dict):
-                    continue
+            for j, im in enumerate(crawl_imgs):
                 u = str(im.get("url") or "")
                 alt = str(im.get("alt") or "")
                 if alt:
@@ -607,6 +632,9 @@ def run_user_signal_pipeline(
                 saved = download_image(u, tid or f"x{i}", j)
                 saved["alt"] = alt
                 images_meta.append(saved)
+            if crawl_imgs:
+                ok_n = sum(1 for x in images_meta if x.get("rel") or x.get("local"))
+                _log(progress, f"配图 {len(images_meta)} 张（本地成功 {ok_n}）")
 
         if not text and not images_meta and not from_cache:
             skipped += 1
@@ -689,12 +717,17 @@ def run_user_signal_pipeline(
             continue
 
         if from_cache and cached_card:
-            saved = upsert_card(dict(cached_card))
+            patch = dict(cached_card)
+            if images_meta:
+                patch["images"] = images_meta
+            saved = upsert_card(patch)
             cards.append(saved)
             if is_trade_signal(signal):
                 trade_cards.append(saved)
             parsed += 1
             result_txt = "继承缓存 · 有交易信号" if is_trade_signal(signal) else "继承缓存"
+            if images_meta and not (cached_card.get("images") or []):
+                result_txt += " · 已补图"
             ilog = {
                 "author": author,
                 "created_at": created_raw,

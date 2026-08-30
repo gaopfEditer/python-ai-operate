@@ -1,0 +1,70 @@
+# 实时资讯 realtime_info 配置
+# telegram / publish_x 默认关闭：先在本地审阅质量
+
+server:
+  host: "127.0.0.1"
+  port: 8788
+  # TradingView Webhook: POST http://127.0.0.1:8788/hooks/tradingview
+  webhook_secret: ""  # 非空时要求 Header X-Webhook-Secret 或 query ?secret=
+
+storage:
+  db_path: ""  # 空则用 output/realtime_info/events.db
+
+telegram:
+  enabled: false
+
+publish_x:
+  enabled: false
+
+llm:
+  enabled: true
+  # 失败时仍用规则草稿入库
+  fallback_draft: true
+
+modules:
+  onchain:
+    enabled: true
+    cooldown_hours: 6
+    min_usd_major: 5000000
+    min_circulating_pct: 0.5
+    major_symbols: ["BTC", "ETH", "USDT", "USDC", "WBTC", "WETH"]
+    poll_seconds: 300
+    # 免费路径：etherscan；无 key 则跳过并打日志
+    provider: "etherscan"
+
+  liq:
+    enabled: false
+    cooldown_hours: 2
+    window_15m_usd: 50000000
+    window_1h_usd: 200000000
+    heatmap_proximity_pct: 1.2
+
+  oi_funding:
+    enabled: true
+    cooldown_hours: 4
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    oi_surge_pct: 8.0
+    price_range_pct: 1.0
+    funding_extreme: -0.0005   # -0.05%
+    funding_periods: 2
+    poll_seconds: 600
+
+  tv:
+    enabled: true
+    cooldown_hours: 6
+    allowed_tfs: ["60", "240", "1H", "4H", "1h", "4h"]
+
+  unlock:
+    enabled: false
+    cooldown_hours: 168
+    horizon_days: 7
+    min_usd: 5000000
+    min_circulating_pct: 2.5
+    top_n: 5
+    cron_hint: "Sun 21:00 local"
+
+  kol:
+    enabled: true
+    cooldown_hours: 6
+    max_tweets_per_user: 20
+    use_llm: true

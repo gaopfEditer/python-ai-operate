@@ -1,0 +1,7 @@
+# KOL 观察列表（handle 不含 @）
+# enabled: false 的条目跳过
+
+users:
+  - handle: example_trader
+    enabled: false
+    note: "替换为真实 KOL handle"

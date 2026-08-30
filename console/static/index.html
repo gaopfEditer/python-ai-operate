@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css" />
+  <link rel="stylesheet" href="/app.css?v=20260830f" />
 </head>
 <body>
   <div class="shell">
@@ -15,18 +15,14 @@
       <div>
         <p class="eyebrow">TRENDRADAR</p>
         <h1 class="brand">Console</h1>
-        <p class="brand-sub">资讯 · 推文卡片 · 列表信号 · Post Lab</p>
+        <p class="brand-sub">列表信号 · 资讯预警 · 推文卡片 · 灵感碰撞 · CDP 发布</p>
         <div class="signal" aria-hidden="true"></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="功能分区">
-        <button class="tab active" type="button" role="tab" data-tab="news" aria-selected="true">资讯获取</button>
-        <button class="tab" type="button" role="tab" data-tab="later" aria-selected="false">稍后观看 <span class="tab-count" id="countLater">0</span></button>
-        <button class="tab" type="button" role="tab" data-tab="archived" aria-selected="false">归档 <span class="tab-count" id="countArchived">0</span></button>
-        <button class="tab" type="button" role="tab" data-tab="tags" aria-selected="false">标签 <span class="tab-count" id="countTagged">0</span></button>
-        <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false">历史缓存</button>
-        <button class="tab" type="button" role="tab" data-tab="corpus" aria-selected="false">Post Lab <span class="tab-count" id="countCorpus">0</span></button>
-        <button class="tab" type="button" role="tab" data-tab="signals" aria-selected="false">列表信号 <span class="tab-count" id="countSignals">0</span></button>
+        <button class="tab active" type="button" role="tab" data-tab="signals" aria-selected="true">列表信号 <span class="tab-count" id="countSignals">0</span></button>
+        <button class="tab" type="button" role="tab" data-tab="realtime" aria-selected="false">资讯预警 <span class="tab-count" id="countRealtime">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="tweetcards" aria-selected="false">推文卡片 <span class="tab-count" id="countTweetCards">0</span></button>
+        <button class="tab" type="button" role="tab" data-tab="corpus" aria-selected="false">灵感碰撞 <span class="tab-count" id="countCorpus">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
         <button class="tab" type="button" role="tab" data-tab="publish" aria-selected="false">CDP 发布</button>
       </nav>
@@ -36,193 +32,9 @@
       </div>
     </aside>
     <main class="stage">
-      <section id="panel-news" class="panel active" role="tabpanel">
-        <div class="panel-head">
-          <h2>资讯获取</h2>
-          <p>默认按关键词直接查询；需要时可先衍生搜索词，或开启任务化做周期抓取。</p>
-        </div>
-        <div class="toolbar">
-          <label class="field grow">
-            <span>主题关键词</span>
-            <input id="newsKeyword" type="search" placeholder="例如：远程工作 / remote work" />
-          </label>
-          <label class="field">
-            <span>视图</span>
-            <select id="newsView">
-              <option value="active" selected>未归档</option>
-              <option value="watch_later">稍后观看</option>
-              <option value="archived">已归档</option>
-              <option value="all">全部</option>
-            </select>
-          </label>
-          <button id="btnFilterNews" class="btn ghost" type="button">筛选缓存</button>
-          <button id="btnExpand" class="btn ghost" type="button">衍生后查询</button>
-          <button id="btnCrawl" class="btn primary" type="button">开始抓取</button>
-        </div>
-        <div class="crawl-opts">
-          <label class="field check">
-            <input id="crawlExpand" type="checkbox" />
-            <span>使用 AI 衍生词再搜</span>
-          </label>
-          <label class="field check">
-            <input id="platX" type="checkbox" checked />
-            <span>X</span>
-          </label>
-          <label class="field check">
-            <input id="platReddit" type="checkbox" checked />
-            <span>Reddit</span>
-          </label>
-          <label class="field check">
-            <input id="platTelegram" type="checkbox" checked />
-            <span>Telegram</span>
-          </label>
-          <label class="field check">
-            <input id="crawlScheduled" type="checkbox" />
-            <span>添加为周期任务</span>
-          </label>
-        </div>
-                <div id="taskScheduleOpts" class="crawl-opts task-only" hidden>
-          <label class="field">
-            <span>调度方式</span>
-            <select id="crawlScheduleMode">
-              <option value="interval" selected>按间隔重复</option>
-              <option value="daily">每天定点</option>
-            </select>
-          </label>
-          <label class="field" id="crawlIntervalField">
-            <span>间隔（分钟）</span>
-            <input id="crawlInterval" type="number" min="5" value="30" />
-          </label>
-          <label class="field" id="crawlDailyHourField" hidden>
-            <span>每天几点（0-23）</span>
-            <input id="crawlDailyHour" type="number" min="0" max="23" value="9" />
-          </label>
-          <label class="field">
-            <span>随机抖动 ±分钟</span>
-            <input id="crawlJitter" type="number" min="0" value="10" />
-          </label>
-          <div class="schedule-presets" id="schedulePresets">
-            <button type="button" class="btn ghost btn-sm" data-preset="30">每 30 分</button>
-            <button type="button" class="btn ghost btn-sm" data-preset="120">每 2 小时</button>
-            <button type="button" class="btn ghost btn-sm" data-preset="720">每 12 小时</button>
-            <button type="button" class="btn ghost btn-sm" data-preset="daily">每天</button>
-          </div>
-          <p class="task-hint">任务写入历史任务库；停止后仍可再次启动。同关键词会复用已有任务。</p>
-        </div>
-        <div id="newsPlatformBar" class="platform-bar" aria-label="来源筛选"></div>
-        <p id="crawlStatus" class="status"></p>
-        <div id="expandPreview" class="preview" hidden>
-          <h3>衍生预览</h3>
-          <pre id="expandPreviewBody" class="preview-body muted"></pre>
-        </div>
-        <div id="taskQueue" class="task-library">
-          <div class="panel-head">
-            <h2 style="font-size:1.2rem">周期任务库</h2>
-            <p>历史任务会持久保存，可随时启动、停止或改期执行。</p>
-          </div>
-          <div class="toolbar" style="margin-bottom:8px">
-            <div class="platform-bar" id="taskStatusBar">
-              <button type="button" class="platform-chip on" data-task-status="all">全部</button>
-              <button type="button" class="platform-chip" data-task-status="active">运行中</button>
-              <button type="button" class="platform-chip" data-task-status="stopped">已停止</button>
-            </div>
-            <button id="btnRefreshTasks" class="btn ghost btn-sm" type="button">刷新</button>
-          </div>
-          <p id="taskMeta" class="status"></p>
-          <div id="taskList" class="card-list"></div>
-        </div>
-        <div class="section-split" aria-hidden="true"></div>
-        <section id="newsFeed" class="news-feed" aria-label="资讯列表">
-          <div class="panel-head">
-            <h2 style="font-size:1.2rem">资讯列表</h2>
-            <p>抓取或筛选后的帖子显示在这里。</p>
-          </div>
-          <div id="newsList" class="card-list"></div>
-        </section>
-      </section>
-      <section id="panel-later" class="panel" role="tabpanel" hidden>
-        <div class="panel-head">
-          <h2>稍后观看</h2>
-          <p>标记为稍后阅读的帖子，看完可取消或直接归档。</p>
-        </div>
-        <div class="toolbar">
-          <label class="field grow">
-            <span>关键词</span>
-            <input id="laterKeyword" type="search" placeholder="标题 / 摘要 / 标签" />
-          </label>
-          <button id="btnLoadLater" class="btn primary" type="button">刷新</button>
-        </div>
-        <p id="laterMeta" class="status"></p>
-        <div id="laterList" class="card-list"></div>
-      </section>
-      <section id="panel-archived" class="panel" role="tabpanel" hidden>
-        <div class="panel-head">
-          <h2>归档</h2>
-          <p>已归档内容默认不出现在资讯列表；可随时取消归档。</p>
-        </div>
-        <div class="toolbar">
-          <label class="field grow">
-            <span>关键词</span>
-            <input id="archivedKeyword" type="search" placeholder="标题 / 摘要 / 标签" />
-          </label>
-          <button id="btnLoadArchived" class="btn primary" type="button">刷新</button>
-        </div>
-        <p id="archivedMeta" class="status"></p>
-        <div id="archivedList" class="card-list"></div>
-      </section>
-      <section id="panel-tags" class="panel" role="tabpanel" hidden>
-        <div class="panel-head">
-          <h2>标签</h2>
-          <p>管理帖子标签；点击标签筛选对应资讯。</p>
-        </div>
-        <div class="toolbar">
-          <label class="field grow">
-            <span>当前筛选标签</span>
-            <input id="tagsFilter" type="search" placeholder="点击下方标签，或手动输入后回车" />
-          </label>
-          <button id="btnClearTagFilter" class="btn ghost" type="button">清除筛选</button>
-          <button id="btnLoadTags" class="btn primary" type="button">刷新</button>
-        </div>
-        <div id="tagCloud" class="tag-cloud"></div>
-        <p id="tagsMeta" class="status"></p>
-        <div id="tagsList" class="card-list"></div>
-      </section>
-      <section id="panel-history" class="panel" role="tabpanel" hidden>
-        <div class="panel-head">
-          <h2>历史缓存</h2>
-          <p>浏览 <code>trendradar_posts_state.json</code> 中已入库的帖子。</p>
-        </div>
-        <div class="toolbar">
-          <label class="field grow">
-            <span>关键词</span>
-            <input id="historyKeyword" type="search" placeholder="标题 / 正文 / 链接 / 标签" />
-          </label>
-          <label class="field">
-            <span>平台 ID</span>
-            <input id="historyPlatform" type="text" placeholder="如 x-cdp" />
-          </label>
-          <label class="field">
-            <span>视图</span>
-            <select id="historyView">
-              <option value="all" selected>全部</option>
-              <option value="active">未归档</option>
-              <option value="watch_later">稍后观看</option>
-              <option value="archived">已归档</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>标签</span>
-            <input id="historyTag" type="text" placeholder="精确标签" />
-          </label>
-          <button id="btnLoadHistory" class="btn primary" type="button">加载</button>
-        </div>
-        <div id="historyPlatformBar" class="platform-bar" aria-label="来源筛选"></div>
-        <p id="historyMeta" class="status"></p>
-        <div id="historyList" class="card-list"></div>
-      </section>
       <section id="panel-corpus" class="panel lab-panel" role="tabpanel" hidden>
         <header class="lab-bar">
-          <h2>Post Lab</h2>
+          <h2>灵感碰撞</h2>
           <details class="lab-tools">
             <summary>导入</summary>
             <div class="lab-tools-body">
@@ -254,6 +66,7 @@
               <span class="lab-material-label">素材类目</span>
               <div id="labMaterialTabs" class="lab-material-tabs"></div>
             </div>
+            <div id="labContentMix" class="lab-content-mix" hidden></div>
             <div id="labCategoryTemplates" class="lab-category-templates" hidden>
               <div class="lab-category-templates-head">
                 <span>类目结构模板</span>
@@ -448,12 +261,16 @@
       <section id="panel-publish" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>CDP 发布</h2>
-          <p>正文 + 图片发布到所选平台。预约时间<strong>默认不修改则立即发布</strong>，修改后按时间定时发布。存储：<code>output/publish_cache/YYYY-MM/</code></p>
+          <p id="publishModeHint">正文 + 图片发布到所选平台。预约时间<strong>默认不修改则立即发布</strong>；也可切到「仅缓存」攒一批再手动批量发。</p>
+        </div>
+        <div class="publish-mode-tabs" role="tablist" aria-label="发布模式">
+          <button type="button" class="publish-mode-tab on" data-publish-mode="publish" role="tab" aria-selected="true">发布 / 定时</button>
+          <button type="button" class="publish-mode-tab" data-publish-mode="cache" role="tab" aria-selected="false">仅缓存（系列）</button>
         </div>
         <div class="form-grid publish-simple">
           <label class="field full">
-            <span>正文</span>
-            <textarea id="publishContent" rows="8" placeholder="推文 / 帖子正文…"></textarea>
+            <span>正文 <em class="muted">可粘贴图文（Ctrl/⌘+V）</em></span>
+            <textarea id="publishContent" rows="8" placeholder="推文 / 帖子正文… 也可直接粘贴截图"></textarea>
           </label>
           <div class="field full publish-media-field">
             <span>图片（可选）</span>
@@ -463,53 +280,77 @@
               <input id="publishMediaFiles" type="file" accept="image/*,video/*" multiple class="publish-media-input" />
             </div>
           </div>
-          <label class="field">
+          <label class="field publish-only-field">
             <span>预约发布时间</span>
             <input id="publishScheduleAt" type="datetime-local" />
             <span class="muted publish-schedule-hint">默认不修改 = 立即发布；改了时间 = 定时发布</span>
           </label>
           <div class="field full">
-            <span>发布平台</span>
+            <span id="publishPlatformLabel">发布平台</span>
             <div id="publishPlatformChecks" class="publish-platforms"></div>
+            <span class="muted publish-cache-plat-hint" id="publishCachePlatHint" hidden>仅缓存时可先不选；批量发布时用当前勾选的平台</span>
           </div>
           <label class="field">
             <span>CDP debugger</span>
             <input id="debuggerUrl" type="text" placeholder="127.0.0.1:9222" value="127.0.0.1:9222" />
           </label>
-          <label class="field check">
+          <label class="field check publish-only-field">
             <input id="useCdp" type="checkbox" checked />
             <span>使用 CDP 发布</span>
           </label>
-          <label class="field check">
+          <label class="field check publish-only-field">
             <input id="publishDryRun" type="checkbox" />
             <span>立即发布时：仅填不点发</span>
           </label>
+          <label class="field cache-only-field" hidden>
+            <span>系列备注（可选）</span>
+            <input id="publishSeriesNote" type="text" placeholder="例如：BTC 周报系列 / 空投教程 1–5" />
+          </label>
         </div>
-        <div class="toolbar publish-toolbar">
-          <button id="btnCacheSave" class="btn primary" type="button">保存到月度缓存</button>
+        <div class="toolbar publish-toolbar publish-only-toolbar">
+          <button id="btnCacheSave" class="btn ghost" type="button">存草稿</button>
           <button id="btnQueueAdd" class="btn primary" type="button">保存并加入定时队列</button>
           <button id="btnPublish" class="btn primary" type="button">发布</button>
           <button id="btnQueueRefresh" class="btn ghost" type="button">刷新队列</button>
           <button id="btnQueueClearDone" class="btn ghost" type="button">清理已完成</button>
         </div>
+        <div class="toolbar publish-toolbar cache-only-toolbar" hidden>
+          <button id="btnSeriesCacheAdd" class="btn primary" type="button">加入系列缓存</button>
+          <button id="btnSeriesSelectAll" class="btn ghost" type="button">全选待发</button>
+          <button id="btnSeriesBatchPublish" class="btn primary" type="button">批量发布选中</button>
+          <button id="btnSeriesRefresh" class="btn ghost" type="button">刷新卡片</button>
+          <button id="btnSeriesClearDrafts" class="btn ghost" type="button">清理已发完</button>
+        </div>
         <p id="publishStatus" class="status"></p>
         <div id="publishProgress" class="publish-progress" hidden></div>
-        <div class="queue-head">
-          <h3>发布队列 <span id="queueStats" class="muted"></span></h3>
+
+        <div class="publish-only-section">
+          <div class="queue-head">
+            <h3>发布队列 <span id="queueStats" class="muted"></span></h3>
+          </div>
+          <div id="publishQueueList" class="card-list queue-list"></div>
+          <div class="queue-head" style="margin-top:28px">
+            <h3>月度缓存浏览 <span id="cacheRootLabel" class="muted"></span></h3>
+          </div>
+          <div class="toolbar">
+            <label class="field">
+              <span>月份</span>
+              <select id="cacheMonthSelect"></select>
+            </label>
+            <button id="btnCacheRefresh" class="btn ghost" type="button">刷新</button>
+            <button id="btnCacheOpenRoot" class="btn ghost" type="button">打开缓存根目录</button>
+          </div>
+          <div id="publishCacheList" class="card-list queue-list"></div>
         </div>
-        <div id="publishQueueList" class="card-list queue-list"></div>
-        <div class="queue-head" style="margin-top:28px">
-          <h3>月度缓存浏览 <span id="cacheRootLabel" class="muted"></span></h3>
+
+        <div class="cache-only-section" hidden>
+          <div class="queue-head">
+            <h3>系列缓存卡片 <span id="seriesStats" class="muted"></span></h3>
+          </div>
+          <p class="muted series-hint">先攒图文 → 卡片勾选 → 「批量发布选中」。不会自动发到平台。</p>
+          <div id="publishSeriesList" class="publish-series-grid"></div>
         </div>
-        <div class="toolbar">
-          <label class="field">
-            <span>月份</span>
-            <select id="cacheMonthSelect"></select>
-          </label>
-          <button id="btnCacheRefresh" class="btn ghost" type="button">刷新</button>
-          <button id="btnCacheOpenRoot" class="btn ghost" type="button">打开缓存根目录</button>
-        </div>
-        <div id="publishCacheList" class="card-list queue-list"></div>
+
         <input id="publishTitle" type="hidden" value="" />
         <textarea id="publishMedia" hidden></textarea>
         <input id="publishTags" type="hidden" value="" />
@@ -517,7 +358,45 @@
         <pre id="publishResult" class="preview-body muted" hidden></pre>
       </section>
 
-      <section id="panel-signals" class="panel" role="tabpanel" hidden>
+      <section id="panel-realtime" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h2>资讯预警 · 本地审阅</h2>
+          <p class="muted">采集 → 过滤 → 草稿入库。通过仅表示质量过关；Telegram / X 默认关闭。</p>
+        </div>
+        <div class="toolbar rt-toolbar">
+          <label class="field">
+            <span>状态</span>
+            <select id="rtStatus">
+              <option value="pending" selected>待审</option>
+              <option value="approved">已通过</option>
+              <option value="rejected">已丢弃</option>
+              <option value="snoozed">稍后再看</option>
+              <option value="">全部</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>模块</span>
+            <select id="rtModule">
+              <option value="">全部</option>
+              <option value="tv">TV 结构</option>
+              <option value="oi_funding">OI/费率</option>
+              <option value="onchain">链上</option>
+              <option value="kol">KOL</option>
+              <option value="liq">清算</option>
+              <option value="unlock">解锁</option>
+            </select>
+          </label>
+          <button id="btnRtRefresh" class="btn ghost" type="button">刷新</button>
+          <button id="btnRtRunOi" class="btn ghost btn-sm" type="button">跑 OI/费率</button>
+          <button id="btnRtRunOnchain" class="btn ghost btn-sm" type="button">跑链上</button>
+          <button id="btnRtDemoTv" class="btn primary btn-sm" type="button">注入 TV 样例</button>
+        </div>
+        <p id="rtMeta" class="lab-meta muted"></p>
+        <p id="rtStatusMsg" class="status"></p>
+        <div id="rtEventList" class="rt-event-list"></div>
+      </section>
+
+      <section id="panel-signals" class="panel active" role="tabpanel">
         <div class="panel-head sig-panel-head">
           <div class="sig-panel-head-main">
             <h2>X 列表信号</h2>
@@ -833,6 +712,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260828j"></script>
+  <script src="/app.js?v=20260830f"></script>
 </body>
 </html>

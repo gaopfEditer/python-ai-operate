@@ -114,21 +114,135 @@ for (const a of arts) {
     const author = pickAuthor(a);
     const images = [];
     const seenImg = new Set();
-    for (const img of a.querySelectorAll('img')) {
-      const src = img.getAttribute('src') || '';
-      if (!src) continue;
-      if (/profile_images|emoji|ext_tw_video_thumb|hashflag/i.test(src)) continue;
-      if (!/twimg\.com|pbs\.|media/i.test(src)) continue;
-      const url = mediaUrl(src);
-      if (!url) continue;
-      const key = url.replace(/([?&]name=)\w+/i, '$1large');
-      if (seenImg.has(key)) continue;
+    function pushImg(raw, alt) {
+      if (!raw) return;
+      const s = String(raw);
+      if (s.indexOf('profile_images') >= 0 || s.indexOf('emoji') >= 0 || s.indexOf('hashflag') >= 0) return;
+      const ok = s.indexOf('pbs.twimg.com/media') >= 0
+        || s.indexOf('pbs.twimg.com/ext_tw_video_thumb') >= 0
+        || s.indexOf('pbs.twimg.com/tweet_video_thumb') >= 0
+        || s.indexOf('pbs.twimg.com/amplify_video_thumb') >= 0
+        || (s.indexOf('twimg.com') >= 0 && s.indexOf('/media/') >= 0);
+      if (!ok) return;
+      const url = mediaUrl(s);
+      if (!url) return;
+      const key = url.replace(/([?&]name=)[^&]+/i, '$1large');
+      if (seenImg.has(key)) return;
       seenImg.add(key);
-      images.push({
-        url: key,
-        alt: (img.getAttribute('alt') || '').slice(0, 300),
-      });
+      images.push({ url: key, alt: String(alt || '').slice(0, 300) });
     }
+    function fromSrcset(ss) {
+      if (!ss) return '';
+      let best = '', bestW = -1;
+      const parts = String(ss).split(',');
+      for (let i = 0; i < parts.length; i++) {
+        const bits = parts[i].trim().split(/\s+/);
+        const u = bits[0] || '';
+        const w = parseInt((bits[1] || '').replace(/w$/i, ''), 10) || 0;
+        if (u && w >= bestW) { best = u; bestW = w; }
+      }
+      return best || String(ss).trim().split(/\s+/)[0] || '';
+    }
+    // 1) DOM img / video / background
+    const imgs = a.querySelectorAll('img');
+    for (let i = 0; i < imgs.length; i++) {
+      const img = imgs[i];
+      try {
+        if (img.loading === 'lazy') img.loading = 'eager';
+        if (!img.getAttribute('src') && img.currentSrc) img.setAttribute('src', img.currentSrc);
+        const ss = img.srcset || img.getAttribute('srcset') || '';
+        if (!img.getAttribute('src') && ss) {
+          const u = fromSrcset(ss);
+          if (u) img.setAttribute('src', u);
+        }
+      } catch (e) {}
+      const src = img.currentSrc || img.getAttribute('src') || fromSrcset(img.getAttribute('srcset') || img.srcset || '') || '';
+      pushImg(src, img.getAttribute('alt') || '');
+    }
+    const videos = a.querySelectorAll('video');
+    for (let i = 0; i < videos.length; i++) {
+      const v = videos[i];
+      pushImg(v.getAttribute('poster') || v.poster || '', 'video');
+    }
+    const bgEls = a.querySelectorAll('[data-testid="tweetPhoto"] *, [style*="background-image"]');
+    for (let i = 0; i < bgEls.length; i++) {
+      try {
+        const bg = (bgEls[i].style && bgEls[i].style.backgroundImage) || '';
+        const m = String(bg).match(/url\(["']?([^"')]+)["']?\)/i);
+        if (m) pushImg(m[1], '');
+      } catch (e) {}
+    }
+    // 2) HTML 字符串兜底（避免正则字面量转义踩坑）
+    try {
+      const html = a.outerHTML || '';
+      const markers = [
+        'https://pbs.twimg.com/media/',
+        'https://pbs.twimg.com/ext_tw_video_thumb/',
+        'https://pbs.twimg.com/tweet_video_thumb/',
+        'https://pbs.twimg.com/amplify_video_thumb/',
+      ];
+      for (let mi = 0; mi < markers.length; mi++) {
+        let from = 0;
+        const mk = markers[mi];
+        while (true) {
+          const idx = html.indexOf(mk, from);
+          if (idx < 0) break;
+          let end = idx;
+          while (end < html.length) {
+            const ch = html.charAt(end);
+            if (ch === '"' || ch === "'" || ch === ' ' || ch === '<' || ch === '>' || ch === ')' || ch === '\\') break;
+            end++;
+          }
+          pushImg(html.slice(idx, end).replace(/&amp;/g, '&'), '');
+          from = idx + mk.length;
+        }
+      }
+    } catch (e) {}
+    // 3) React Fiber：不依赖图片是否可见
+    try {
+      const keys = Object.keys(a);
+      let fiberKey = '';
+      for (let i = 0; i < keys.length; i++) {
+        if (keys[i].indexOf('__reactFiber$') === 0 || keys[i].indexOf('__reactInternalInstance$') === 0) {
+          fiberKey = keys[i];
+          break;
+        }
+      }
+      if (fiberKey) {
+        const seenNode = new Set();
+        function walkFiber(node, depth) {
+          if (!node || depth > 40 || seenNode.has(node)) return;
+          seenNode.add(node);
+          let props = null;
+          try { props = node.memoizedProps || node.pendingProps || null; } catch (e) { props = null; }
+          if (props && typeof props === 'object') {
+            const bags = [];
+            try {
+              if (Array.isArray(props.media)) bags.push(props.media);
+              if (props.entities && Array.isArray(props.entities.media)) bags.push(props.entities.media);
+              if (props.extended_entities && Array.isArray(props.extended_entities.media)) bags.push(props.extended_entities.media);
+              const legacy = props.legacy || null;
+              if (legacy) {
+                if (legacy.entities && Array.isArray(legacy.entities.media)) bags.push(legacy.entities.media);
+                if (legacy.extended_entities && Array.isArray(legacy.extended_entities.media)) bags.push(legacy.extended_entities.media);
+              }
+            } catch (e) {}
+            for (let bi = 0; bi < bags.length; bi++) {
+              const bag = bags[bi];
+              for (let mi = 0; mi < bag.length; mi++) {
+                const mm = bag[mi];
+                if (!mm || typeof mm !== 'object') continue;
+                pushImg(mm.media_url_https || mm.media_url || mm.preview_image_url || '', mm.ext_alt_text || mm.alt || '');
+              }
+            }
+          }
+          try { walkFiber(node.child, depth + 1); } catch (e) {}
+          try { walkFiber(node.sibling, depth + 1); } catch (e) {}
+        }
+        walkFiber(a[fiberKey], 0);
+      }
+    } catch (e) {}
+    const hasPhotoLink = !!a.querySelector("a[href*='/photo/'], a[href*='/video/'], [data-testid='tweetPhoto']");
     out.push({
       tweet_id: st.tweet_id,
       url: st.url,
@@ -137,10 +251,82 @@ for (const a of arts) {
       created_at,
       time_label,
       images,
+      has_media: images.length > 0 || hasPhotoLink,
     });
   } catch (e) {}
 }
 return out;
+"""
+
+
+_STATUS_IMAGES_JS = r"""
+function mediaUrl(u){
+  try {
+    if (!u) return '';
+    let href = String(u);
+    if (!/^https?:\/\//i.test(href)) href = new URL(href, location.origin).href;
+    const url = new URL(href);
+    if (/pbs\.twimg\.com|twimg\.com/i.test(url.hostname)) {
+      if (!url.searchParams.get('format')) {
+        const path = (url.pathname || '').toLowerCase();
+        let fmt = 'jpg';
+        if (path.endsWith('.png')) fmt = 'png';
+        else if (path.endsWith('.webp')) fmt = 'webp';
+        else if (path.endsWith('.gif')) fmt = 'gif';
+        url.searchParams.set('format', fmt);
+      }
+      url.searchParams.set('name', 'large');
+      return url.href;
+    }
+    return url.href;
+  } catch (e) { return String(u || ''); }
+}
+const images = [];
+const seen = new Set();
+function push(raw, alt) {
+  if (!raw) return;
+  if (/profile_images|emoji|hashflag/i.test(raw)) return;
+  if (!/pbs\.twimg\.com\/(media|ext_tw_video_thumb|tweet_video_thumb|amplify_video_thumb)/i.test(raw)) return;
+  const url = mediaUrl(raw).replace(/([?&]name=)[^&]+/i, '$1large');
+  if (!url || seen.has(url)) return;
+  seen.add(url);
+  images.push({ url, alt: String(alt || '').slice(0, 300) });
+}
+const arts = [...document.querySelectorAll("article[data-testid='tweet']")];
+const a = arts[0] || document.body;
+for (const img of a.querySelectorAll('img')) {
+  push(img.currentSrc || img.getAttribute('src') || '', img.getAttribute('alt') || '');
+}
+for (const v of a.querySelectorAll('video')) {
+  push(v.getAttribute('poster') || v.poster || '', 'video');
+}
+try {
+  const html = a.outerHTML || '';
+  const re = /https?:\/\/pbs\.twimg\.com\/(?:media|ext_tw_video_thumb|tweet_video_thumb|amplify_video_thumb)\/[A-Za-z0-9_-]+(?:\?[^"'\s<>]*)?/g;
+  for (const u of (html.match(re) || [])) push(u.replace(/&amp;/g, '&'), '');
+} catch (e) {}
+return images;
+"""
+
+
+_WAKE_MEDIA_JS = r"""
+(() => {
+  const arts = [...document.querySelectorAll("article[data-testid='tweet']")].slice(0, 30);
+  for (const a of arts) {
+    try { a.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    for (const img of a.querySelectorAll('img')) {
+      try {
+        if (img.loading === 'lazy') img.loading = 'eager';
+        if (!img.getAttribute('src') && img.srcset) {
+          const u = String(img.srcset).split(',')[0].trim().split(/\s+/)[0];
+          if (u) img.setAttribute('src', u);
+        }
+        if (!img.getAttribute('src') && img.currentSrc) img.setAttribute('src', img.currentSrc);
+      } catch (e) {}
+    }
+  }
+  return arts.length;
+})()
 """
 
 
@@ -161,6 +347,110 @@ return out;
     if base.endswith("return out;"):
         return base[: -len("return out;")] + filter_tail
     return base + filter_tail
+
+
+def _merge_tweet_item(store: Dict[str, Dict[str, Any]], it: Dict[str, Any]) -> bool:
+    """
+    写入/补全推文。首次无图、后续懒加载出图时合并 images，避免永远丢图。
+    返回是否为新 tweet_id。
+    """
+    tid = str(it.get("tweet_id") or "").strip()
+    if not tid:
+        return False
+    old = store.get(tid)
+    if old is None:
+        store[tid] = dict(it)
+        return True
+    # 补全文案
+    new_text = str(it.get("text") or "").strip()
+    old_text = str(old.get("text") or "").strip()
+    if len(new_text) > len(old_text):
+        old["text"] = it.get("text")
+    if not old.get("created_at") and it.get("created_at"):
+        old["created_at"] = it.get("created_at")
+    if not old.get("time_label") and it.get("time_label"):
+        old["time_label"] = it.get("time_label")
+    if not old.get("author") and it.get("author"):
+        old["author"] = it.get("author")
+    if not old.get("url") and it.get("url"):
+        old["url"] = it.get("url")
+    if it.get("has_media"):
+        old["has_media"] = True
+    # 合并图片（按 url 去重）
+    old_imgs = list(old.get("images") or []) if isinstance(old.get("images"), list) else []
+    new_imgs = list(it.get("images") or []) if isinstance(it.get("images"), list) else []
+    if new_imgs:
+        seen = set()
+        merged = []
+        for im in old_imgs + new_imgs:
+            if not isinstance(im, dict):
+                continue
+            u = str(im.get("url") or "").strip()
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            merged.append(im)
+        old["images"] = merged
+        if merged:
+            old["has_media"] = True
+    store[tid] = old
+    return False
+
+
+def _wake_timeline_media(page) -> None:
+    """静默唤醒懒加载：不 activate、不抢焦点，只滚 DOM + eager。"""
+    try:
+        page.eval_js(_WAKE_MEDIA_JS)
+    except Exception:
+        pass
+    time.sleep(0.25)
+
+
+def _enrich_missing_images(page, items: List[Dict[str, Any]], *, progress: ProgressCb = None, limit: int = 20) -> int:
+    """
+    时间线抽不到图、但标记 has_media 的条目：静默打开原帖补图（不抢焦点）。
+    """
+    need = [
+        it
+        for it in items
+        if isinstance(it, dict)
+        and it.get("has_media")
+        and not (isinstance(it.get("images"), list) and it.get("images"))
+        and "/status/" in str(it.get("url") or "")
+    ][: max(1, int(limit))]
+    if not need:
+        any_img = any(isinstance(it.get("images"), list) and it.get("images") for it in items if isinstance(it, dict))
+        if not any_img:
+            need = [
+                it
+                for it in items
+                if isinstance(it, dict) and "/status/" in str(it.get("url") or "")
+            ][: min(8, max(1, int(limit)))]
+    if not need:
+        return 0
+    filled = 0
+    _log(progress, f"补图：静默打开原帖抽取（{len(need)} 条，不抢焦点）…")
+    for it in need:
+        url = str(it.get("url") or "").strip()
+        if not url:
+            continue
+        try:
+            page.silent_navigate(url)
+            time.sleep(2.0)
+            _wake_timeline_media(page)
+            raw = page.eval_js(_STATUS_IMAGES_JS) or []
+            if not isinstance(raw, list):
+                raw = []
+            imgs = [x for x in raw if isinstance(x, dict) and x.get("url")]
+            if imgs:
+                it["images"] = imgs
+                filled += 1
+                _log(progress, f"  补图成功 · {it.get('tweet_id')} · {len(imgs)} 张")
+            else:
+                _log(progress, f"  补图空 · {it.get('tweet_id')}")
+        except Exception as e:
+            _log(progress, f"  补图失败 · {it.get('tweet_id')}: {e}")
+    return filled
 
 
 def _scroll_feed_page(page, *, rounds: int = 4, aggressive: bool = False) -> None:
@@ -431,6 +721,7 @@ def _crawl_timeline_at_url(
         if should_abort and should_abort():
             _log(progress, "抓取已终止（滚动中）")
             break
+        _wake_timeline_media(page)
         try:
             raw = page.eval_js(feed_js) or []
         except Exception as e:
@@ -484,14 +775,19 @@ def _crawl_timeline_at_url(
                     page_old += 1
                     _log(progress, f"[页面] #{page_seen} 过旧 · {fmt_tweet_line(it)}")
                 else:
-                    _log(progress, f"[页面] #{page_seen} 纳入 · {fmt_tweet_line(it)}")
+                    nimg = len(it.get("images") or []) if isinstance(it.get("images"), list) else 0
+                    _log(
+                        progress,
+                        f"[页面] #{page_seen} 纳入 · {fmt_tweet_line(it)}"
+                        + (f" · 图{nimg}" if nimg else ""),
+                    )
                 if not too_old:
                     new_all_old = False
 
             if too_old:
                 continue
-            if tid not in by_id:
-                by_id[tid] = it
+            is_new = _merge_tweet_item(by_id, it)
+            if is_new:
                 new_in_window += 1
 
         _log(
@@ -833,6 +1129,7 @@ def crawl_list_timeline(
             if _aborted():
                 _log(progress, "抓取已终止（滚动中）")
                 break
+            _wake_timeline_media(page)
             try:
                 raw = page.eval_js(LIST_FEED_JS) or []
             except Exception as e:
@@ -871,15 +1168,16 @@ def crawl_list_timeline(
                         )
                     else:
                         page_kept += 1
+                        nimg = len(it.get("images") or []) if isinstance(it.get("images"), list) else 0
                         _log(
                             progress,
-                            f"[页面] #{page_seen} 纳入候选 · {fmt_tweet_line(it)}",
+                            f"[页面] #{page_seen} 纳入候选 · {fmt_tweet_line(it)}"
+                            + (f" · 图{nimg}" if nimg else ""),
                         )
 
                 if too_old:
                     continue
-                if tid not in by_id:
-                    by_id[tid] = it
+                _merge_tweet_item(by_id, it)
             _log(
                 progress,
                 f"滚动 {round_i + 1}/{max_scroll} · 窗口内累计 {len(by_id)} · 页面见过 {page_seen}"
@@ -911,9 +1209,16 @@ def crawl_list_timeline(
 
         items.sort(key=_key, reverse=True)
         items = items[:max_tweets]
+        try:
+            n_fill = _enrich_missing_images(page, items, progress=progress, limit=20)
+            if n_fill:
+                _log(progress, f"原帖补图完成 {n_fill} 条")
+        except Exception as e:
+            _log(progress, f"原帖补图跳过: {e}")
+        img_n = sum(1 for it in items if isinstance(it.get("images"), list) and it.get("images"))
         _log(
             progress,
-            f"抓取结束：窗口内 {len(items)} 条 · 页面见过 {page_seen}（过旧 {page_old}）",
+            f"抓取结束：窗口内 {len(items)} 条 · 含图 {img_n} · 页面见过 {page_seen}（过旧 {page_old}）",
         )
         return {
             "success": True,
@@ -1108,9 +1413,16 @@ def crawl_user_timeline(
                 continue
             filtered.append(it)
         items = filtered[:max_tweets]
+        try:
+            n_fill = _enrich_missing_images(page, items, progress=progress, limit=28)
+            if n_fill:
+                _log(progress, f"原帖补图完成 {n_fill} 条")
+        except Exception as e:
+            _log(progress, f"原帖补图跳过: {e}")
+        img_n = sum(1 for it in items if isinstance(it.get("images"), list) and it.get("images"))
         _log(
             progress,
-            f"博主抓取结束：@{h} 窗口内 {len(items)} 条 · 页面累计见过 {total_seen}（过旧 {total_old}）"
+            f"博主抓取结束：@{h} 窗口内 {len(items)} 条 · 含图 {img_n} · 页面累计见过 {total_seen}（过旧 {total_old}）"
             f" · 切片 {len(chunks)}",
         )
         return {

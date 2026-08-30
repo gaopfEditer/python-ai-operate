@@ -1,7 +1,7 @@
 # coding=utf-8
 """
 TrendRadar 控制台 HTTP 服务
-- 静态页：资讯获取 / 历史缓存 / Prompt 创作 / CDP 发布
+- 静态页：列表信号 / 灵感碰撞 / Prompt 创作 / CDP 发布
 - 复用 crawler / create / public 现有能力
 """
 
@@ -1925,7 +1925,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         from corpus.generate import compose_from_templates, regenerate_from_template
         from corpus.lab import lab_compose
 
-        # Post Lab 多版本模式
+        # 灵感碰撞多版本模式
         if body.get("lab") or body.get("mode") == "lab" or body.get("variants"):
             ids = body.get("template_ids") if isinstance(body.get("template_ids"), list) else []
             tid_list = []
@@ -2482,6 +2482,24 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         n = pq.clear_done()
         return _json_bytes({"success": True, "cleared": n, "stats": pq.stats()})
 
+    if path == "/api/publish/queue/batch-run" and method == "POST":
+        from console import publish_queue as pq
+
+        ids = body.get("ids") if isinstance(body.get("ids"), list) else []
+        if not ids:
+            return _json_bytes({"success": False, "error": "请提供 ids 数组"}, 400)
+        platforms = body.get("platforms")
+        debugger_url = str(body.get("debugger_url") or "").strip()
+        try:
+            result = pq.batch_publish(
+                [str(x) for x in ids],
+                platforms=platforms if isinstance(platforms, list) else None,
+                debugger_url=debugger_url,
+            )
+            return _json_bytes(result)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 500)
+
     if path.startswith("/api/publish/queue/") and method in ("GET", "POST", "DELETE"):
         from console import publish_queue as pq
 
@@ -2524,6 +2542,89 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return _json_bytes({"success": True, "item": item, "stats": pq.stats()})
 
         return _json_bytes({"success": False, "error": f"未知操作: {action}"}, 404)
+
+    # ——— 实时资讯 realtime_info（本地审阅，默认不外发）———
+    if path == "/api/realtime/events" and method == "GET":
+        from realtime_info.review.api import list_for_review
+        from realtime_info.storage.db import init_db
+
+        init_db()
+        status = (query.get("status") or ["pending"])[0]
+        module = (query.get("module") or [""])[0]
+        try:
+            limit = int((query.get("limit") or ["50"])[0])
+        except Exception:
+            limit = 50
+        try:
+            offset = int((query.get("offset") or ["0"])[0])
+        except Exception:
+            offset = 0
+        return _json_bytes(
+            list_for_review(status=status, module=module, limit=limit, offset=offset)
+        )
+
+    if path == "/api/realtime/events" and method == "POST":
+        from realtime_info.review.api import set_status
+        from realtime_info.storage.db import init_db
+
+        init_db()
+        try:
+            eid = int(body.get("id") or body.get("event_id") or 0)
+        except Exception:
+            eid = 0
+        status = str(body.get("status") or "").strip()
+        note = str(body.get("note") or "")
+        if not eid or not status:
+            return _json_bytes({"success": False, "error": "需要 id 与 status"}, 400)
+        result = set_status(eid, status, note=note)
+        code = 200 if result.get("success") else 400
+        return _json_bytes(result, code)
+
+    if path == "/api/realtime/stats" and method == "GET":
+        from realtime_info.storage.db import init_db, stats as rt_stats
+
+        init_db()
+        return _json_bytes({"success": True, **rt_stats()})
+
+    if path == "/api/realtime/ingest/tv" and method == "POST":
+        from realtime_info.collectors.tv_webhook import handle_tv_webhook
+        from realtime_info.storage.db import init_db
+
+        init_db()
+        skip = bool(body.get("skip_llm"))
+        payload = body.get("payload") if "payload" in body else body
+        result = handle_tv_webhook(payload, skip_llm=skip)
+        code = 200 if result.get("ok") else 400
+        return _json_bytes(result, code)
+
+    if path == "/api/realtime/run" and method == "POST":
+        from realtime_info.storage.db import init_db
+
+        init_db()
+        module = str(body.get("module") or "").strip()
+        skip_llm = bool(body.get("skip_llm", True))
+        if module == "oi_funding":
+            from realtime_info.collectors.oi_funding import run_oi_funding_once
+
+            return _json_bytes(
+                {"success": True, "results": run_oi_funding_once(skip_llm=skip_llm)}
+            )
+        if module == "onchain":
+            from realtime_info.collectors.onchain_free import run_onchain_once
+
+            return _json_bytes(
+                {"success": True, "results": run_onchain_once(skip_llm=skip_llm)}
+            )
+        if module == "kol":
+            from realtime_info.collectors.kol import run_kol_once
+
+            return _json_bytes(
+                {"success": True, "results": run_kol_once(skip_llm=skip_llm)}
+            )
+        return _json_bytes(
+            {"success": False, "error": "module 须为 oi_funding | onchain | kol"},
+            400,
+        )
 
     # ——— X List 交易信号 ———
     if path == "/api/signals/config" and method == "GET":
@@ -3563,7 +3664,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
     safe_print(" TrendRadar Console")
     safe_print("=" * 60)
     safe_print(f" 地址: {url}")
-    safe_print(" 功能: 资讯获取 / 列表信号(分时CDP) / 语料库 / Prompt 创作 / CDP 发布")
+    safe_print(" 功能: 列表信号(分时CDP) / 语料库 / Prompt 创作 / CDP 发布")
     try:
         from utils.crawl_cdp import resolve_crawl_debugger_url
 
@@ -3571,7 +3672,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
     except Exception:
         cdp_host = "127.0.0.1:9223"
     safe_print(f" 抓取 CDP: {cdp_host}（可改 config crawler.x_cdp.debugger_url 或 CDP_DEBUGGER_URL）")
-    safe_print(" 抓取日志: 资讯「开始抓取」→ [Crawl]；列表信号 → [signals]（含发帖人/正文/时间/是否交易信号）")
+    safe_print(" 抓取日志: 列表信号 → [signals]（含发帖人/正文/时间/是否交易信号）")
     if restored:
         active = sum(1 for t in _CRAWL_TASKS.values() if t.get("enabled"))
         safe_print(f" 周期任务库: 已恢复 {restored} 条（运行中 {active}）")

@@ -227,7 +227,17 @@ class BackgroundTarget:
         )
         if result.get("exceptionDetails"):
             detail = result["exceptionDetails"]
-            text = detail.get("text") or detail.get("exception", {}).get("description") or detail
+            exc = detail.get("exception") or {}
+            text = (
+                detail.get("text")
+                or exc.get("description")
+                or exc.get("value")
+                or detail
+            )
+            # 附带堆栈首行，便于定位语法/运行错误
+            stack = str(exc.get("description") or "")
+            if stack and stack != str(text):
+                text = f"{text} | {stack.splitlines()[0][:180]}"
             raise RuntimeError(f"JS 执行失败: {text}")
         remote = result.get("result") or {}
         return remote.get("value")

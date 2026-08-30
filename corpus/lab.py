@@ -82,7 +82,7 @@ PROMPT_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 2200,
         "temperature": 0.8,
         "output_extra": ["prompt_snippets"],
-        "system": """你是 Post Lab 通用短贴 Agent。根据热点、灵感卡骨架与叙事配方，产出 3 个短贴变体，并归纳可复用提示词。
+        "system": """你是灵感碰撞通用短贴 Agent。根据热点、灵感卡骨架与叙事配方，产出 3 个短贴变体，并归纳可复用提示词。
 只输出 JSON，不要 markdown：
 {
   "thinking": ["步骤1", "步骤2"],
@@ -106,7 +106,7 @@ prompt_snippets：抽象句式，用【占位】，3~5 条，便于下次复用�
         "max_tokens": 2800,
         "temperature": 0.65,
         "output_extra": [],
-        "system": """你是 Post Lab 行情分析 Agent。针对热点（行情波动、美联储、CPI/非农、流动性、重大政策），结合灵感卡观点，产出 3 个分析变体。
+        "system": """你是灵感碰撞行情分析 Agent。针对热点（行情波动、美联储、CPI/非农、流动性、重大政策），结合灵感卡观点，产出 3 个分析变体。
 只输出 JSON：
 {
   "thinking": ["步骤1", "步骤2"],
@@ -131,7 +131,7 @@ prompt_snippets：抽象句式，用【占位】，3~5 条，便于下次复用�
         "max_tokens": 4500,
         "temperature": 0.75,
         "output_extra": ["video_meta"],
-        "system": """你是 Post Lab 长文/视频脚本 Agent。根据热点与灵感卡，产出可转视频的 3 个结构化变体。
+        "system": """你是灵感碰撞长文/视频脚本 Agent。根据热点与灵感卡，产出可转视频的 3 个结构化变体。
 只输出 JSON：
 {
   "thinking": ["步骤1", "步骤2"],
@@ -504,21 +504,38 @@ def _cards_brief(tmpls: List[Dict[str, Any]], *, title: str = "灵感卡片") ->
 
 
 def _structure_brief(tmpls: List[Dict[str, Any]], *, category: str = "") -> str:
-    """类目结构模板：只强调句式骨架，供生成时参考结构。"""
+    """类目结构模板：句式骨架 + 步骤 + 案例，供生成时仿写（勿照搬数字）。"""
     if not tmpls:
         return ""
     cat_s = category_label(category) if category else "当前素材"
-    lines = [f"类目结构模板（{cat_s} · 参考段落结构/句式，勿照搬原文细节）："]
+    lines = [
+        f"类目结构模板（{cat_s} · 参考段落结构/句式与案例节奏，"
+        f"热点细节与具体数据请按用户主题改写，勿照搬案例数字）："
+    ]
     for i, tmpl in enumerate(tmpls, 1):
         factors = tmpl.get("factors") or {}
-        lines.append(
-            f"结构{i}(#{tmpl.get('id')}):\n"
+        struct = factors.get("structure")
+        struct_s = ""
+        if isinstance(struct, list) and struct:
+            struct_s = " → ".join(str(x).strip() for x in struct if str(x).strip())
+        ex = factors.get("example") if isinstance(factors.get("example"), dict) else {}
+        ex_hook = str(ex.get("hook") or "").strip()
+        ex_body = str(ex.get("body") or "").strip()
+        block = (
+            f"结构{i}(#{tmpl.get('id')} 「{tmpl.get('source_title') or ''}」):\n"
             f"- pattern: {tmpl.get('pattern') or ''}\n"
             f"- hook范式: {tmpl.get('hooks') or factors.get('hook') or ''}\n"
+            f"- 步骤: {struct_s or '（见 raw_text）'}\n"
             f"- 叙事: {factors.get('narrative_type') or tmpl.get('emotion') or ''}\n"
             f"- 冲突: {tmpl.get('tension') or ''}\n"
             f"- 适用: {factors.get('use_case') or ''}\n"
+            f"- 核心: {factors.get('core_concept') or ''}\n"
         )
+        if ex_hook or ex_body:
+            block += f"- 案例钩子: {ex_hook}\n"
+            if ex_body:
+                block += f"- 案例正文:\n{ex_body}\n"
+        lines.append(block)
     return "\n".join(lines) + "\n"
 
 

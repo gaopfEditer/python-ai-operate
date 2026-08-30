@@ -1,0 +1,26 @@
+# 链上实体：白名单（聪明钱/做市商）与 CEX 热钱包（用于流向粗分）
+# 地址一律小写；后续可替换为自有爬虫站点产物
+
+whales:
+  - label: Wintermute
+    addresses: []
+  - label: Jump Trading
+    addresses: []
+  - label: DWF Labs
+    addresses: []
+
+cex_hot_wallets:
+  - label: Binance
+    addresses:
+      - "0x28c6c06298d514db089934071355e5743bf21d60"
+      - "0x21a31a1a9d38db4346bfc2cd636b93e3640f9808"
+  - label: Coinbase
+    addresses:
+      - "0x71660c4005ba85c37ccec55d0c4493e66fe775d3"
+  - label: OKX
+    addresses:
+      - "0x6cc5f688a315f3dc28a7781717a9a594a7035b22"
+
+# 交易所内部整理地址：命中则丢弃
+cex_internal_blacklist:
+  addresses: []

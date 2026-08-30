@@ -304,10 +304,17 @@ def save_draft(body: Dict[str, Any], *, enqueue: bool = False) -> Dict[str, Any]
     if enqueue and not scheduled:
         raise ValueError("加入定时队列需设置预约时间")
 
-    platforms = _normalize_platforms(body.get("platforms")) or ["x", "binance_square"]
+    platforms = _normalize_platforms(body.get("platforms"))
+    if enqueue and not platforms:
+        platforms = ["x", "binance_square"]
+    # 仅缓存：允许暂不选平台，批量发布时再指定
     item_id = str(body.get("id") or "").strip() or uuid.uuid4().hex[:10]
     now = _now_iso()
     status = "pending" if enqueue else "draft"
+    series_note = str(body.get("series_note") or body.get("series") or "").strip()
+    tags = str(body.get("tags") or "").strip()
+    if series_note and series_note not in tags:
+        tags = f"{tags} · {series_note}".strip(" ·") if tags else series_note
 
     rel, abs_dir = _alloc_storage_dir(item_id, scheduled or now)
     media_paths = _materialize_media(
@@ -322,7 +329,8 @@ def save_draft(body: Dict[str, Any], *, enqueue: bool = False) -> Dict[str, Any]
         "content": content,
         "media_paths": media_paths,
         "platforms": platforms,
-        "tags": str(body.get("tags") or "").strip(),
+        "tags": tags,
+        "series_note": series_note,
         "scheduled_at": scheduled or "",
         "status": status,
         "enabled": bool(body.get("enabled", True)) if enqueue else False,
@@ -389,6 +397,7 @@ def _public_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "month": item.get("month") or "",
         "storage_rel": item.get("storage_rel") or "",
         "storage_dir": item.get("storage_dir") or "",
+        "series_note": item.get("series_note") or "",
         "content_md": (
             str(Path(item["storage_dir"]) / "content.md")
             if item.get("storage_dir")
@@ -732,6 +741,45 @@ def _due_items(now: Optional[datetime] = None) -> List[str]:
 
 def publish_now(item_id: str) -> Dict[str, Any]:
     return _run_publish(item_id, force=True)
+
+
+def batch_publish(
+    ids: List[str],
+    *,
+    platforms: Optional[List[str]] = None,
+    debugger_url: str = "",
+) -> Dict[str, Any]:
+    """按顺序强制发布多条（含 draft）。用于系列缓存手动批量发。"""
+    plats = _normalize_platforms(platforms)
+    dbg = str(debugger_url or "").strip()
+    results: List[Dict[str, Any]] = []
+    ok_n = 0
+    for raw_id in ids:
+        item_id = str(raw_id or "").strip()
+        if not item_id:
+            continue
+        with _LOCK:
+            item = _ITEMS.get(item_id)
+            if item:
+                if plats:
+                    item["platforms"] = plats
+                if dbg:
+                    item["debugger_url"] = dbg
+                item["enabled"] = True
+                item["updated_at"] = _now_iso()
+                _persist()
+        r = publish_now(item_id)
+        row = {"id": item_id, **{k: r.get(k) for k in ("success", "error")}}
+        if r.get("success"):
+            ok_n += 1
+        results.append(row)
+    return {
+        "success": True,
+        "ok": ok_n,
+        "total": len(results),
+        "results": results,
+        "stats": stats(),
+    }
 
 
 def _run_publish(item_id: str, *, force: bool = False) -> Dict[str, Any]:
