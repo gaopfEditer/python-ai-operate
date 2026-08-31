@@ -2062,6 +2062,153 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         status = 200 if result.get("success") else 400
         return _json_bytes(result, status)
 
+    if path == "/api/corpus/lab/images" and method == "POST":
+        variants = body.get("variants") if isinstance(body.get("variants"), list) else []
+        indices = body.get("indices") if isinstance(body.get("indices"), list) else []
+        if not variants:
+            return _json_bytes({"success": False, "error": "缺少 variants"}, 400)
+        if not indices:
+            return _json_bytes({"success": False, "error": "请勾选至少一个变体"}, 400)
+        job_id = uuid.uuid4().hex
+        topic = str(body.get("topic") or "").strip()
+        debugger_url = str(body.get("debugger_url") or "").strip()
+        sync_to_memos = bool(body.get("sync_to_memos") or body.get("sync_memos"))
+
+        def _worker() -> None:
+            from corpus.lab_tti import batch_generate_images
+
+            def _progress(cur: int, total: int, idx: int, label: str) -> None:
+                _set_job(
+                    job_id,
+                    status="running",
+                    message=f"配图 {cur}/{total} · {label or idx}…",
+                    progress={"current": cur, "total": total, "index": idx},
+                )
+
+            _set_job(job_id, status="running", message="启动 Gemini 文生图…", type="lab_images")
+            try:
+                use_brief = sync_to_memos or topic.strip().lower() == "memos"
+                result = batch_generate_images(
+                    variants,
+                    indices,
+                    topic=topic,
+                    debugger_url=debugger_url,
+                    progress_cb=_progress,
+                    use_content_brief=use_brief,
+                )
+                if sync_to_memos and result.get("ok_count"):
+                    _set_job(job_id, status="running", message="上传配图并写回 Memos…")
+                    from corpus.memos_client import apply_image_results_to_memos
+
+                    result = apply_image_results_to_memos(variants, result)
+                msg = f"配图完成 {result.get('ok_count', 0)}/{result.get('total', 0)}"
+                if result.get("fail_count"):
+                    msg += f" · 失败 {result.get('fail_count')}"
+                if sync_to_memos:
+                    msg += f" · 写回 {result.get('sync_ok', 0)}"
+                    if result.get("sync_fail"):
+                        msg += f"/{result.get('sync_ok', 0) + result.get('sync_fail', 0)}"
+                        msg += f" · 写回失败 {result.get('sync_fail')}"
+                _set_job(
+                    job_id,
+                    status="done" if result.get("success") else "error",
+                    message=msg,
+                    result=result,
+                )
+            except Exception as e:
+                _set_job(job_id, status="error", message=str(e))
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return _json_bytes({"success": True, "job_id": job_id})
+
+    if path == "/api/corpus/lab/media" and method == "GET":
+        from corpus.lab_tti import resolve_lab_media
+        import mimetypes
+
+        rel = (query.get("rel") or [""])[0].strip()
+        try:
+            fpath = resolve_lab_media(rel)
+            if not fpath.is_file():
+                return _json_bytes({"success": False, "error": "文件不存在"}, 404)
+            data = fpath.read_bytes()
+            ctype = mimetypes.guess_type(str(fpath))[0] or "application/octet-stream"
+            return data, 200, ctype
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/corpus/memos/config" and method == "GET":
+        from corpus.memos_client import public_config
+
+        return _json_bytes({"success": True, "config": public_config()})
+
+    if path == "/api/corpus/memos/config" and method == "POST":
+        from corpus.memos_client import save_config
+
+        try:
+            cfg = save_config(body if isinstance(body, dict) else {})
+            return _json_bytes({"success": True, "config": cfg})
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/corpus/memos" and method == "GET":
+        from corpus.memos_client import list_memos
+
+        try:
+            page_size = (query.get("page_size") or query.get("pageSize") or [None])[0]
+            page_size_i = int(page_size) if page_size not in (None, "") else None
+        except Exception:
+            page_size_i = None
+        try:
+            result = list_memos(
+                page_size=page_size_i,
+                page_token=str((query.get("page_token") or query.get("pageToken") or [""])[0]),
+                filter_expr=str((query.get("filter") or [""])[0]) or None,
+                order_by=str((query.get("order_by") or query.get("orderBy") or [""])[0]) or None,
+                keyword=str((query.get("keyword") or query.get("q") or [""])[0]),
+                tag=str((query.get("tag") or [""])[0]),
+                since=str((query.get("since") or query.get("from") or [""])[0]),
+                until=str((query.get("until") or query.get("to") or [""])[0]),
+                range_key=str((query.get("range") or query.get("range_key") or [""])[0]),
+            )
+            return _json_bytes(result)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/corpus/memos/tags" and method == "GET":
+        from corpus.memos_client import collect_tags
+
+        try:
+            result = collect_tags()
+            return _json_bytes(result)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/corpus/memos/update" and method == "POST":
+        from corpus.memos_client import update_memo_content
+
+        name = str(body.get("name") or body.get("id") or "").strip()
+        content = str(body.get("content") or "")
+        if not name:
+            return _json_bytes({"success": False, "error": "缺少 name"}, 400)
+        try:
+            result = update_memo_content(name, content)
+            return _json_bytes(result)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path == "/api/corpus/memos/sync" and method == "POST":
+        from corpus.memos_client import sync_images_to_memos
+
+        items = body.get("items") if isinstance(body.get("items"), list) else []
+        if not items:
+            return _json_bytes({"success": False, "error": "缺少 items"}, 400)
+        try:
+            result = sync_images_to_memos(items)
+            status = 200 if result.get("success") else 400
+            return _json_bytes(result, status)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
     if path == "/api/corpus/lab/feature" and method == "POST":
         from corpus.lab import feature_variant
 

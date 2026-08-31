@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Iterator, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +40,51 @@ def split_media(paths: Sequence[str]) -> tuple[List[str], List[str]]:
     return images, videos
 
 
+@contextmanager
+def preserve_os_focus() -> Iterator[None]:
+    """导航前后尽量保持系统前台窗口（避免 Chrome 抢焦点）。"""
+    prev = None
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            prev = ctypes.windll.user32.GetForegroundWindow()
+        elif sys.platform == "darwin":
+            try:
+                eth = Path(__file__).resolve().parents[2].parent / "auto-deal-eth"
+                if str(eth) not in sys.path:
+                    sys.path.insert(0, str(eth))
+                from binance.cdp_silent import frontmost_unix_pid
+
+                prev = frontmost_unix_pid()
+            except Exception:
+                prev = None
+    except Exception:
+        prev = None
+    try:
+        yield
+    finally:
+        if prev is None:
+            return
+        try:
+            time.sleep(0.05)
+            if sys.platform == "win32":
+                import ctypes
+
+                ctypes.windll.user32.SetForegroundWindow(prev)
+            elif sys.platform == "darwin":
+                from binance.cdp_silent import activate_unix_pid
+
+                activate_unix_pid(int(prev))
+        except Exception:
+            pass
+
+
 def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
-    """连接已启动的 Chrome（需 --remote-debugging-port）。"""
+    """连接已启动的 Chrome（需 --remote-debugging-port）。连接本身不 switch_to，不抢焦点。"""
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
 
-    # 避免代理干扰 CDP
     for var in (
         "HTTP_PROXY",
         "HTTPS_PROXY",
@@ -57,49 +98,77 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
     options = Options()
     options.add_experimental_option("debuggerAddress", debugger_url.strip())
     driver = webdriver.Chrome(options=options)
-    logger.info("CDP 已连接: %s", debugger_url)
+    logger.info("CDP 已连接: %s（不抢焦点）", debugger_url)
     return driver
 
 
+def _try_silent_cdp_goto(driver, url: str) -> bool:
+    """优先走 auto-deal-eth 静默 CDP（不 activate / 不 switch_to）。"""
+    try:
+        eth = Path(__file__).resolve().parents[2].parent / "auto-deal-eth"
+        if eth.is_dir() and str(eth) not in sys.path:
+            sys.path.insert(0, str(eth))
+        from binance.cdp_navigation import cdp_goto
+
+        cdp_goto(driver, url, page_load_timeout=60, log_prefix="publish-cdp")
+        return True
+    except Exception as e:
+        logger.debug("静默 CDP 导航不可用: %s", e)
+        return False
+
+
 def open_url_new_tab(driver, url: str) -> None:
-    """在最后一个已有页签打开 URL（不新建标签，避免反复发布撑爆内存）。"""
-    handles = list(driver.window_handles or [])
-    if not handles:
-        # 极端情况：没有任何页签时才新建一次
-        try:
-            driver.switch_to.new_window("tab")
-        except Exception:
-            driver.execute_script("window.open('about:blank','_blank');")
-            driver.switch_to.window(driver.window_handles[-1])
-        driver.get(url)
+    """在最后一个已有页签打开 URL：优先静默 CDP（不抢焦点、不新建标签）。"""
+    url = (url or "").strip()
+    if not url:
         return
 
-    last = handles[-1]
-    try:
-        driver.switch_to.window(last)
-    except Exception:
-        # 最后一个句柄失效时退到任意可用页签
-        for h in reversed(handles):
+    if _try_silent_cdp_goto(driver, url):
+        return
+
+    with preserve_os_focus():
+        handles = list(driver.window_handles or [])
+        if not handles:
             try:
-                driver.switch_to.window(h)
-                break
+                driver.execute_cdp_cmd(
+                    "Target.createTarget",
+                    {"url": "about:blank", "background": True},
+                )
+                time.sleep(0.12)
+                handles = list(driver.window_handles or [])
             except Exception:
-                continue
+                try:
+                    driver.switch_to.new_window("tab")
+                    handles = list(driver.window_handles or [])
+                except Exception:
+                    driver.execute_script("window.open('about:blank','_blank');")
+                    handles = list(driver.window_handles or [])
 
-    try:
-        driver.execute_cdp_cmd("Page.navigate", {"url": url})
-    except Exception:
-        driver.get(url)
+        if handles:
+            last = handles[-1]
+            try:
+                driver.switch_to.window(last)
+            except Exception:
+                for h in reversed(handles):
+                    try:
+                        driver.switch_to.window(h)
+                        break
+                    except Exception:
+                        continue
 
-    # 等待导航起步，避免立刻操作旧 DOM
-    for _ in range(30):
         try:
-            cur = (driver.current_url or "").strip()
-            if cur and cur != "about:blank":
-                break
+            driver.execute_cdp_cmd("Page.navigate", {"url": url})
         except Exception:
-            pass
-        time.sleep(0.08)
+            driver.get(url)
+
+        for _ in range(30):
+            try:
+                cur = (driver.current_url or "").strip()
+                if cur and (url.startswith("about:") or cur != "about:blank"):
+                    break
+            except Exception:
+                pass
+            time.sleep(0.08)
 
 
 def wait_css(driver, css: str, timeout: float = 20):
@@ -150,7 +219,6 @@ def upload_files(driver, paths: Sequence[str], prefer: str = "any", settle_s: fl
         return 0
     inputs = find_file_inputs(driver, prefer=prefer)
     if not inputs:
-        # 再扫一次（部分 UI 点「媒体」后才挂载 input）
         time.sleep(0.8)
         inputs = find_file_inputs(driver, prefer=prefer)
     if not inputs:
@@ -179,7 +247,6 @@ def type_text_human(
 ) -> None:
     """逐字输入，模拟人工打字延迟。"""
     import random
-    import sys
 
     from selenium.webdriver.common.keys import Keys
 

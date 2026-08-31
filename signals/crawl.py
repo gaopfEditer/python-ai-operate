@@ -904,7 +904,7 @@ def _list_page_targets() -> List[Dict[str, Any]]:
     return out
 
 
-def _close_session(*, log: ProgressCb = None) -> None:
+def _close_session(*, log: ProgressCb = None, force_close_tab: bool = False) -> None:
     global _SESSION
     with _SESSION_LOCK:
         sess = _SESSION
@@ -913,9 +913,14 @@ def _close_session(*, log: ProgressCb = None) -> None:
         return
     page = sess.get("page")
     client = sess.get("client")
+    created_new = bool(sess.get("created_new"))
     if page is not None:
         try:
-            page.close()
+            # 复用的用户页签只 detach；仅自建 tab 才 closeTarget，避免误关用户窗口
+            if force_close_tab or created_new:
+                page.close()
+            else:
+                page.detach()
         except Exception:
             pass
     if client is not None:
@@ -924,7 +929,7 @@ def _close_session(*, log: ProgressCb = None) -> None:
         except Exception:
             pass
     if log:
-        _log(log, "CDP 列表抓取标签已关闭")
+        _log(log, "CDP 列表抓取标签已关闭" if (force_close_tab or created_new) else "CDP 列表抓取会话已断开（保留页签）")
 
 
 def _session_alive(sess: Dict[str, Any]) -> bool:
@@ -967,6 +972,7 @@ def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[A
 
         client = _CdpClient(_browser_ws_url())
         page = None
+        created_new = False
         pages = _list_page_targets()
 
         if pages:
@@ -982,12 +988,14 @@ def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[A
 
         if page is None:
             page = BackgroundTarget.create(client, _SIGNALS_TAB_BLANK)
+            created_new = True
             _log(progress, "CDP 无可用页签，建立后台专用标签（仅此一次）")
 
         _SESSION = {
             "client": client,
             "page": page,
             "target_id": page.target_id,
+            "created_new": created_new,
         }
         page.silent_navigate(list_url)
         return client, page
@@ -995,7 +1003,7 @@ def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[A
 
 def close_list_crawl_tab(*, log: ProgressCb = None) -> None:
     """手动关闭列表抓取专用标签（一般不必调用，周期任务会自动复用）。"""
-    _close_session(log=log)
+    _close_session(log=log, force_close_tab=True)
 
 
 def normalize_twimg_url(url: str) -> str:

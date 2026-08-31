@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260830f" />
+  <link rel="stylesheet" href="/app.css?v=20260831o" />
 </head>
 <body>
   <div class="shell">
@@ -56,6 +56,12 @@
           </details>
         </header>
 
+        <div class="lab-mode-tabs" role="tablist">
+          <button type="button" class="lab-mode-tab on" data-lab-mode="lab" role="tab" aria-selected="true">变体实验室</button>
+          <button type="button" class="lab-mode-tab" data-lab-mode="memos" role="tab" aria-selected="false">Memos 文章</button>
+        </div>
+
+        <div id="labModeLab">
         <div class="lab-workbench">
           <!-- 左：语料与采集 -->
           <aside class="lab-col lab-left">
@@ -148,6 +154,13 @@
               <button type="button" class="chip-action" data-tweak="add_data">加数据</button>
               <button type="button" class="chip-action" data-tweak="shorter">缩短</button>
             </div>
+            <div class="lab-image-bar" id="labImageBar" hidden>
+              <label class="lab-image-pick-all">
+                <input type="checkbox" id="labImagePickAll" checked /> 全选变体
+              </label>
+              <button id="btnLabGenImages" class="btn primary" type="button">批量生成配图</button>
+              <span id="labImageStatus" class="muted lab-image-status"></span>
+            </div>
             <div class="lab-right-actions" id="labResultBar" hidden>
               <button id="btnLabCopyMd" class="btn ghost" type="button">一键复制</button>
               <button id="btnLabRegen" class="btn ghost" type="button">重新生成</button>
@@ -164,6 +177,86 @@
             <div id="labBlocksHint" hidden></div>
           </aside>
         </div>
+        </div>
+
+        <div id="labModeMemos" hidden>
+          <div class="memos-panel">
+            <div class="memos-config form-grid">
+              <label class="field">
+                <span>Memos 地址</span>
+                <input id="memosBaseUrl" type="text" placeholder="http://127.0.0.1:5230" />
+              </label>
+              <label class="field">
+                <span>Access Token</span>
+                <input id="memosToken" type="password" placeholder="Memos 设置里创建的 Token" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>条数</span>
+                <input id="memosPageSize" type="number" min="1" max="200" value="50" />
+              </label>
+              <label class="field full">
+                <span>过滤（可选 CEL）</span>
+                <input id="memosFilter" type="text" placeholder='例：tag in ["crypto"] 或 visibility == "PUBLIC"' />
+              </label>
+              <div class="field full memos-config-actions">
+                <button id="btnMemosSaveConfig" class="btn ghost" type="button">保存配置</button>
+                <button id="btnMemosFetch" class="btn primary" type="button">拉取文章</button>
+                <span id="memosConfigStatus" class="muted"></span>
+              </div>
+            </div>
+            <div class="memos-toolbar">
+              <input id="memosKeyword" type="search" placeholder="正文关键词…" />
+              <select id="memosRange" title="按创建时间筛选（北京时间）">
+                <option value="">时间不限</option>
+                <option value="today">今天</option>
+                <option value="7d">近 7 天</option>
+                <option value="30d">近 30 天</option>
+                <option value="month">本月</option>
+                <option value="custom">自定义区间</option>
+              </select>
+              <span id="memosCustomRange" class="memos-custom-range" hidden>
+                <input id="memosSince" type="date" title="起始日期" />
+                <span class="muted">至</span>
+                <input id="memosUntil" type="date" title="结束日期" />
+              </span>
+              <input id="memosTag" type="search" list="memosTagList" placeholder="标签（如 日常记录）" />
+              <datalist id="memosTagList"></datalist>
+              <button id="btnMemosRefreshTags" class="btn ghost xs" type="button" title="扫描标签">标签</button>
+              <label class="lab-image-pick-all">
+                <input type="checkbox" id="memosPickAll" checked /> 全选
+              </label>
+              <button id="btnMemosGenImages" class="btn primary" type="button">批量生成配图并写回</button>
+              <button id="btnMemosSync" class="btn ghost" type="button" title="将本地配图上传为附件并写回 Memos">补写回 Memos</button>
+              <span id="memosImageStatus" class="muted lab-image-status"></span>
+            </div>
+            <div id="memosTagCloud" class="memos-tag-cloud"></div>
+            <p id="memosMeta" class="lab-meta muted">双击卡片可编辑 Markdown</p>
+            <div id="memosList" class="memos-list"></div>
+          </div>
+        </div>
+
+        <dialog id="memosEditDialog" class="corpus-dialog memos-edit-dialog">
+          <form method="dialog" id="memosEditForm" class="memos-edit-form">
+            <div class="memos-edit-head">
+              <h3 id="memosEditTitle">编辑 Memo</h3>
+              <div class="memos-edit-modes" role="tablist">
+                <button type="button" class="chip-action on" data-memos-view="split">分栏</button>
+                <button type="button" class="chip-action" data-memos-view="edit">源码</button>
+                <button type="button" class="chip-action" data-memos-view="preview">预览</button>
+              </div>
+            </div>
+            <p class="muted memos-edit-sub" id="memosEditMeta"></p>
+            <div class="memos-edit-panes" id="memosEditPanes" data-view="split">
+              <textarea id="memosEditSource" class="memos-edit-source" spellcheck="false" placeholder="Markdown 正文…"></textarea>
+              <div id="memosEditPreview" class="memos-md-preview" aria-label="Markdown 预览"></div>
+            </div>
+            <p id="memosEditStatus" class="status"></p>
+            <div class="field full memos-edit-actions">
+              <button value="cancel" class="btn ghost" type="submit">取消</button>
+              <button id="btnMemosEditSave" value="save" class="btn primary" type="submit">保存到 Memos</button>
+            </div>
+          </form>
+        </dialog>
 
         <dialog id="labProfileConfigDialog" class="corpus-dialog lab-profile-config-dialog">
           <form method="dialog" id="labProfileConfigForm" class="lab-profile-config-form">
@@ -712,6 +805,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260830f"></script>
+  <script src="/app.js?v=20260831p"></script>
 </body>
 </html>

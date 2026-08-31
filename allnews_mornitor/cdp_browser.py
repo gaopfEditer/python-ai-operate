@@ -318,7 +318,7 @@ def _as_bg(driver) -> Optional[BackgroundTarget]:
 
 
 def navigate(driver, url: str) -> None:
-    """静默：后台 session Page.navigate；非静默：Selenium get。"""
+    """静默：后台 session Page.navigate；非静默：尽量不抢焦点地打开最后一页签。"""
     target = (url or "").strip()
     if not target:
         return
@@ -330,10 +330,30 @@ def navigate(driver, url: str) -> None:
 
     if not silent_enabled():
         try:
-            driver.switch_to.new_window("tab")
+            from public.platforms.cdp_common import open_url_new_tab
+
+            open_url_new_tab(driver, target)
+            return
         except Exception:
             pass
-        driver.get(target)
+        # 回退：background create + Page.navigate，避免 new_window 抢焦
+        try:
+            handles = list(driver.window_handles or [])
+        except Exception:
+            handles = []
+        if not handles:
+            try:
+                driver.execute_cdp_cmd(
+                    "Target.createTarget",
+                    {"url": "about:blank", "background": True},
+                )
+                time.sleep(0.12)
+            except Exception:
+                pass
+        try:
+            driver.execute_cdp_cmd("Page.navigate", {"url": target})
+        except Exception:
+            driver.get(target)
         return
 
     raise RuntimeError("静默模式未建立后台 CDP session")
@@ -382,6 +402,7 @@ def cdp_session() -> Iterator[Any]:
 
     client: Optional[_CdpClient] = None
     page: Optional[BackgroundTarget] = None
+    created_new = False
     try:
         try:
             _http_json("/json/version")
@@ -391,9 +412,28 @@ def cdp_session() -> Iterator[Any]:
             ) from e
 
         client = _CdpClient(_browser_ws_url())
-        page = BackgroundTarget.create(client, "about:blank")
+        # 优先附着最后一个已有页签，避免每次 createTarget 堆标签
+        try:
+            targets = _http_json("/json/list") or []
+        except Exception:
+            targets = []
+        pages = [
+            t
+            for t in targets
+            if isinstance(t, dict) and t.get("type") == "page" and str(t.get("id") or "").strip()
+        ]
+        if pages:
+            tid = str(pages[-1].get("id") or "")
+            try:
+                page = BackgroundTarget.attach(client, tid)
+                print(f"[allnews] 静默 CDP：复用最后一个页签（共 {len(pages)} 个，不新建）")
+            except Exception:
+                page = None
+        if page is None:
+            page = BackgroundTarget.create(client, "about:blank")
+            created_new = True
+            print("[allnews] 静默 CDP：无可用页签，新建后台标签（仅此一次）")
         _bg = page
-        print("[allnews] 静默 CDP：后台标签已建立（不激活、不还焦）")
         yield page
     except Exception:
         if client is not None:
@@ -406,7 +446,10 @@ def cdp_session() -> Iterator[Any]:
     finally:
         if page is not None:
             try:
-                page.close()
+                if created_new:
+                    page.close()
+                else:
+                    page.detach()
             except Exception:
                 pass
         if client is not None:

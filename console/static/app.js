@@ -20,6 +20,13 @@ const state = {
   labTagFilter: "",
   labVariants: [],
   labActiveVariant: null,
+  labImagePick: new Set(),
+  labMode: localStorage.getItem("appLabMode") || "lab",
+  memosItems: [],
+  memosPick: new Set(),
+  memosNextPageToken: "",
+  memosTags: [],
+  memosEditIndex: -1,
   labConfigActiveTab: "general",
   labConfigProfiles: [],
   sigMode: "list",
@@ -1816,6 +1823,7 @@ async function loadTemplateHistory(templateId) {
 function showLabSkeleton(loading) {
   const box = $("#labVariants");
   if (!box) return;
+  if (loading) state.labImagePick = new Set();
   box.innerHTML = `<div class="lab-skel${loading ? " is-loading" : ""}" aria-hidden="true">
     <div class="lab-skel-card"><div class="sk-line w40"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line w70"></div></div>
     <div class="lab-skel-card"><div class="sk-line w40"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line w70"></div></div>
@@ -1823,6 +1831,20 @@ function showLabSkeleton(loading) {
   </div>`;
   if ($("#labResultBar")) $("#labResultBar").hidden = true;
   if ($("#labTweaks")) $("#labTweaks").hidden = true;
+  if ($("#labImageBar")) $("#labImageBar").hidden = true;
+}
+
+function labSelectedImageIndices() {
+  return [...(state.labImagePick || [])].sort((a, b) => a - b);
+}
+
+function syncLabImagePickAll() {
+  const all = $("#labImagePickAll");
+  const variants = state.labVariants || [];
+  if (!all) return;
+  const picked = labSelectedImageIndices();
+  all.indeterminate = picked.length > 0 && picked.length < variants.length;
+  all.checked = variants.length > 0 && picked.length === variants.length;
 }
 
 function renderLabVariants(variants, activeIdx) {
@@ -1832,27 +1854,44 @@ function renderLabVariants(variants, activeIdx) {
     showLabSkeleton(false);
     return;
   }
+  const prevPick = state.labImagePick || new Set();
   state.labVariants = variants;
+  if (!prevPick.size) {
+    state.labImagePick = new Set(variants.map((_, i) => i));
+  } else {
+    state.labImagePick = new Set([...prevPick].filter((i) => i >= 0 && i < variants.length));
+  }
   const idx = activeIdx == null ? 0 : activeIdx;
   state.labActiveVariant = variants[idx];
   box.innerHTML = variants
     .map((v, i) => {
       const on = i === idx ? " on" : "";
       const starred = v.featured ? " starred" : "";
+      const checked = state.labImagePick.has(i) ? " checked" : "";
+      const imgs = (v.images || [])
+        .map(
+          (im) =>
+            `<img class="lab-vimg" src="${escapeHtml(im.url || "")}" alt="配图" loading="lazy" />`
+        )
+        .join("");
       return `<article class="lab-variant${on}${starred}" data-vidx="${i}">
         <header>
+          <label class="lab-vpick" title="勾选以批量生成配图">
+            <input type="checkbox" class="lab-vpick-cb" data-vpick="${i}"${checked} />
+          </label>
           <span class="lab-vid">${escapeHtml(v.id || String.fromCharCode(65 + i))}</span>
           <strong>${escapeHtml(v.label || "变体")}</strong>
           <button type="button" class="lab-vstar" data-feature-idx="${i}" title="精选留存完整正文与要素">★</button>
         </header>
         <p class="lab-vhook">${escapeHtml(v.hook || "")}</p>
         <pre class="lab-vbody">${escapeHtml(v.content || "")}</pre>
+        ${imgs ? `<div class="lab-vimgs">${imgs}</div>` : ""}
       </article>`;
     })
     .join("");
   box.querySelectorAll(".lab-variant").forEach((el) => {
     el.addEventListener("click", (ev) => {
-      if (ev.target.closest("[data-feature-idx]")) return;
+      if (ev.target.closest("[data-feature-idx], .lab-vpick")) return;
       const i = Number(el.getAttribute("data-vidx"));
       renderLabVariants(state.labVariants, i);
     });
@@ -1864,8 +1903,19 @@ function renderLabVariants(variants, activeIdx) {
       labSaveFeatured(i);
     });
   });
+  box.querySelectorAll(".lab-vpick-cb").forEach((cb) => {
+    cb.addEventListener("change", (ev) => {
+      ev.stopPropagation();
+      const i = Number(cb.getAttribute("data-vpick"));
+      if (cb.checked) state.labImagePick.add(i);
+      else state.labImagePick.delete(i);
+      syncLabImagePickAll();
+    });
+  });
   if ($("#labResultBar")) $("#labResultBar").hidden = false;
   if ($("#labTweaks")) $("#labTweaks").hidden = false;
+  if ($("#labImageBar")) $("#labImageBar").hidden = false;
+  syncLabImagePickAll();
   const active = state.labActiveVariant;
   const draft = labBuildPublishDraft(active);
   state.lastCreate = {
@@ -2000,6 +2050,9 @@ function labBuildPublishDraft(variant) {
   const prof =
     LAB_PROFILES_FALLBACK.find((x) => x.id === state.labProfile) || LAB_PROFILES_FALLBACK[0];
   const tags = [topic, prof?.label].filter(Boolean).join(", ");
+  const media_paths = (v.media_paths || []).length
+    ? [...v.media_paths]
+    : (v.images || []).map((im) => im.path).filter(Boolean);
   return {
     title,
     content: v.content,
@@ -2007,6 +2060,7 @@ function labBuildPublishDraft(variant) {
     label,
     tags,
     style,
+    media_paths,
   };
 }
 
@@ -2046,7 +2100,7 @@ async function labPublishViaCdp() {
         content: draft.content,
         tags: draft.tags || "",
         platforms,
-        media_paths: [],
+        media_paths: draft.media_paths || [],
         use_cdp: true,
         debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
         submit: !$("#publishDryRun")?.checked,
@@ -2099,12 +2153,766 @@ async function labSendToPublish(draft) {
   }
   state.lastCreate = { title: "", content: d.content, path: "" };
   if ($("#publishContent")) $("#publishContent").value = d.content;
+  if (d.media_paths?.length) {
+    publishServerMediaPaths = [...d.media_paths];
+    publishServerMediaRels = [];
+    renderMediaPreview();
+  }
   await loadPublishPlatforms();
   applyPublishPlatformHint(labPlatformHintFromStyle(d.style));
   switchTab("publish");
   $("#publishContent")?.focus();
-  toast("已带入 CDP 发布页", "ok");
+  toast(d.media_paths?.length ? "已带入 CDP 发布页（含配图）" : "已带入 CDP 发布页", "ok");
   state.labPublishDraft = null;
+}
+
+async function pollLabImageJob(jobId) {
+  const statusEl = $("#labImageStatus");
+  const btn = $("#btnLabGenImages");
+  for (let i = 0; i < 240; i++) {
+    const data = await api(`/api/jobs/${jobId}`);
+    const job = data.job || {};
+    const msg = job.message || job.status || "配图生成中…";
+    if (statusEl) statusEl.textContent = msg;
+    setStatus($("#corpusRegenStatus"), msg);
+    if (job.status === "done" || job.status === "error") {
+      const result = job.result || {};
+      const rows = result.results || [];
+      const variants = state.labVariants || [];
+      let activeIdx = variants.indexOf(state.labActiveVariant);
+      for (const row of rows) {
+        if (!row.success) continue;
+        const idx = Number(row.index);
+        if (idx < 0 || idx >= variants.length) continue;
+        const v = variants[idx];
+        v.content = row.content || v.content;
+        if (row.images?.length) {
+          v.images = [...(v.images || []), ...row.images];
+          v.media_paths = [...(v.media_paths || []), ...(row.media_paths || [])];
+        }
+        if (activeIdx < 0) activeIdx = idx;
+      }
+      if (variants.length) renderLabVariants(variants, activeIdx >= 0 ? activeIdx : 0);
+      const okN = result.ok_count || 0;
+      const total = result.total || rows.length;
+      const failN = result.fail_count || 0;
+      const finalMsg = failN
+        ? `配图 ${okN}/${total} · 失败 ${failN}`
+        : `配图完成 ${okN}/${total}`;
+      if (statusEl) statusEl.textContent = finalMsg;
+      setStatus($("#corpusRegenStatus"), finalMsg, failN && !okN ? "error" : "ok");
+      if (failN) {
+        const err = (result.failures || rows.filter((r) => !r.success))
+          .map((r) => r.error || "失败")
+          .slice(0, 2)
+          .join("；");
+        if (err) toast(err.slice(0, 180), "error");
+      } else {
+        toast(finalMsg, "ok");
+      }
+      if (btn) btn.disabled = false;
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+  if (statusEl) statusEl.textContent = "配图超时，请稍后重试";
+  setStatus($("#corpusRegenStatus"), "配图任务超时", "error");
+  if (btn) btn.disabled = false;
+}
+
+async function runLabBatchImages() {
+  const variants = state.labVariants || [];
+  const indices = labSelectedImageIndices();
+  if (!variants.length) {
+    toast("请先生成变体", "error");
+    return;
+  }
+  if (!indices.length) {
+    toast("请勾选至少一个变体", "error");
+    return;
+  }
+  const btn = $("#btnLabGenImages");
+  const statusEl = $("#labImageStatus");
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = "提交配图任务…";
+  setStatus($("#corpusRegenStatus"), `配图 0/${indices.length}…`);
+  try {
+    const payload = {
+      indices,
+      topic: $("#regenTopic")?.value.trim() || "",
+      debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+      variants: variants.map((v) => ({
+        id: v.id,
+        label: v.label,
+        hook: v.hook,
+        content: v.content,
+      })),
+    };
+    const data = await api("/api/corpus/lab/images", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (!data.success || !data.job_id) {
+      toast(data.error || "提交失败", "error");
+      if (btn) btn.disabled = false;
+      return;
+    }
+    await pollLabImageJob(data.job_id);
+  } catch (e) {
+    toast(String(e), "error");
+    if (btn) btn.disabled = false;
+    if (statusEl) statusEl.textContent = "";
+  }
+}
+
+const APP_LAB_MODE_LS = "appLabMode";
+
+function applyLabMode(mode) {
+  const m = mode === "memos" ? "memos" : "lab";
+  state.labMode = m;
+  document.querySelectorAll(".lab-mode-tab[data-lab-mode]").forEach((btn) => {
+    const on = btn.getAttribute("data-lab-mode") === m;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  const labBox = $("#labModeLab");
+  const memosBox = $("#labModeMemos");
+  if (labBox) labBox.hidden = m !== "lab";
+  if (memosBox) memosBox.hidden = m !== "memos";
+  try {
+    localStorage.setItem(APP_LAB_MODE_LS, m);
+  } catch (_) {}
+  if (m === "memos") {
+    loadMemosConfig().then(() => {
+      loadMemosTags();
+      if (!(state.memosItems || []).length) return;
+      renderMemosList(state.memosItems);
+    });
+  }
+}
+
+function switchLabMode(mode) {
+  applyLabMode(mode);
+  if (mode === "memos" && !(state.memosItems || []).length) {
+    loadMemosConfig().then(() => loadMemosTags());
+  }
+}
+
+function memosSelectedIndices() {
+  return [...(state.memosPick || [])].sort((a, b) => a - b);
+}
+
+function syncMemosPickAll() {
+  const all = $("#memosPickAll");
+  const items = state.memosItems || [];
+  if (!all) return;
+  const picked = memosSelectedIndices();
+  all.indeterminate = picked.length > 0 && picked.length < items.length;
+  all.checked = items.length > 0 && picked.length === items.length;
+}
+
+/** 轻量 Markdown → HTML（标题/列表/代码/引用/链接/图片/加粗斜体） */
+function renderMarkdown(src) {
+  let text = String(src || "").replace(/\r\n/g, "\n");
+  const blocks = [];
+  text = text.replace(/```([\w-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const i = blocks.length;
+    blocks.push(
+      `<pre><code class="lang-${escapeHtml(lang || "")}">${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`
+    );
+    return `\u0000BLK${i}\u0000`;
+  });
+
+  const inline = (s) => {
+    let t = escapeHtml(s);
+    t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, alt, url) => {
+      const u = String(url || "");
+      if (!/^(https?:|\/|data:image\/)/i.test(u)) return escapeHtml(`![${alt}](${url})`);
+      return `<img src="${escapeHtml(u)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
+    });
+    t = t.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => {
+      const u = String(url || "");
+      if (!/^(https?:|mailto:|\/)/i.test(u)) return escapeHtml(`[${label}](${url})`);
+      return `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${label}</a>`;
+    });
+    t = t.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    t = t.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    t = t.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+    t = t.replace(/(^|[^_\w])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
+    return t;
+  };
+
+  const lines = text.split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const blk = line.match(/^\u0000BLK(\d+)\u0000$/);
+    if (blk) {
+      out.push(blocks[Number(blk[1])]);
+      i += 1;
+      continue;
+    }
+    if (/^\s*---+\s*$/.test(line) || /^\s*\*\*\*+\s*$/.test(line)) {
+      out.push("<hr />");
+      i += 1;
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.+)$/);
+    if (h) {
+      const lv = h[1].length;
+      out.push(`<h${lv}>${inline(h[2])}</h${lv}>`);
+      i += 1;
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        buf.push(lines[i].replace(/^\s*>\s?/, ""));
+        i += 1;
+      }
+      out.push(`<blockquote><p>${inline(buf.join(" "))}</p></blockquote>`);
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        buf.push(`<li>${inline(lines[i].replace(/^\s*[-*+]\s+/, ""))}</li>`);
+        i += 1;
+      }
+      out.push(`<ul>${buf.join("")}</ul>`);
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        buf.push(`<li>${inline(lines[i].replace(/^\s*\d+\.\s+/, ""))}</li>`);
+        i += 1;
+      }
+      out.push(`<ol>${buf.join("")}</ol>`);
+      continue;
+    }
+    if (!line.trim()) {
+      i += 1;
+      continue;
+    }
+    const buf = [line];
+    i += 1;
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\s*[-*+]\s|\s*\d+\.\s|\s*>|\s*---+\s*$|\u0000BLK)/.test(lines[i])) {
+      buf.push(lines[i]);
+      i += 1;
+    }
+    out.push(`<p>${inline(buf.join("\n")).replace(/\n/g, "<br />")}</p>`);
+  }
+  return out.join("\n") || "<p class='muted'>（空）</p>";
+}
+
+function formatMemosTime(iso) {
+  const s = String(iso || "").trim();
+  if (!s) return "";
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
+    const pad = (n) => String(n).padStart(2, "0");
+    // 北京时间展示
+    const bj = new Date(d.getTime() + 8 * 3600 * 1000);
+    return `${bj.getUTCFullYear()}-${pad(bj.getUTCMonth() + 1)}-${pad(bj.getUTCDate())} ${pad(bj.getUTCHours())}:${pad(bj.getUTCMinutes())}`;
+  } catch (_) {
+    return s;
+  }
+}
+
+function applyMemosConfigForm(cfg) {
+  if (!cfg) return;
+  if ($("#memosBaseUrl") && cfg.base_url != null) $("#memosBaseUrl").value = cfg.base_url;
+  if ($("#memosPageSize") && cfg.page_size != null) $("#memosPageSize").value = cfg.page_size;
+  if ($("#memosFilter") && cfg.filter != null) $("#memosFilter").value = cfg.filter;
+  const tok = $("#memosToken");
+  if (tok && cfg.access_token) {
+    if (!tok.value) tok.value = cfg.access_token;
+    tok.placeholder = cfg.access_token_masked
+      ? `已保存 ${cfg.access_token_masked}`
+      : "Memos 设置里创建的 Token";
+  }
+}
+
+async function loadMemosConfig() {
+  try {
+    const data = await api("/api/corpus/memos/config");
+    if (data.success) applyMemosConfigForm(data.config || {});
+    return data.config || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+async function saveMemosConfig() {
+  const status = $("#memosConfigStatus");
+  try {
+    const body = {
+      base_url: $("#memosBaseUrl")?.value.trim() || "",
+      page_size: Number($("#memosPageSize")?.value || 50),
+      filter: $("#memosFilter")?.value.trim() || "",
+    };
+    const tok = $("#memosToken")?.value.trim();
+    if (tok) body.access_token = tok;
+    const data = await api("/api/corpus/memos/config", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (!data.success) {
+      if (status) status.textContent = data.error || "保存失败";
+      toast(data.error || "保存失败", "error");
+      return;
+    }
+    applyMemosConfigForm(data.config || {});
+    if (status) status.textContent = "配置已保存";
+    toast("Memos 配置已保存", "ok");
+  } catch (e) {
+    if (status) status.textContent = String(e);
+    toast(String(e), "error");
+  }
+}
+
+function syncMemosCustomRangeVis() {
+  const custom = $("#memosCustomRange");
+  if (!custom) return;
+  custom.hidden = ($("#memosRange")?.value || "") !== "custom";
+}
+
+function renderMemosTagCloud(tags) {
+  const box = $("#memosTagCloud");
+  const list = $("#memosTagList");
+  const arr = Array.isArray(tags) ? tags : [];
+  state.memosTags = arr;
+  if (list) {
+    list.innerHTML = arr
+      .map((t) => `<option value="${escapeHtml(t.tag || t)}"></option>`)
+      .join("");
+  }
+  if (!box) return;
+  const cur = ($("#memosTag")?.value || "").trim().replace(/^#/, "");
+  box.innerHTML = arr
+    .slice(0, 40)
+    .map((t) => {
+      const name = t.tag || t;
+      const on = cur && cur === name ? " on" : "";
+      const n = t.count != null ? ` ${t.count}` : "";
+      return `<button type="button" class="memos-tag-chip${on}" data-memos-tag="${escapeHtml(name)}">#${escapeHtml(name)}${n}</button>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-memos-tag]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tag = btn.getAttribute("data-memos-tag") || "";
+      const input = $("#memosTag");
+      if (!input) return;
+      input.value = input.value.trim().replace(/^#/, "") === tag ? "" : tag;
+      renderMemosTagCloud(state.memosTags || []);
+      fetchMemosList();
+    });
+  });
+}
+
+function harvestTagsFromItems(items) {
+  const counts = {};
+  for (const it of items || []) {
+    for (const t of it.tags || []) {
+      counts[t] = (counts[t] || 0) + 1;
+    }
+  }
+  return Object.entries(counts)
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+}
+
+async function loadMemosTags() {
+  try {
+    const data = await api("/api/corpus/memos/tags");
+    if (data.success && data.tags?.length) {
+      renderMemosTagCloud(data.tags);
+      return;
+    }
+  } catch (_) {}
+  renderMemosTagCloud(harvestTagsFromItems(state.memosItems || []));
+}
+
+function renderMemosList(items, { selectAllIfEmpty = false } = {}) {
+  const box = $("#memosList");
+  if (!box) return;
+  state.memosItems = items || [];
+  const prev = state.memosPick || new Set();
+  if (selectAllIfEmpty && !prev.size && state.memosItems.length) {
+    state.memosPick = new Set(state.memosItems.map((_, i) => i));
+  } else {
+    state.memosPick = new Set(
+      [...prev].filter((i) => i >= 0 && i < state.memosItems.length)
+    );
+  }
+  if (!state.memosItems.length) {
+    box.innerHTML = `<div class="muted" style="padding:24px;text-align:center">暂无文章，调整筛选后重新拉取</div>`;
+    syncMemosPickAll();
+    return;
+  }
+  box.innerHTML = state.memosItems
+    .map((it, i) => {
+      const checked = state.memosPick.has(i) ? " checked" : "";
+      const tags = (it.tags || [])
+        .slice(0, 8)
+        .map((t) => `#${escapeHtml(String(t))}`)
+        .join(" ");
+      const imgs = (it.images || [])
+        .map(
+          (im) =>
+            `<img class="lab-vimg" src="${escapeHtml(im.url || "")}" alt="配图" loading="lazy" />`
+        )
+        .join("");
+      const when = escapeHtml(formatMemosTime(it.display_time || it.create_time || it.update_time));
+      return `<article class="memos-card" data-midx="${i}" title="双击编辑">
+        <header>
+          <label class="lab-vpick" title="勾选以批量生成配图">
+            <input type="checkbox" class="memos-pick-cb" data-mpick="${i}"${checked} />
+          </label>
+          <strong>${escapeHtml(it.title || it.label || it.id || "无标题")}</strong>
+        </header>
+        <div class="memos-meta">${when}${tags ? " · " + tags : ""}${
+        it.name ? ` · ${escapeHtml(it.name)}` : ""
+      } · 双击编辑</div>
+        <div class="memos-md-preview">${renderMarkdown(it.content || "")}</div>
+        ${imgs ? `<div class="lab-vimgs">${imgs}</div>` : ""}
+      </article>`;
+    })
+    .join("");
+  box.querySelectorAll(".memos-pick-cb").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const i = Number(cb.getAttribute("data-mpick"));
+      if (cb.checked) state.memosPick.add(i);
+      else state.memosPick.delete(i);
+      syncMemosPickAll();
+    });
+    cb.addEventListener("click", (e) => e.stopPropagation());
+  });
+  box.querySelectorAll(".memos-card").forEach((el) => {
+    el.addEventListener("dblclick", (ev) => {
+      if (ev.target.closest(".lab-vpick, a, button, input")) return;
+      const i = Number(el.getAttribute("data-midx"));
+      openMemosEditor(i);
+    });
+  });
+  syncMemosPickAll();
+  const meta = $("#memosMeta");
+  if (meta) {
+    meta.textContent = `共 ${state.memosItems.length} 篇 · 已选 ${memosSelectedIndices().length} · 双击卡片编辑 Markdown`;
+  }
+  if (!(state.memosTags || []).length) {
+    renderMemosTagCloud(harvestTagsFromItems(state.memosItems));
+  }
+}
+
+function buildMemosQuery() {
+  const qs = new URLSearchParams();
+  const pageSize = Number($("#memosPageSize")?.value || 50);
+  if (pageSize) qs.set("page_size", String(pageSize));
+  const filter = $("#memosFilter")?.value.trim();
+  if (filter) qs.set("filter", filter);
+  const keyword = $("#memosKeyword")?.value.trim();
+  if (keyword) qs.set("keyword", keyword);
+  const tag = ($("#memosTag")?.value || "").trim().replace(/^#/, "");
+  if (tag) qs.set("tag", tag);
+  const range = $("#memosRange")?.value || "";
+  if (range && range !== "custom") qs.set("range", range);
+  if (range === "custom") {
+    const since = $("#memosSince")?.value || "";
+    const until = $("#memosUntil")?.value || "";
+    if (since) qs.set("since", since);
+    if (until) qs.set("until", until);
+  }
+  return qs;
+}
+
+async function fetchMemosList() {
+  const status = $("#memosConfigStatus");
+  const btn = $("#btnMemosFetch");
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = "拉取中…";
+  try {
+    await saveMemosConfigQuiet();
+    const qs = buildMemosQuery();
+    const data = await api(`/api/corpus/memos?${qs.toString()}`);
+    if (!data.success) {
+      toast(data.error || "拉取失败", "error");
+      if (status) status.textContent = data.error || "拉取失败";
+      return;
+    }
+    state.memosPick = new Set();
+    state.memosNextPageToken = data.next_page_token || "";
+    renderMemosList(data.items || [], { selectAllIfEmpty: true });
+    const hint = data.filter ? ` · filter: ${data.filter}` : "";
+    if (status) status.textContent = `已拉取 ${data.count || 0} 篇${hint}`;
+    toast(`已拉取 ${data.count || 0} 篇 Memos`, "ok");
+  } catch (e) {
+    toast(String(e), "error");
+    if (status) status.textContent = String(e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function saveMemosConfigQuiet() {
+  const body = {
+    base_url: $("#memosBaseUrl")?.value.trim() || "",
+    page_size: Number($("#memosPageSize")?.value || 50),
+    filter: $("#memosFilter")?.value.trim() || "",
+  };
+  const tok = $("#memosToken")?.value.trim();
+  if (tok) body.access_token = tok;
+  try {
+    const data = await api("/api/corpus/memos/config", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (data.success) applyMemosConfigForm(data.config || {});
+  } catch (_) {}
+}
+
+function setMemosEditView(mode) {
+  const panes = $("#memosEditPanes");
+  if (!panes) return;
+  const m = ["split", "edit", "preview"].includes(mode) ? mode : "split";
+  panes.setAttribute("data-view", m);
+  document.querySelectorAll("[data-memos-view]").forEach((btn) => {
+    btn.classList.toggle("on", btn.getAttribute("data-memos-view") === m);
+  });
+  if (m !== "edit") refreshMemosEditPreview();
+}
+
+function refreshMemosEditPreview() {
+  const src = $("#memosEditSource")?.value || "";
+  const box = $("#memosEditPreview");
+  if (box) box.innerHTML = renderMarkdown(src);
+}
+
+function openMemosEditor(idx) {
+  const items = state.memosItems || [];
+  const it = items[idx];
+  if (!it) return;
+  state.memosEditIndex = idx;
+  const dlg = $("#memosEditDialog");
+  const src = $("#memosEditSource");
+  if (src) src.value = it.content || "";
+  if ($("#memosEditTitle")) $("#memosEditTitle").textContent = it.title || "编辑 Memo";
+  if ($("#memosEditMeta")) {
+    $("#memosEditMeta").textContent = `${it.name || ""} · ${formatMemosTime(
+      it.create_time || it.update_time
+    )}${(it.tags || []).length ? " · #" + it.tags.join(" #") : ""}`;
+  }
+  if ($("#memosEditStatus")) {
+    $("#memosEditStatus").textContent = "";
+    $("#memosEditStatus").className = "status";
+  }
+  setMemosEditView("split");
+  refreshMemosEditPreview();
+  dlg?.showModal();
+  src?.focus();
+}
+
+async function saveMemosEditor(e) {
+  if (e) e.preventDefault();
+  const idx = state.memosEditIndex;
+  const items = state.memosItems || [];
+  const it = items[idx];
+  if (!it?.name) {
+    toast("无效的 Memo", "error");
+    return;
+  }
+  const content = $("#memosEditSource")?.value ?? "";
+  const status = $("#memosEditStatus");
+  const btn = $("#btnMemosEditSave");
+  if (btn) btn.disabled = true;
+  if (status) setStatus(status, "保存中…");
+  try {
+    const data = await api("/api/corpus/memos/update", {
+      method: "POST",
+      body: JSON.stringify({ name: it.name, content }),
+    });
+    if (!data.success) {
+      setStatus(status, data.error || "保存失败", "error");
+      toast(data.error || "保存失败", "error");
+      return;
+    }
+    const updated = data.item || {};
+    Object.assign(it, updated, {
+      content,
+      title: updated.title || it.title,
+      tags: updated.tags || it.tags,
+      images: it.images,
+      media_paths: it.media_paths,
+      dirty: false,
+    });
+    renderMemosList(items);
+    setStatus(status, "已保存到 Memos", "ok");
+    toast("已保存到 Memos", "ok");
+    $("#memosEditDialog")?.close();
+  } catch (err) {
+    setStatus(status, String(err), "error");
+    toast(String(err), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function pollMemosImageJob(jobId) {
+  const statusEl = $("#memosImageStatus");
+  const btn = $("#btnMemosGenImages");
+  for (let i = 0; i < 240; i++) {
+    const data = await api(`/api/jobs/${jobId}`);
+    const job = data.job || {};
+    const msg = job.message || job.status || "配图生成中…";
+    if (statusEl) statusEl.textContent = msg;
+    if (job.status === "done" || job.status === "error") {
+      const result = job.result || {};
+      const rows = result.results || [];
+      const items = state.memosItems || [];
+      for (const row of rows) {
+        if (!row.success) continue;
+        const idx = Number(row.index);
+        if (idx < 0 || idx >= items.length) continue;
+        const it = items[idx];
+        it.content = row.content || it.content;
+        if (row.images?.length) {
+          it.images = [...(it.images || []), ...row.images];
+          it.media_paths = [...(it.media_paths || []), ...(row.media_paths || [])];
+        }
+        it.dirty = !row.synced;
+        if (row.synced) it.dirty = false;
+      }
+      renderMemosList(items);
+      const okN = result.ok_count || 0;
+      const total = result.total || rows.length;
+      const failN = result.fail_count || 0;
+      const syncOk = result.sync_ok;
+      const syncFail = result.sync_fail || 0;
+      let finalMsg = failN
+        ? `配图 ${okN}/${total} · 失败 ${failN}`
+        : `配图完成 ${okN}/${total}`;
+      if (syncOk != null) {
+        finalMsg += ` · 已写回 Memos ${syncOk}`;
+        if (syncFail) finalMsg += ` · 写回失败 ${syncFail}`;
+      }
+      if (statusEl) statusEl.textContent = finalMsg;
+      if (failN || syncFail) {
+        const err = (result.failures || rows.filter((r) => !r.success || r.sync_error))
+          .map((r) => r.sync_error || r.error || "失败")
+          .slice(0, 2)
+          .join("；");
+        if (err) toast(err.slice(0, 180), "error");
+        else toast(finalMsg, failN && !okN ? "error" : "ok");
+      } else {
+        toast(finalMsg, "ok");
+      }
+      if (btn) btn.disabled = false;
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+  if (statusEl) statusEl.textContent = "配图超时，请稍后重试";
+  if (btn) btn.disabled = false;
+}
+
+async function runMemosBatchImages() {
+  const items = state.memosItems || [];
+  const indices = memosSelectedIndices();
+  if (!items.length) {
+    toast("请先拉取 Memos 文章", "error");
+    return;
+  }
+  if (!indices.length) {
+    toast("请勾选至少一篇文章", "error");
+    return;
+  }
+  const btn = $("#btnMemosGenImages");
+  const statusEl = $("#memosImageStatus");
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = "提交配图任务…";
+  try {
+    const payload = {
+      indices,
+      topic: "Memos",
+      sync_to_memos: true,
+      debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+      variants: items.map((it) => ({
+        id: it.id || it.name,
+        name: it.name || (it.id ? `memos/${it.id}` : ""),
+        label: it.title || it.label || it.id,
+        hook: it.hook || it.title || "",
+        content: it.content || "",
+      })),
+    };
+    const data = await api("/api/corpus/lab/images", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (!data.success || !data.job_id) {
+      toast(data.error || "提交失败", "error");
+      if (btn) btn.disabled = false;
+      return;
+    }
+    await pollMemosImageJob(data.job_id);
+  } catch (e) {
+    toast(String(e), "error");
+    if (btn) btn.disabled = false;
+    if (statusEl) statusEl.textContent = "";
+  }
+}
+
+async function syncMemosImagesBack() {
+  const items = state.memosItems || [];
+  const indices = memosSelectedIndices();
+  const payload = indices
+    .map((i) => items[i])
+    .filter((it) => it && it.name && (it.dirty || (it.images || []).length || (it.media_paths || []).length));
+  if (!payload.length) {
+    toast("勾选中没有已配图、可写回的文章", "error");
+    return;
+  }
+  const btn = $("#btnMemosSync");
+  if (btn) btn.disabled = true;
+  try {
+    const data = await api("/api/corpus/memos/sync", {
+      method: "POST",
+      body: JSON.stringify({
+        items: payload.map((it) => ({
+          name: it.name,
+          content: it.content,
+          media_paths: it.media_paths || [],
+        })),
+      }),
+    });
+    if (!data.success) {
+      toast(data.error || "写回失败", "error");
+      return;
+    }
+    for (const r of data.results || []) {
+      if (!r.success) continue;
+      const hit = items.find((x) => x.name === r.name);
+      if (hit) {
+        hit.dirty = false;
+        if (r.item?.content) hit.content = r.item.content;
+      }
+    }
+    renderMemosList(items);
+    toast(`已写回 Memos ${data.ok_count}/${payload.length}`, data.fail_count ? "error" : "ok");
+    const statusEl = $("#memosImageStatus");
+    if (statusEl) {
+      statusEl.textContent = `写回 ${data.ok_count}/${payload.length}${
+        data.fail_count ? ` · 失败 ${data.fail_count}` : ""
+      }`;
+    }
+  } catch (e) {
+    toast(String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function labSaveFeatured(variantIdx) {
@@ -3602,6 +4410,58 @@ function bind() {
   $("#btnLabCopyMd")?.addEventListener("click", () => labCopyMarkdown());
   $("#btnLabRegen")?.addEventListener("click", () => runCorpusRegen({ explicit: true }));
   $("#btnLabSaveFeatured")?.addEventListener("click", () => labSaveFeatured());
+  $("#btnLabGenImages")?.addEventListener("click", () => runLabBatchImages());
+  $("#labImagePickAll")?.addEventListener("change", (e) => {
+    const variants = state.labVariants || [];
+    if (e.target.checked) state.labImagePick = new Set(variants.map((_, i) => i));
+    else state.labImagePick = new Set();
+    renderLabVariants(variants, (state.labVariants || []).indexOf(state.labActiveVariant));
+  });
+  document.querySelectorAll(".lab-mode-tab[data-lab-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => switchLabMode(btn.getAttribute("data-lab-mode")));
+  });
+  $("#btnMemosSaveConfig")?.addEventListener("click", () => saveMemosConfig());
+  $("#btnMemosFetch")?.addEventListener("click", () => fetchMemosList());
+  $("#btnMemosGenImages")?.addEventListener("click", () => runMemosBatchImages());
+  $("#btnMemosSync")?.addEventListener("click", () => syncMemosImagesBack());
+  $("#btnMemosRefreshTags")?.addEventListener("click", () => loadMemosTags());
+  $("#memosRange")?.addEventListener("change", () => {
+    syncMemosCustomRangeVis();
+    if (($("#memosRange")?.value || "") !== "custom") fetchMemosList();
+  });
+  $("#memosSince")?.addEventListener("change", () => fetchMemosList());
+  $("#memosUntil")?.addEventListener("change", () => fetchMemosList());
+  $("#memosTag")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      fetchMemosList();
+    }
+  });
+  $("#memosPickAll")?.addEventListener("change", (e) => {
+    const items = state.memosItems || [];
+    if (e.target.checked) state.memosPick = new Set(items.map((_, i) => i));
+    else state.memosPick = new Set();
+    renderMemosList(items);
+  });
+  $("#memosKeyword")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      fetchMemosList();
+    }
+  });
+  document.querySelectorAll("[data-memos-view]").forEach((btn) => {
+    btn.addEventListener("click", () => setMemosEditView(btn.getAttribute("data-memos-view")));
+  });
+  $("#memosEditSource")?.addEventListener("input", () => {
+    if (($("#memosEditPanes")?.getAttribute("data-view") || "") !== "edit") {
+      refreshMemosEditPreview();
+    }
+  });
+  $("#memosEditForm")?.addEventListener("submit", (e) => {
+    if (e.submitter?.value === "save") saveMemosEditor(e);
+  });
+  syncMemosCustomRangeVis();
+  applyLabMode(state.labMode || "lab");
   document.querySelectorAll("#labTweaks [data-tweak]").forEach((btn) => {
     btn.addEventListener("click", () => runLabTweak(btn.getAttribute("data-tweak")));
   });

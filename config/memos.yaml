@@ -1,0 +1,10 @@
+# usememos 实例配置（灵感碰撞 · Memos 文章）
+# Access Token：Memos 设置 → Access Tokens
+# 也可用环境变量覆盖：MEMOS_BASE_URL / MEMOS_ACCESS_TOKEN
+
+base_url: https://op.d.ezcoin.ink
+access_token: memos_pat_GP41pVoCTpkhDrXt6CSis2aDOhOGNZWO
+page_size: 10
+filter: ''
+order_by: create_time desc
+timeout_sec: 20

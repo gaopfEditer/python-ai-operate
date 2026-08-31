@@ -217,7 +217,25 @@ def run_xgrowth_viral_pipeline(
     try:
         _log(progress, "连接 CDP，打开 xgrowth 热榜…")
         client = _CdpClient(_browser_ws_url())
-        page = BackgroundTarget.create(client, "about:blank")
+        page = None
+        try:
+            targets = _http_json("/json/list") or []
+        except Exception:
+            targets = []
+        pages = [
+            t
+            for t in targets
+            if isinstance(t, dict) and t.get("type") == "page" and str(t.get("id") or "").strip()
+        ]
+        if pages:
+            try:
+                page = BackgroundTarget.attach(client, str(pages[-1].get("id") or ""))
+                _log(progress, f"CDP 复用最后一个页签（共 {len(pages)} 个）")
+            except Exception:
+                page = None
+        if page is None:
+            page = BackgroundTarget.create(client, "about:blank")
+            _log(progress, "CDP 无可用页签，新建后台标签")
         ranked = fetch_viral_list(page, include_potential=include_potential)
         if min_velocity:
             ranked = [x for x in ranked if int(x.get("velocity_per_hour") or 0) >= min_velocity]

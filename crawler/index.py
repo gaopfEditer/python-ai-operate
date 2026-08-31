@@ -805,35 +805,66 @@ class DataFetcher:
             if self._x_crawl_handle:
                 return self._x_crawl_handle
 
-        # 第一次：创建专用标签（允许抢一次）
-        created_handle = None
-        try:
-            before = set(handles)
-            driver.execute_cdp_cmd(
-                "Target.createTarget",
-                {"url": "about:blank", "background": True},
-            )
-            for _ in range(25):
-                now = list(driver.window_handles or [])
-                new_ones = [h for h in now if h not in before]
-                if new_ones:
-                    created_handle = new_ones[-1]
-                    break
-                time.sleep(0.08)
-        except Exception:
-            created_handle = None
+        # 第一次：优先复用最后一个已有页签，避免周期任务堆 tab
+        if handles:
+            created_handle = handles[-1]
+            try:
+                if driver.current_window_handle != created_handle:
+                    try:
+                        from public.platforms.cdp_common import preserve_os_focus
+
+                        with preserve_os_focus():
+                            driver.switch_to.window(created_handle)
+                    except Exception:
+                        driver.switch_to.window(created_handle)
+            except WebDriverException:
+                created_handle = None
 
         if not created_handle:
             try:
-                driver.switch_to.new_window("tab")
-                created_handle = driver.current_window_handle
-            except WebDriverException:
-                driver.execute_script("window.open('about:blank','_blank');")
-                created_handle = driver.window_handles[-1]
+                before = set(handles)
+                driver.execute_cdp_cmd(
+                    "Target.createTarget",
+                    {"url": "about:blank", "background": True},
+                )
+                for _ in range(25):
+                    now = list(driver.window_handles or [])
+                    new_ones = [h for h in now if h not in before]
+                    if new_ones:
+                        created_handle = new_ones[-1]
+                        break
+                    time.sleep(0.08)
+            except Exception:
+                created_handle = None
 
-        driver.switch_to.window(created_handle)
-        self._x_crawl_handle = created_handle
-        return created_handle
+        if not created_handle:
+            try:
+                from public.platforms.cdp_common import preserve_os_focus
+
+                with preserve_os_focus():
+                    driver.switch_to.new_window("tab")
+                created_handle = driver.current_window_handle
+            except Exception:
+                try:
+                    driver.execute_script("window.open('about:blank','_blank');")
+                    created_handle = driver.window_handles[-1]
+                except WebDriverException:
+                    created_handle = None
+
+        if created_handle:
+            try:
+                from public.platforms.cdp_common import preserve_os_focus
+
+                with preserve_os_focus():
+                    driver.switch_to.window(created_handle)
+            except Exception:
+                try:
+                    driver.switch_to.window(created_handle)
+                except Exception:
+                    pass
+            self._x_crawl_handle = created_handle
+            return created_handle
+        return driver.current_window_handle
 
     def _navigate_cdp_page(self, driver, page_url: str):
         """
