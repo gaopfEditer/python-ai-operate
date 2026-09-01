@@ -1,0 +1,50 @@
+---
+description: Console 各功能域文件地图（便于 Codex 按域优化）
+globs: console/static/**/*,console/**/*.py,corpus/**/*.py,signals/**/*.py,public/**/*.py
+alwaysApply: false
+---
+
+# 功能域文件地图
+
+优化时按域切开，避免一次改整仓。
+
+## 灵感碰撞（corpus lab）
+
+- UI：`index.html` `#panel-corpus`；JS：`lab*` / `runLab*` / `pollLabImageJob`
+- API：`/api/corpus/lab/*`、`/api/corpus/capture|synthesize|generations|xgrowth`
+- 后端：`corpus/lab.py`、`lab_tti.py`、`synthesize.py`、`deconstruct.py`、`generate.py`
+
+## Memos 文章
+
+- UI：`data-lab-mode=memos`；JS：`memos*` / `runMemosBatchImages` / `syncMemosImagesBack`
+- API：`/api/corpus/memos*`、`/api/corpus/lab/images`（`sync_to_memos: true`）
+- 后端：`corpus/memos_client.py`、`config/memos.yaml`；配图摘要在 `lab_tti.compose_memos_image_brief`
+
+## 列表信号
+
+- UI：`#panel-signals`；JS：`sig*` / `runSignalsCrawl` / `loadSignalCards`
+- API：`/api/signals/*`
+- 后端：`signals/`（`crawl.py`、`pipeline.py`、`push.py`）；配置 `config/signals_channels.yaml`
+
+## CDP 发布
+
+- UI：`#panel-publish`；JS：`publish*` / `publishNowViaCdp`
+- API：`/api/publish*`、`/api/platforms/publish`
+- 后端：`public/`、`console/publish_queue.py`；浏览器自动化常经 CDP（与 `auto-deal-eth` 可并存）
+
+## 资讯预警 / 推文卡片 / Prompt
+
+- realtime：`/api/realtime/*` + 面板 JS `loadRealtimePanel` 等
+- tweet cards：`tc*` + 对应 ingest API
+- create：`/api/create` + 创作面板表单
+
+## 浏览器扩展（非 Console，但相关）
+
+`tools/chrome-extension`、`chrome-x-toolkit`、`chrome-comment-assistant`、`chrome-tab-transcribe` — 独立 MV3 扩展；优化 Console 时默认不动，除非任务点名扩展。
+
+## 建议优化顺序
+
+1. 抽 API 路由表 / 按域拆 `handle_api`
+2. 按 Tab 拆 `app.js`（signals / corpus / publish）并保留 `api()`、`state`、`toast`
+3. CSS 按面板拆文件或分层（tokens → layout → panel）
+4. 最后才考虑组件框架；优先可读性与契约稳定

@@ -1,0 +1,40 @@
+---
+description: TrendRadar Console 前端+配套后端总览（优化/重构前必读）
+globs: console/**/*,console.py
+alwaysApply: false
+---
+
+# Console 总览
+
+入口：`python console.py`（默认 `127.0.0.1:8787`）。无构建链：原生 HTML/CSS/JS + 标准库 `ThreadingHTTPServer`。
+
+## 目录
+
+| 路径 | 职责 |
+|------|------|
+| `console.py` | UTF-8 stdio + 启动 |
+| `console/app.py` | HTTP 路由、`/api/*`、静态托管、内存 Job |
+| `console/static/index.html` | 壳 + 各 Tab 面板 DOM |
+| `console/static/app.js` | 全部前端逻辑（单文件） |
+| `console/static/app.css` | 设计令牌 + 布局样式 |
+| `console/publish_queue.py` | 发布队列/缓存 |
+| `console/extra_sources.py` / `keyword_expand.py` | 辅助数据 |
+
+业务能力在包内实现，Console 只做编排：`signals/`、`corpus/`、`public/`、`crawler/`、`realtime/`、`utils/ai_client.py` 等。
+
+## 主 Tab → 后端域
+
+- **列表信号** → `signals/` + `/api/signals/*`
+- **资讯预警** → realtime 相关 API
+- **推文卡片** → tweet cards ingest/list
+- **灵感碰撞** → `corpus/`（lab / memos / xgrowth / synthesize）
+- **Prompt 创作** → `/api/create`
+- **CDP 发布** → `public/` + `publish_queue` + `/api/publish/*`
+
+## 优化原则（给 Codex）
+
+1. **先拆后改**：`app.js` / `app.py` 体量大，按 Tab/域拆模块，避免一次性大重构。
+2. **契约稳定**：前端依赖 `{ success, error?, ... }` JSON；长任务用 `job_id` + `GET /api/jobs/{id}`。
+3. **改静态必 bump**：`index.html` 里 `/app.js?v=`、`/app.css?v=` 版本号，否则浏览器缓存旧脚本。
+4. **改后端需重启**：`console.py` 无热重载；多开进程会抢 8787，只留一个。
+5. **不要引入重框架**（除非用户明确要求）：保持零构建、可单文件对照调试。

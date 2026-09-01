@@ -1,0 +1,52 @@
+---
+description: Console 前端约定（index.html / app.js / app.css）
+globs: console/static/**
+alwaysApply: false
+---
+
+# Console 前端
+
+栈：原生 DOM + `fetch`，无打包器。`$ = querySelector`；状态集中在顶部 `state`；交互在 `bind()` / `boot()`。
+
+## 结构习惯
+
+- **HTML**：侧栏 `.tabs[data-tab]` ↔ `section#panel-*`；灵感碰撞另有 `.lab-mode-tab[data-lab-mode]`（lab / memos）。
+- **JS**：按功能区用函数前缀分区（`lab*`、`memos*`、`sig*`、`publish*`、`tc*`），新增能力跟同前缀放一起。
+- **CSS**：`:root` 令牌（`--ink/--paper/--signal/--teal/...`）+ Bricolage / IBM Plex；新 UI 复用 `.btn` `.field` `.status` `.toast`，勿另起一套主题。
+
+## API 调用
+
+```js
+// 统一走 api()；勿裸 fetch 除非上传/二进制
+const data = await api("/api/...", { method: "POST", body: JSON.stringify(payload) });
+if (!data.success) toast(data.error || "失败", "error");
+```
+
+- 渲染用户内容必须 `escapeHtml` / `escapeAttr`。
+- Toast：`toast(msg, "ok"|"error")`；长状态写对应 `#...Status`。
+
+## 异步 Job
+
+长任务（爬取、配图、合成等）：
+
+1. `POST` 返回 `{ success, job_id }`
+2. `pollJob` / 域内 `poll*ImageJob` 轮询 `GET /api/jobs/{id}`
+3. 看 `job.status`：`running|done|error`，读 `job.message` / `job.result`
+
+## 本地缓存
+
+- Tab / 表单：`localStorage`（如 `appMainTab`、`appLabMode`、`labFormula`）。
+- Lab 会话：`pai_lab_session`，写入前 slim 字段、控体积（约 2.5MB）。
+- 发布媒体缓存有字节上限；超限要 toast，勿 silent truncate 丢图不提示。
+
+## Memos / Lab 配图
+
+- Memos：`sync_to_memos: true`，`topic: "Memos"`；勾选索引相对当前 `state.memosItems`。
+- 全选逻辑：空选中才默认全选（`selectAllIfEmpty`）；用户清空后勿再次强制全选。
+- 写回成功看 `row.synced` / `sync_ok`，别只看本地 `content` 变了。
+
+## 优化时注意
+
+- 拆分 `app.js` 可按 Tab 切文件，但需改 `index.html` 引用顺序，并 **同时 bump `?v=`**。
+- 不要默认上 React/Vue；若迁移，先出增量方案并保留 API 契约。
+- 移动端：主布局是侧栏+主舞台；改布局先看 `.shell` / `.stage` 现有断点。

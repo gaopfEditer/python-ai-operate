@@ -1,0 +1,73 @@
+---
+description: Console 配套后端 API / Job / 静态托管约定
+globs: console/**/*.py,console.py
+alwaysApply: false
+---
+
+# Console 配套后端
+
+核心：`console/app.py` 的 `handle_api(method, path, query, body)`。静态根：`console/static/`（`ThreadingHTTPServer` + `directory=STATIC_DIR`）。
+
+## 响应约定
+
+```python
+return _json_bytes({"success": True, ...}, 200)
+return _json_bytes({"success": False, "error": "原因"}, 400)
+```
+
+- JSON：`ensure_ascii=False`。
+- 业务失败用 `success: false` + `error`；HTTP 状态与前端 `api()` 兼容（非 2xx 也会读 body）。
+
+## Job 模式（长任务）
+
+```python
+job_id = uuid.uuid4().hex
+_set_job(job_id, status="running", message="…", type="…")
+
+def _worker():
+    try:
+        ...
+        _set_job(job_id, status="done", message="…", result=...)
+    except Exception as e:
+        _set_job(job_id, status="error", message=str(e))
+
+threading.Thread(target=_worker, daemon=True).start()
+return _json_bytes({"success": True, "job_id": job_id})
+```
+
+- 查询：`GET /api/jobs/{id}` → `{ job: { status, message, progress?, result? } }`。
+- Job 存进程内存：重启丢失；勿当持久队列。
+
+## 路由归属（改接口时对齐前端）
+
+| 前缀 | 域 |
+|------|-----|
+| `/api/signals/*` | 列表信号配置/爬取/卡片 |
+| `/api/realtime/*` | 资讯预警 |
+| `/api/corpus/lab/*` | 灵感实验室、配图、media |
+| `/api/corpus/memos*` | Memos 配置/列表/写回 |
+| `/api/corpus/*` | 语料拆解/合成/生成 |
+| `/api/publish*` | CDP 发布与队列缓存 |
+| `/api/create` | Prompt 创作 |
+| `/api/crawl*` `/api/posts*` | 资讯抓取与帖子库 |
+
+新增 API：在 `handle_api` 按现有 `if path == ...` 风格追加；重逻辑下沉到 `signals/`、`corpus/` 等包，**不要**把业务堆进 `app.py` 长函数。
+
+## 域模块指针
+
+- 配图：`corpus/lab_tti.py`（Memos 会先 `compose_memos_image_brief` 再 Gemini）
+- Memos：`corpus/memos_client.py` + `config/memos.yaml`
+- 信号：`signals/` + `config/signals_channels.yaml`
+- 发布：`public/` + `console/publish_queue.py`
+- AI 文本：`utils/ai_client.py`（`generate_text`）
+
+## 静态与缓存
+
+- 改 `app.js`/`app.css` 后更新 `index.html` 的 `?v=`。
+- 静态由 handler 直接读文件；无需单独 build 步骤。
+
+## 优化时注意
+
+- 拆 `handle_api`：可按前缀拆到 `console/routes_*.py`，再在 `app.py` 汇总；保持路径字符串不变。
+- 外部依赖（`auto-deal-eth`、Chrome CDP `9222`、Memos）经 env/config，勿写死本机路径到前端。
+- Windows：入口已 `ensure_utf8_stdio`；子进程/打印避免再引入 GBK 崩溃。
