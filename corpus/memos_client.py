@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +27,8 @@ _DEFAULTS: Dict[str, Any] = {
     "filter": "",
     "order_by": "create_time desc",
     "timeout_sec": 20,
+    # 默认直连，不走系统/环境 HTTP(S)_PROXY（VPN/Clash 常导致 SSL EOF）
+    "use_system_proxy": False,
 }
 
 _HASHTAG_RE = re.compile(r"(?:^|[\s\n])#([A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff/-]*)")
@@ -82,6 +85,13 @@ def load_config() -> Dict[str, Any]:
     cfg["order_by"] = str(cfg.get("order_by") or "create_time desc").strip()
     if "display_time" in cfg["order_by"]:
         cfg["order_by"] = "create_time desc"
+    env_proxy = os.environ.get("MEMOS_USE_SYSTEM_PROXY", "").strip().lower()
+    if env_proxy in ("1", "true", "yes", "on"):
+        cfg["use_system_proxy"] = True
+    elif env_proxy in ("0", "false", "no", "off"):
+        cfg["use_system_proxy"] = False
+    else:
+        cfg["use_system_proxy"] = bool(cfg.get("use_system_proxy", False))
     return cfg
 
 
@@ -100,6 +110,12 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
             cfg["timeout_sec"] = max(5, min(120, int(patch["timeout_sec"])))
         except Exception:
             pass
+    if "use_system_proxy" in patch and patch["use_system_proxy"] is not None:
+        v = patch["use_system_proxy"]
+        if isinstance(v, str):
+            cfg["use_system_proxy"] = v.strip().lower() in ("1", "true", "yes", "on")
+        else:
+            cfg["use_system_proxy"] = bool(v)
     cfg["base_url"] = str(cfg.get("base_url") or _DEFAULTS["base_url"]).rstrip("/")
     if "display_time" in str(cfg.get("order_by") or ""):
         cfg["order_by"] = "create_time desc"
@@ -111,11 +127,13 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
         "filter": cfg.get("filter") or "",
         "order_by": cfg.get("order_by") or "create_time desc",
         "timeout_sec": cfg["timeout_sec"],
+        "use_system_proxy": bool(cfg.get("use_system_proxy")),
     }
     header = (
         "# usememos 实例配置（灵感碰撞 · Memos 文章）\n"
         "# Access Token：Memos 设置 → Access Tokens\n"
-        "# 也可用环境变量覆盖：MEMOS_BASE_URL / MEMOS_ACCESS_TOKEN\n\n"
+        "# 也可用环境变量覆盖：MEMOS_BASE_URL / MEMOS_ACCESS_TOKEN / MEMOS_USE_SYSTEM_PROXY\n"
+        "# use_system_proxy: false 时直连，避开 VPN/Clash 代理导致的 SSL EOF\n\n"
     )
     CONFIG_PATH.write_text(
         header + yaml.safe_dump(dump, allow_unicode=True, sort_keys=False),
@@ -139,7 +157,15 @@ def public_config(cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "filter": c.get("filter") or "",
         "order_by": c.get("order_by") or "create_time desc",
         "timeout_sec": c.get("timeout_sec") or 20,
+        "use_system_proxy": bool(c.get("use_system_proxy")),
     }
+
+
+def _build_opener(*, use_system_proxy: bool) -> urllib.request.OpenerDirector:
+    """默认绕过 HTTP(S)_PROXY；VPN/Clash 对自建域名常导致 SSL UNEXPECTED_EOF。"""
+    if use_system_proxy:
+        return urllib.request.build_opener()
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def _request(
@@ -160,27 +186,78 @@ def _request(
         if q:
             url += "?" + urllib.parse.urlencode(q)
     data = None
-    headers = {"Accept": "application/json", "User-Agent": "TrendRadar-lab-memos/1.0"}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "TrendRadar-lab-memos/1.0",
+        "Connection": "close",
+    }
     token = str(c.get("access_token") or "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
     timeout = float(c.get("timeout_sec") or 20)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-            if not raw.strip():
-                return {}
-            return json.loads(raw)
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="replace") if e.fp else ""
-        msg = err_body[:300] or e.reason
-        raise RuntimeError(f"Memos HTTP {e.code}: {msg}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"无法连接 Memos：{e.reason}") from e
+    use_proxy = bool(c.get("use_system_proxy"))
+    opener = _build_opener(use_system_proxy=use_proxy)
+    last_err: Optional[BaseException] = None
+    attempts = 3
+    for attempt in range(attempts):
+        req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                if not raw.strip():
+                    return {}
+                return json.loads(raw)
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace") if e.fp else ""
+            msg = err_body[:300] or e.reason
+            raise RuntimeError(f"Memos HTTP {e.code}: {msg}") from e
+        except urllib.error.URLError as e:
+            last_err = e
+            reason = str(getattr(e, "reason", e) or e)
+            transient = any(
+                key in reason
+                for key in (
+                    "UNEXPECTED_EOF",
+                    "EOF occurred",
+                    "Connection reset",
+                    "Connection refused",
+                    "Timed out",
+                    "timed out",
+                    "Temporary failure",
+                    "Broken pipe",
+                    "Remote end closed",
+                    "SSLEOFError",
+                    "Wrong version number",
+                    "Tunnel connection failed",
+                    "ProxyError",
+                    "Forbidden",
+                )
+            )
+            if attempt + 1 < attempts and transient:
+                time.sleep(0.35 * (attempt + 1))
+                continue
+            hint = ""
+            if not use_proxy and ("proxy" in reason.lower() or "Tunnel" in reason):
+                hint = "（已尝试直连；若仍失败可检查本机 DNS）"
+            elif use_proxy:
+                hint = "（当前走系统代理；自建 Memos 建议 use_system_proxy: false）"
+            raise RuntimeError(f"无法连接 Memos：{e.reason}{hint}") from e
+        except TimeoutError as e:
+            last_err = e
+            if attempt + 1 < attempts:
+                time.sleep(0.35 * (attempt + 1))
+                continue
+            raise RuntimeError(f"无法连接 Memos：{e}") from e
+        except OSError as e:
+            last_err = e
+            if attempt + 1 < attempts:
+                time.sleep(0.35 * (attempt + 1))
+                continue
+            raise RuntimeError(f"无法连接 Memos：{e}") from e
+    raise RuntimeError(f"无法连接 Memos：{last_err}")
 
 
 def _parse_since_until(

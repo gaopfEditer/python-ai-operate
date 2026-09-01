@@ -1082,6 +1082,41 @@ input:focus, textarea:focus, select:focus {
 @media (max-width: 720px) {
   .memos-list { grid-template-columns: 1fr; }
 }
+.app-ctx-menu {
+  position: fixed;
+  z-index: 10050;
+  min-width: 168px;
+  padding: 4px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .14);
+}
+.app-ctx-menu button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  font-size: .875rem;
+  text-align: left;
+  cursor: pointer;
+}
+.app-ctx-menu button:hover,
+.app-ctx-menu button:focus-visible {
+  background: rgba(15, 118, 110, .1);
+  color: #0f766e;
+  outline: none;
+}
+.app-ctx-menu button.is-danger:hover {
+  background: rgba(185, 28, 28, .08);
+  color: #b91c1c;
+}
 .memos-card {
   padding: 12px 14px;
   border: 1px solid var(--line);

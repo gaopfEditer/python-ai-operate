@@ -11,7 +11,7 @@ const state = {
   taskStatus: "all",
   corpusSelected: new Set(),
   corpusItems: [],
-  labFormula: "contrarian",
+  labFormula: localStorage.getItem("labFormula") || "contrarian",
   labProfile: localStorage.getItem("labProfile") || "general",
   labMaterialCategory: localStorage.getItem("labMaterialCategory") || "all",
   labMaterialCategories: [],
@@ -35,6 +35,207 @@ const state = {
 
 const APP_MAIN_TAB_LS = "appMainTab";
 const APP_SIG_MODE_LS = "appSigMode";
+const LAB_SESSION_KEY = "pai_lab_session";
+const LAB_SESSION_MAX_BYTES = 2.5 * 1024 * 1024;
+function readLabSession() {
+  try {
+    const raw = localStorage.getItem(LAB_SESSION_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data && typeof data === "object" ? data : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _labSlimCorpusItem(it) {
+  if (!it || typeof it !== "object") return null;
+  const factors = it.factors && typeof it.factors === "object" ? it.factors : {};
+  return {
+    id: it.id,
+    source_title: it.source_title || "",
+    hooks: it.hooks || "",
+    pattern: it.pattern || "",
+    emotion: it.emotion || "",
+    tension: it.tension || "",
+    keywords: Array.isArray(it.keywords) ? it.keywords.slice(0, 12) : [],
+    tags: Array.isArray(it.tags) ? it.tags.slice(0, 12) : [],
+    status: it.status || "active",
+    factors: {
+      material_category: factors.material_category || "",
+      is_category_template: !!factors.is_category_template,
+      narrative_type: factors.narrative_type || "",
+      use_case: factors.use_case || "",
+      hook: factors.hook || "",
+    },
+    raw_text: String(it.raw_text || "").slice(0, 1200),
+  };
+}
+
+function _labSlimVariant(v) {
+  if (!v || typeof v !== "object") return null;
+  return {
+    id: v.id || "",
+    label: v.label || "",
+    hook: String(v.hook || "").slice(0, 400),
+    content: String(v.content || "").slice(0, 6000),
+    featured: !!v.featured,
+    generation_id: v.generation_id,
+    images: Array.isArray(v.images)
+      ? v.images.slice(0, 4).map((im) => ({ url: im?.url || "" }))
+      : [],
+  };
+}
+
+function snapshotLabSession() {
+  try {
+    const activeIdx = Math.max(
+      0,
+      (state.labVariants || []).indexOf(state.labActiveVariant)
+    );
+    const payload = {
+      saved_at: Date.now(),
+      tabs: {
+        labMode: state.labMode || "lab",
+        materialCategory: state.labMaterialCategory || "all",
+        formula: state.labFormula || "contrarian",
+        profile: state.labProfile || "general",
+        corpusStatus: $("#corpusStatus")?.value ?? "active",
+        tagFilter: state.labTagFilter || "",
+      },
+      forms: {
+        topic: $("#regenTopic")?.value || "",
+        prompt: $("#regenPrompt")?.value || "",
+        style: $("#regenStyle")?.value || "X/Twitter",
+        keyword: $("#corpusKeyword")?.value || "",
+        capture: $("#labCaptureInput")?.value || "",
+        xgrowthLimit: $("#xgrowthLimit")?.value || "8",
+        xgrowthMinVel: $("#xgrowthMinVel")?.value || "0",
+        xgrowthPotential: !!$("#xgrowthPotential")?.checked,
+        xgrowthOpenTweet: !!$("#xgrowthOpenTweet")?.checked,
+      },
+      results: {
+        selectedIds: [...(state.corpusSelected || [])].map(Number).filter(Boolean).slice(0, 3),
+        corpusItems: (state.corpusItems || [])
+          .slice(0, 80)
+          .map(_labSlimCorpusItem)
+          .filter(Boolean),
+        variants: (state.labVariants || []).map(_labSlimVariant).filter(Boolean),
+        activeVariantIdx: activeIdx,
+        imagePick: [...(state.labImagePick || [])].map(Number).filter((i) => i >= 0),
+        cot: Array.isArray(state.labCot) ? state.labCot.slice(0, 20).map(String) : [],
+        promptSnippets: Array.isArray(state.labPromptSnippets)
+          ? state.labPromptSnippets.slice(0, 12)
+          : [],
+        path: state.labPath || null,
+      },
+    };
+    let raw = JSON.stringify(payload);
+    if (raw.length > LAB_SESSION_MAX_BYTES) {
+      payload.results.corpusItems = payload.results.corpusItems.slice(0, 30);
+      payload.results.variants = (payload.results.variants || []).map((v) => ({
+        ...v,
+        content: String(v.content || "").slice(0, 2500),
+      }));
+      raw = JSON.stringify(payload);
+    }
+    localStorage.setItem(LAB_SESSION_KEY, raw);
+    localStorage.setItem("labProfile", payload.tabs.profile);
+    localStorage.setItem("labMaterialCategory", payload.tabs.materialCategory);
+    localStorage.setItem("labFormula", payload.tabs.formula);
+    localStorage.setItem("appLabMode", payload.tabs.labMode);
+  } catch (_) {
+    /* quota / private mode */
+  }
+}
+
+let _labSessionSaveTimer = null;
+function scheduleLabSessionSave() {
+  if (_labSessionSaveTimer) clearTimeout(_labSessionSaveTimer);
+  _labSessionSaveTimer = setTimeout(() => {
+    _labSessionSaveTimer = null;
+    snapshotLabSession();
+  }, 280);
+}
+
+function restoreLabSessionTabsAndForms(cached) {
+  const c = cached || readLabSession();
+  if (!c) return null;
+  const tabs = c.tabs || {};
+  const forms = c.forms || {};
+  if (tabs.labMode) state.labMode = tabs.labMode === "memos" ? "memos" : "lab";
+  if (tabs.materialCategory) state.labMaterialCategory = String(tabs.materialCategory);
+  if (tabs.formula) state.labFormula = String(tabs.formula);
+  if (tabs.profile) state.labProfile = String(tabs.profile);
+  if (tabs.tagFilter != null) state.labTagFilter = String(tabs.tagFilter || "");
+  if ($("#corpusStatus") && tabs.corpusStatus != null) {
+    $("#corpusStatus").value = tabs.corpusStatus;
+  }
+  if ($("#regenTopic") && forms.topic != null) $("#regenTopic").value = forms.topic;
+  if ($("#regenPrompt") && forms.prompt != null) $("#regenPrompt").value = forms.prompt;
+  if ($("#regenStyle") && forms.style) $("#regenStyle").value = forms.style;
+  if ($("#corpusKeyword") && forms.keyword != null) $("#corpusKeyword").value = forms.keyword;
+  if ($("#labCaptureInput") && forms.capture != null) $("#labCaptureInput").value = forms.capture;
+  if ($("#xgrowthLimit") && forms.xgrowthLimit != null) $("#xgrowthLimit").value = forms.xgrowthLimit;
+  if ($("#xgrowthMinVel") && forms.xgrowthMinVel != null) $("#xgrowthMinVel").value = forms.xgrowthMinVel;
+  if ($("#xgrowthPotential") && forms.xgrowthPotential != null) {
+    $("#xgrowthPotential").checked = !!forms.xgrowthPotential;
+  }
+  if ($("#xgrowthOpenTweet") && forms.xgrowthOpenTweet != null) {
+    $("#xgrowthOpenTweet").checked = !!forms.xgrowthOpenTweet;
+  }
+  return c;
+}
+
+function restoreLabSessionResults(cached) {
+  const c = cached || readLabSession();
+  if (!c?.results) return false;
+  const r = c.results;
+  if (Array.isArray(r.corpusItems) && r.corpusItems.length) {
+    // 仅在当前列表为空时用缓存结果垫底，避免覆盖刚拉到的新数据
+    if (!(state.corpusItems || []).length) {
+      state.corpusItems = r.corpusItems;
+    }
+  }
+  if (Array.isArray(r.selectedIds) && r.selectedIds.length) {
+    const alive = new Set((state.corpusItems || []).map((x) => Number(x.id)));
+    const ids = r.selectedIds
+      .map(Number)
+      .filter((id) => alive.has(id) || !(state.corpusItems || []).length)
+      .slice(0, 3);
+    if (ids.length) state.corpusSelected = new Set(ids);
+  }
+  if (Array.isArray(r.variants) && r.variants.length) {
+    const idx = Number(r.activeVariantIdx);
+    if (Array.isArray(r.imagePick)) {
+      state.labImagePick = new Set(r.imagePick.map(Number).filter((i) => i >= 0));
+    }
+    renderLabVariants(r.variants, Number.isFinite(idx) ? idx : 0);
+  }
+  if (Array.isArray(r.cot) && r.cot.length) {
+    state.labCot = r.cot;
+    renderLabCot(r.cot);
+  }
+  if (Array.isArray(r.promptSnippets) && r.promptSnippets.length) {
+    state.labPromptSnippets = r.promptSnippets;
+    renderLabPromptSnippets(r.promptSnippets);
+  }
+  if (r.path) {
+    state.labPath = r.path;
+    renderPathView(r.path);
+  }
+  renderCorpusItems(state.corpusItems || []);
+  syncCorpusSelectionInput();
+  if (typeof updateLabSteps === "function") updateLabSteps();
+  return true;
+}
+
+function hydrateLabSessionOnEnter() {
+  const cached = restoreLabSessionTabsAndForms();
+  applyLabMode(state.labMode || "lab");
+  return cached;
+}
+
 const APP_MAIN_TABS = [
   "signals",
   "realtime",
@@ -549,12 +750,31 @@ function switchTab(name) {
     /* ignore quota */
   }
   if (name === "corpus") {
+    const cached = hydrateLabSessionOnEnter();
     loadLabMaterials().then(() => {
-      applyLabProfileMaterialFilter({ reload: false });
       renderLabMaterialTabs();
+      renderLabContentMix();
     });
     loadLabFormulas();
-    loadCorpus();
+    if (cached) restoreLabSessionResults(cached);
+    loadCorpus().then(() => {
+      if (cached) {
+        const r = cached.results || {};
+        if (Array.isArray(r.selectedIds) && r.selectedIds.length) {
+          const alive = new Set((state.corpusItems || []).map((x) => Number(x.id)));
+          const ids = r.selectedIds.map(Number).filter((id) => alive.has(id)).slice(0, 3);
+          if (ids.length) {
+            state.corpusSelected = new Set(ids);
+            renderCorpusItems(state.corpusItems || []);
+            syncCorpusSelectionInput();
+          }
+        }
+        if (Array.isArray(r.variants) && r.variants.length && !(state.labVariants || []).length) {
+          restoreLabSessionResults(cached);
+        }
+      }
+      scheduleLabSessionSave();
+    });
     loadGenerations();
   }
   if (name === "signals") {
@@ -745,6 +965,7 @@ function syncCorpusSelectionInput() {
   const meta = $("#corpusMeta");
   if (meta) meta.textContent = `${(state.corpusItems || []).length} 张语料`;
   if (typeof updateLabSteps === "function") updateLabSteps();
+  scheduleLabSessionSave();
 }
 
 function renderLabBlocks() {
@@ -799,6 +1020,7 @@ function renderLabFormulas(items) {
     btn.addEventListener("click", () => {
       state.labFormula = btn.getAttribute("data-formula");
       box.querySelectorAll(".lab-formula").forEach((b) => b.classList.toggle("on", b === btn));
+      scheduleLabSessionSave();
     });
   });
 }
@@ -858,6 +1080,7 @@ function renderLabProfiles(items) {
       box.querySelectorAll(".lab-profile").forEach((b) => b.classList.toggle("on", b === btn));
       syncLabProfileHint(list);
       applyLabProfileMaterialFilter({ reload: true });
+      scheduleLabSessionSave();
     });
   });
   syncLabProfileHint(list);
@@ -1067,6 +1290,7 @@ function renderLabPromptSnippets(snippets) {
   const list = $("#labPromptSnippets");
   if (!box || !list) return;
   const arr = Array.isArray(snippets) ? snippets.filter(Boolean) : [];
+  state.labPromptSnippets = arr;
   if (!arr.length) {
     box.hidden = true;
     list.innerHTML = "";
@@ -1108,6 +1332,7 @@ function renderLabTagCloud(items) {
       if ($("#corpusKeyword")) {
         $("#corpusKeyword").value = state.labTagFilter ? `#${state.labTagFilter}` : "";
       }
+      scheduleLabSessionSave();
       loadCorpus();
     });
   });
@@ -1116,6 +1341,7 @@ function renderLabTagCloud(items) {
 function renderPathView(pathObj) {
   const el = $("#corpusPathView");
   if (!el) return;
+  state.labPath = pathObj || null;
   const steps = Array.isArray(pathObj?.steps) ? pathObj.steps : [];
   if (!steps.length) {
     el.hidden = true;
@@ -1228,6 +1454,7 @@ function renderLabMaterialTabs() {
       renderLabContentMix();
       syncLabProfileHint();
       loadCorpus();
+      scheduleLabSessionSave();
     });
   });
   fillCorpusMaterialSelect();
@@ -1676,6 +1903,7 @@ async function loadCorpus() {
     await loadCategoryTemplates();
     await refreshCorpusStats();
     await loadGenerations();
+    scheduleLabSessionSave();
   } catch (e) {
     toast(String(e), "error");
   }
@@ -1926,6 +2154,7 @@ function renderLabVariants(variants, activeIdx) {
   const out = $("#corpusRegenOut");
   if (out) out.textContent = active?.content || "";
   if (typeof updateLabSteps === "function") updateLabSteps();
+  scheduleLabSessionSave();
 }
 
 function renderLabCot(steps) {
@@ -1982,15 +2211,18 @@ async function runCorpusRegen({ explicit = false } = {}) {
     renderLabCot(data.cot || []);
     state.labCot = data.cot || [];
     if (data.prompt_profile?.variant_hint) syncLabProfileHint([data.prompt_profile]);
-    renderLabPromptSnippets(data.prompt_snippets || []);
+    state.labPromptSnippets = data.prompt_snippets || [];
+    renderLabPromptSnippets(state.labPromptSnippets);
     renderLabVariants(data.variants || [], 0);
-    renderPathView(data.path || {});
+    state.labPath = data.path || null;
+    renderPathView(state.labPath || {});
     setStatus(
       $("#corpusRegenStatus"),
       `完成 · ${data.provider || "ai"} · ${(data.variants || []).length} 个变体`,
       "ok"
     );
     await loadGenerations();
+    scheduleLabSessionSave();
   } catch (e) {
     setStatus($("#corpusRegenStatus"), String(e), "error");
   } finally {
@@ -2282,6 +2514,7 @@ function applyLabMode(mode) {
   try {
     localStorage.setItem(APP_LAB_MODE_LS, m);
   } catch (_) {}
+  scheduleLabSessionSave();
   if (m === "memos") {
     loadMemosConfig().then(() => {
       loadMemosTags();
@@ -2537,6 +2770,122 @@ async function loadMemosTags() {
   renderMemosTagCloud(harvestTagsFromItems(state.memosItems || []));
 }
 
+let _appCtxMenuEl = null;
+let _appCtxMenuCloser = null;
+
+function hideAppCtxMenu() {
+  if (_appCtxMenuCloser) {
+    document.removeEventListener("pointerdown", _appCtxMenuCloser, true);
+    document.removeEventListener("keydown", _appCtxMenuCloser, true);
+    window.removeEventListener("blur", _appCtxMenuCloser);
+    window.removeEventListener("resize", _appCtxMenuCloser);
+    _appCtxMenuCloser = null;
+  }
+  if (_appCtxMenuEl) {
+    _appCtxMenuEl.remove();
+    _appCtxMenuEl = null;
+  }
+}
+
+function showAppCtxMenu(clientX, clientY, items) {
+  hideAppCtxMenu();
+  const menu = document.createElement("div");
+  menu.className = "app-ctx-menu";
+  menu.setAttribute("role", "menu");
+  (items || []).forEach((it) => {
+    if (!it || !it.label) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("role", "menuitem");
+    btn.textContent = it.label;
+    if (it.danger) btn.classList.add("is-danger");
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      hideAppCtxMenu();
+      try {
+        it.action?.();
+      } catch (e) {
+        toast(String(e), "error");
+      }
+    });
+    menu.appendChild(btn);
+  });
+  if (!menu.childElementCount) return;
+  document.body.appendChild(menu);
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = Number(clientX) || 0;
+  let top = Number(clientY) || 0;
+  if (left + rect.width > window.innerWidth - pad) left = window.innerWidth - rect.width - pad;
+  if (top + rect.height > window.innerHeight - pad) top = window.innerHeight - rect.height - pad;
+  left = Math.max(pad, left);
+  top = Math.max(pad, top);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  _appCtxMenuEl = menu;
+  _appCtxMenuCloser = (ev) => {
+    if (ev.type === "keydown" && ev.key !== "Escape") return;
+    if (ev.type === "pointerdown" && menu.contains(ev.target)) return;
+    hideAppCtxMenu();
+  };
+  document.addEventListener("pointerdown", _appCtxMenuCloser, true);
+  document.addEventListener("keydown", _appCtxMenuCloser, true);
+  window.addEventListener("blur", _appCtxMenuCloser);
+  window.addEventListener("resize", _appCtxMenuCloser);
+}
+
+function memosCollectMediaPaths(it) {
+  if (!it || typeof it !== "object") return [];
+  const fromPaths = Array.isArray(it.media_paths)
+    ? it.media_paths.map(String).filter(Boolean)
+    : [];
+  if (fromPaths.length) return [...new Set(fromPaths)];
+  const fromImgs = (it.images || [])
+    .map((im) => im?.path || im?.media_path || "")
+    .map(String)
+    .filter(Boolean);
+  return [...new Set(fromImgs)];
+}
+
+async function memosSendToPublish(idx) {
+  const items = state.memosItems || [];
+  const it = items[Number(idx)];
+  if (!it) {
+    toast("文章不存在", "error");
+    return;
+  }
+  const content = String(it.content || "").trim();
+  const media_paths = memosCollectMediaPaths(it);
+  if (!content && !media_paths.length) {
+    toast("该文章无正文与配图", "error");
+    return;
+  }
+  const tags = Array.isArray(it.tags)
+    ? it.tags.map(String).filter(Boolean).join(", ")
+    : "";
+  switchTab("publish");
+  await loadPublishPlatforms();
+  await loadQueueItemIntoPublishEditor(
+    {
+      id: it.id || "",
+      title: it.title || it.label || "",
+      content: content || it.content || "",
+      tags,
+      media_paths,
+      platforms: [],
+    },
+    { switchMode: true }
+  );
+  applyPublishWorkbenchMode("publish");
+  setStatus(
+    $("#publishStatus"),
+    `已从 Memos「${it.title || it.id || "文章"}」填入发布页，勾选平台后即可发布`,
+    "ok"
+  );
+  $("#publishContent")?.focus();
+  toast(media_paths.length ? "已带入 CDP 发布页（含配图）" : "已带入 CDP 发布页", "ok");
+}
+
 function renderMemosList(items, { selectAllIfEmpty = false } = {}) {
   const box = $("#memosList");
   if (!box) return;
@@ -2568,7 +2917,7 @@ function renderMemosList(items, { selectAllIfEmpty = false } = {}) {
         )
         .join("");
       const when = escapeHtml(formatMemosTime(it.display_time || it.create_time || it.update_time));
-      return `<article class="memos-card" data-midx="${i}" title="双击编辑">
+      return `<article class="memos-card" data-midx="${i}" title="双击编辑 · 右键发布到 CDP">
         <header>
           <label class="lab-vpick" title="勾选以批量生成配图">
             <input type="checkbox" class="memos-pick-cb" data-mpick="${i}"${checked} />
@@ -2577,7 +2926,7 @@ function renderMemosList(items, { selectAllIfEmpty = false } = {}) {
         </header>
         <div class="memos-meta">${when}${tags ? " · " + tags : ""}${
         it.name ? ` · ${escapeHtml(it.name)}` : ""
-      } · 双击编辑</div>
+      } · 双击编辑 · 右键发布</div>
         <div class="memos-md-preview">${renderMarkdown(it.content || "")}</div>
         ${imgs ? `<div class="lab-vimgs">${imgs}</div>` : ""}
       </article>`;
@@ -2598,11 +2947,26 @@ function renderMemosList(items, { selectAllIfEmpty = false } = {}) {
       const i = Number(el.getAttribute("data-midx"));
       openMemosEditor(i);
     });
+    el.addEventListener("contextmenu", (ev) => {
+      if (ev.target.closest(".lab-vpick, a, button, input, textarea")) return;
+      ev.preventDefault();
+      const i = Number(el.getAttribute("data-midx"));
+      showAppCtxMenu(ev.clientX, ev.clientY, [
+        {
+          label: "发布到 CDP",
+          action: () => memosSendToPublish(i),
+        },
+        {
+          label: "编辑 Markdown",
+          action: () => openMemosEditor(i),
+        },
+      ]);
+    });
   });
   syncMemosPickAll();
   const meta = $("#memosMeta");
   if (meta) {
-    meta.textContent = `共 ${state.memosItems.length} 篇 · 已选 ${memosSelectedIndices().length} · 双击卡片编辑 Markdown`;
+    meta.textContent = `共 ${state.memosItems.length} 篇 · 已选 ${memosSelectedIndices().length} · 双击编辑 · 右键发布到 CDP`;
   }
   if (!(state.memosTags || []).length) {
     renderMemosTagCloud(harvestTagsFromItems(state.memosItems));
@@ -2659,13 +3023,16 @@ async function fetchMemosList() {
 }
 
 async function saveMemosConfigQuiet() {
-  const body = {
-    base_url: $("#memosBaseUrl")?.value.trim() || "",
-    page_size: Number($("#memosPageSize")?.value || 50),
-    filter: $("#memosFilter")?.value.trim() || "",
-  };
+  const body = {};
+  const base = $("#memosBaseUrl")?.value.trim();
+  if (base) body.base_url = base;
+  const pageSize = Number($("#memosPageSize")?.value || 0);
+  if (pageSize > 0) body.page_size = pageSize;
+  const filter = $("#memosFilter")?.value.trim();
+  if (filter != null && $("#memosFilter")) body.filter = filter;
   const tok = $("#memosToken")?.value.trim();
   if (tok) body.access_token = tok;
+  if (!Object.keys(body).length) return;
   try {
     const data = await api("/api/corpus/memos/config", {
       method: "POST",
@@ -4489,8 +4856,12 @@ function bind() {
   $("#corpusKeyword")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") loadCorpus();
   });
+  $("#corpusKeyword")?.addEventListener("change", () => scheduleLabSessionSave());
   $("#corpusQuality")?.addEventListener("change", () => loadCorpus());
-  $("#corpusStatus")?.addEventListener("change", () => loadCorpus());
+  $("#corpusStatus")?.addEventListener("change", () => {
+    scheduleLabSessionSave();
+    loadCorpus();
+  });
   $("#btnCorpusRegen")?.addEventListener("click", () => runCorpusRegen({ explicit: true }));
   $("#regenTopic")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
@@ -4498,7 +4869,17 @@ function bind() {
       setStatus($("#corpusRegenStatus"), "请点击「生成 3 个变体」按钮", "error");
     }
   });
-  $("#regenTopic")?.addEventListener("input", () => updateLabSteps());
+  $("#regenTopic")?.addEventListener("input", () => {
+    updateLabSteps();
+    scheduleLabSessionSave();
+  });
+  $("#regenPrompt")?.addEventListener("input", () => scheduleLabSessionSave());
+  $("#labCaptureInput")?.addEventListener("input", () => scheduleLabSessionSave());
+  ["xgrowthLimit", "xgrowthMinVel", "xgrowthPotential", "xgrowthOpenTweet"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", () => scheduleLabSessionSave());
+  });
 
   $("#btnExpand")?.addEventListener("click", async () => {
     const keyword = $("#newsKeyword").value.trim();
