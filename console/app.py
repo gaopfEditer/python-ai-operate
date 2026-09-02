@@ -2958,6 +2958,19 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         range_raw = (query.get("range") or query.get("backfill_range") or [""])[0]
         merge_raw = (query.get("merge") or query.get("merge_sources") or ["1"])[0]
         merge_sources = str(merge_raw).lower() not in ("0", "false", "no")
+        source_mode = str((query.get("source") or query.get("source_mode") or [""])[0]).strip()
+        recommended_only = str((query.get("recommended") or [""])[0]).lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        min_score = None
+        ms_raw = (query.get("min_score") or query.get("score") or [""])[0]
+        if ms_raw not in (None, ""):
+            try:
+                min_score = float(ms_raw)
+            except Exception:
+                min_score = None
         days = None
         if days_raw and not range_raw:
             try:
@@ -2977,6 +2990,9 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 to_raw=str(to_raw or ""),
                 backfill_range=str(range_raw or ""),
                 merge_sources=merge_sources,
+                source_mode=source_mode,
+                min_score=min_score,
+                recommended_only=recommended_only,
             )
         ]
         st = load_state()
@@ -3003,6 +3019,142 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 },
             }
         )
+
+    if path == "/api/signals/value/config" and method == "GET":
+        from signals.store import get_config, list_url
+
+        cfg = get_config()
+        lid = str(cfg.get("list_id") or "")
+        return _json_bytes(
+            {
+                "success": True,
+                "config": {
+                    "list_id": lid,
+                    "list_url": list_url(lid) if lid else "",
+                    "value_cutoff_hours": int(cfg.get("value_cutoff_hours") or cfg.get("cutoff_hours") or 24),
+                    "value_max_tweets": int(cfg.get("value_max_tweets") or cfg.get("max_tweets") or 40),
+                    "value_push_enabled": bool(cfg.get("value_push_enabled")),
+                },
+            }
+        )
+
+    if path == "/api/signals/value/config" and method == "POST":
+        from signals.store import get_config, save_config
+
+        patch = {
+            "value_cutoff_hours": body.get("value_cutoff_hours") or body.get("cutoff_hours"),
+            "value_max_tweets": body.get("value_max_tweets") or body.get("max_tweets"),
+            "value_push_enabled": body.get("value_push_enabled"),
+        }
+        if body.get("list_id") or body.get("list_url"):
+            patch["list_id"] = body.get("list_id") or body.get("list_url")
+        cfg = save_config({k: v for k, v in patch.items() if v is not None})
+        return _json_bytes({"success": True, "config": cfg})
+
+    if path == "/api/signals/value/archive" and method == "POST":
+        from signals.card_db import db_archive_card
+
+        tid = str(body.get("tweet_id") or "").strip()
+        if not tid:
+            return _json_bytes({"success": False, "error": "缺少 tweet_id"}, 400)
+        card = db_archive_card(tid)
+        if not card:
+            return _json_bytes({"success": False, "error": "未找到卡片"}, 404)
+        return _json_bytes({"success": True, "item": card})
+
+    if path == "/api/signals/value/run" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+
+        from signals.control import RunControl, register, unregister
+
+        ctl = register(job_id, RunControl(job_id))
+        log_buf: List[str] = []
+
+        def _progress(msg: str) -> None:
+            text = str(msg or "")[:800]
+            try:
+                from utils.stdio_encoding import safe_print, sanitize_for_console
+
+                safe_print(f" [value] {sanitize_for_console(text)}")
+            except Exception:
+                print(f"[value] {text}", flush=True)
+            log_buf.append(text)
+            if len(log_buf) > 400:
+                del log_buf[:120]
+            st = ctl.status()
+            _set_job(
+                job_id,
+                status="paused" if st == "paused" else "running",
+                message=text[:300],
+                logs=list(log_buf[-120:]),
+                control_status=st,
+            )
+
+        def _worker() -> None:
+            _set_job(
+                job_id,
+                status="running",
+                type="signals_value",
+                message="价值回归：开始…",
+                logs=[],
+                control_status="running",
+                started_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            try:
+                from signals.value import run_value_return_pipeline
+
+                result = run_value_return_pipeline(
+                    list_id=str(body.get("list_id") or body.get("list_url") or ""),
+                    cutoff_hours=body.get("cutoff_hours") or body.get("value_cutoff_hours"),
+                    max_tweets=body.get("max_tweets") or body.get("value_max_tweets"),
+                    reparse=bool(body.get("reparse")),
+                    progress=_progress,
+                    control=ctl,
+                )
+                aborted = bool(result.get("aborted"))
+                if aborted:
+                    final_status = "cancelled"
+                elif result.get("success"):
+                    final_status = "done"
+                else:
+                    final_status = "error"
+                _set_job(
+                    job_id,
+                    status=final_status,
+                    message=result.get("message") or result.get("error") or "完成",
+                    logs=list(log_buf[-120:]),
+                    control_status=ctl.status(),
+                    result={
+                        k: result.get(k)
+                        for k in (
+                            "list_id",
+                            "evaluated",
+                            "recommended",
+                            "skipped_prefilter",
+                            "skipped_dup",
+                            "card_count",
+                            "message",
+                            "error",
+                            "aborted",
+                            "item_logs",
+                        )
+                        if k in result
+                    },
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    logs=list(log_buf[-120:]),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            finally:
+                unregister(job_id)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return _json_bytes({"success": True, "job_id": job_id})
 
     if path == "/api/signals/run" and method == "POST":
         job_id = uuid.uuid4().hex[:12]

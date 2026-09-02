@@ -6,10 +6,12 @@ from signals.pipeline import run_list_signal_pipeline
 from signals.push import channels_summary, push_cards_batch
 from signals.schedule import describe_schedule, next_wait_seconds
 from signals.store import get_config, list_cards, load_state, save_config, card_count
+from signals.value import run_value_return_pipeline
 from signals.watcher import set_watch, start_watcher, status as watch_status
 
 __all__ = [
     "run_list_signal_pipeline",
+    "run_value_return_pipeline",
     "push_cards_batch",
     "channels_summary",
     "get_config",

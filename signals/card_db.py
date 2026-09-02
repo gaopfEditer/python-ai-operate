@@ -209,8 +209,16 @@ def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
         "source_modes",
         "list_ids",
         "user_handle",
+        "value_eval",
+        "category",
+        "key_takeaways",
     )
     extra = {k: card[k] for k in extra_keys if k in card}
+    vs = card.get("value_score")
+    try:
+        value_score = float(vs) if vs is not None and vs != "" else None
+    except Exception:
+        value_score = None
     return {
         "tweet_id": str(card.get("tweet_id") or "").strip(),
         "list_id": str(card.get("list_id") or "").strip(),
@@ -227,6 +235,10 @@ def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
         "images_json": _dumps(card.get("images") if isinstance(card.get("images"), list) else []),
         "extra_json": _dumps(extra),
         "card_uid": str(card.get("id") or "").strip(),
+        "value_score": value_score,
+        "value_recommended": 1 if card.get("value_recommended") else 0,
+        "expires_at": str(card.get("expires_at") or "").strip(),
+        "archived": 1 if card.get("archived") else 0,
     }
 
 
@@ -252,6 +264,17 @@ def _row_to_card(row: sqlite3.Row) -> Dict[str, Any]:
                 card[k] = v
     if d.get("card_uid") and not card.get("id"):
         card["id"] = d["card_uid"]
+    if "value_score" in d and d.get("value_score") is not None:
+        try:
+            card["value_score"] = float(d["value_score"])
+        except Exception:
+            pass
+    if "value_recommended" in d:
+        card["value_recommended"] = int(d.get("value_recommended") or 0)
+    if d.get("expires_at"):
+        card["expires_at"] = d.get("expires_at") or ""
+    if "archived" in d:
+        card["archived"] = int(d.get("archived") or 0)
     return card
 
 
@@ -309,7 +332,32 @@ def init_db() -> Path:
                 WHERE tweet_id != '';
             """
         )
+        _ensure_value_columns(conn)
     return DB_PATH
+
+
+def _ensure_value_columns(conn: sqlite3.Connection) -> None:
+    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(signal_cards)").fetchall()}
+    alters = []
+    if "value_score" not in cols:
+        alters.append("ALTER TABLE signal_cards ADD COLUMN value_score REAL")
+    if "value_recommended" not in cols:
+        alters.append(
+            "ALTER TABLE signal_cards ADD COLUMN value_recommended INTEGER NOT NULL DEFAULT 0"
+        )
+    if "expires_at" not in cols:
+        alters.append(
+            "ALTER TABLE signal_cards ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''"
+        )
+    if "archived" not in cols:
+        alters.append(
+            "ALTER TABLE signal_cards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
+        )
+    for sql in alters:
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass
 
 
 def _find_row_id(conn: sqlite3.Connection, fields: Dict[str, Any]) -> Optional[int]:
@@ -342,7 +390,8 @@ def _upsert_fields(conn: sqlite3.Connection, fields: Dict[str, Any], now: str) -
                 tweet_id=?, list_id=?, user_handle=?, author=?, url=?, text=?,
                 created_at=?, created_at_ts=?, time_label=?, display_time=?,
                 parsed_at=?, signal_json=?, images_json=?, extra_json=?,
-                card_uid=?, updated_at=?
+                card_uid=?, updated_at=?,
+                value_score=?, value_recommended=?, expires_at=?, archived=?
             WHERE id=?
             """,
             (
@@ -362,6 +411,10 @@ def _upsert_fields(conn: sqlite3.Connection, fields: Dict[str, Any], now: str) -
                 fields["extra_json"],
                 fields["card_uid"],
                 now,
+                fields.get("value_score"),
+                int(fields.get("value_recommended") or 0),
+                fields.get("expires_at") or "",
+                int(fields.get("archived") or 0),
                 row_id,
             ),
         )
@@ -372,8 +425,9 @@ def _upsert_fields(conn: sqlite3.Connection, fields: Dict[str, Any], now: str) -
             tweet_id, list_id, user_handle, author, url, text,
             created_at, created_at_ts, time_label, display_time,
             parsed_at, signal_json, images_json, extra_json,
-            card_uid, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            card_uid, updated_at,
+            value_score, value_recommended, expires_at, archived
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             fields["tweet_id"],
@@ -392,6 +446,10 @@ def _upsert_fields(conn: sqlite3.Connection, fields: Dict[str, Any], now: str) -
             fields["extra_json"],
             fields["card_uid"],
             now,
+            fields.get("value_score"),
+            int(fields.get("value_recommended") or 0),
+            fields.get("expires_at") or "",
+            int(fields.get("archived") or 0),
         ),
     )
     return int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -461,9 +519,14 @@ def db_list_cards(
     from_ts: Optional[int] = None,
     to_ts: Optional[int] = None,
     merge_sources: bool = False,
+    source_mode: str = "",
+    min_score: Optional[float] = None,
+    recommended_only: bool = False,
+    hide_expired: bool = True,
 ) -> List[Dict[str, Any]]:
     from signals.crawl import normalize_twimg_url
     from signals.labels import is_trade_signal
+    from signals.value.store_policy import is_expired_card
 
     init_db()
     lid = _parse_list_id(list_id) if list_id and not str(list_id).startswith("user:") else str(list_id or "").strip()
@@ -494,17 +557,46 @@ def db_list_cards(
         clauses.append("created_at_ts<=?")
         params.append(int(to_ts))
 
+    if min_score is not None:
+        clauses.append("(value_score IS NOT NULL AND value_score>=?)")
+        params.append(float(min_score))
+    if recommended_only:
+        clauses.append("value_recommended=1")
+
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     lim = max(1, min(int(limit or 100), 500))
+    # 多取一些再内存过滤 source_mode / TTL
+    fetch_lim = lim * 3 if (source_mode or hide_expired) else lim
     sql = f"SELECT * FROM signal_cards {where} ORDER BY created_at_ts DESC, id DESC LIMIT ?"
-    params.append(lim)
+    params.append(fetch_lim)
 
     with connect() as conn:
         rows = conn.execute(sql, params).fetchall()
 
+    want_mode = str(source_mode or "").strip()
     out: List[Dict[str, Any]] = []
     for row in rows:
         card = _row_to_card(row)
+        modes = card.get("source_modes") if isinstance(card.get("source_modes"), list) else []
+        mode = str(card.get("source_mode") or "")
+        is_value = mode == "value_return" or "value_return" in modes
+        is_value_only = is_value and mode == "value_return" and (
+            not modes or set(modes) == {"value_return"}
+        )
+
+        if want_mode == "value_return":
+            if not is_value:
+                continue
+        elif want_mode:
+            if want_mode not in modes and mode != want_mode:
+                continue
+        else:
+            # 未指定 source：列表/博主默认视图排除「仅价值」卡
+            if is_value_only:
+                continue
+
+        if hide_expired and is_expired_card(card):
+            continue
         sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
         if only_trade and not is_trade_signal(sig):
             continue
@@ -519,9 +611,24 @@ def db_list_cards(
                 fixed.append(item)
             card["images"] = fixed
         out.append(card)
+        if len(out) >= lim:
+            break
     if merge_sources:
         out = dedup_cards_by_user_time(out)
     return out
+
+
+def db_archive_card(tweet_id: str) -> Optional[Dict[str, Any]]:
+    tid = str(tweet_id or "").strip()
+    if not tid:
+        return None
+    init_db()
+    card = db_get_card_by_tweet_id(tid)
+    if not card:
+        return None
+    card["archived"] = 1
+    card["expires_at"] = ""
+    return db_upsert_card(card)
 
 
 def db_delete_user_cards(handle: str) -> List[str]:

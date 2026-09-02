@@ -5450,6 +5450,11 @@ function bind() {
   $("#btnSigUserSelectAll")?.addEventListener("click", () => setSigUserBloggerSelection(true));
   $("#btnSigUserSelectNone")?.addEventListener("click", () => setSigUserBloggerSelection(false));
   $("#sigUserBloggerList")?.addEventListener("change", () => persistSigUserForm());
+  $("#btnSigValueRun")?.addEventListener("click", () => runValueReturnCrawl());
+  $("#btnSigValuePause")?.addEventListener("click", () => signalsControl("pause"));
+  $("#btnSigValueResume")?.addEventListener("click", () => signalsControl("resume"));
+  $("#btnSigValueStop")?.addEventListener("click", () => signalsControl("stop"));
+  $("#sigValueRecommendedOnly")?.addEventListener("change", () => loadSignalCards());
   $("#btnSigCdpConfig")?.addEventListener("click", () => openSigCdpDialog());
   $("#btnRtRefresh")?.addEventListener("click", () => loadRealtimePanel());
   $("#rtStatus")?.addEventListener("change", () => loadRealtimePanel());
@@ -5472,6 +5477,12 @@ function bind() {
     if (e.submitter?.value === "save") saveSigCardEdit(e);
   });
   $("#sigCards")?.addEventListener("click", (e) => {
+    const arch = e.target.closest("[data-sig-value-archive]");
+    if (arch) {
+      e.preventDefault();
+      archiveSigValueCard(arch.getAttribute("data-sig-value-archive") || "");
+      return;
+    }
     const btn = e.target.closest("[data-sig-edit]");
     if (!btn) return;
     e.preventDefault();
@@ -5949,7 +5960,7 @@ function restoreMainTabFromStorage() {
 }
 
 function applySigModeUi(mode) {
-  const m = mode === "user" ? "user" : "list";
+  const m = mode === "user" ? "user" : mode === "value" ? "value" : "list";
   state.sigMode = m;
   document.querySelectorAll(".sig-mode-tab[data-sig-mode]").forEach((btn) => {
     const on = btn.getAttribute("data-sig-mode") === m;
@@ -5958,14 +5969,21 @@ function applySigModeUi(mode) {
   });
   const listBox = $("#sigModeList");
   const userBox = $("#sigModeUser");
+  const valueBox = $("#sigModeValue");
   if (listBox) listBox.hidden = m !== "list";
   if (userBox) userBox.hidden = m !== "user";
+  if (valueBox) valueBox.hidden = m !== "value";
+  const tradeFilter = $("#sigFilterTrade")?.closest("label");
+  if (tradeFilter) tradeFilter.hidden = m === "value";
+  const recOnly = $("#sigValueRecommendedOnly")?.closest("label");
+  // already in value panel
+  void recOnly;
 }
 
 function restoreSigModeFromStorage() {
   try {
     const saved = localStorage.getItem(APP_SIG_MODE_LS);
-    if (saved === "user" || saved === "list") {
+    if (saved === "user" || saved === "list" || saved === "value") {
       applySigModeUi(saved);
     }
   } catch (_) {
@@ -6015,7 +6033,9 @@ function sigSourceLabel(c) {
   const labels = [];
   if (modes.includes("list_realtime")) labels.push("列表");
   if (modes.includes("user_backfill")) labels.push("博主");
+  if (modes.includes("value_return")) labels.push("价值");
   if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("博主");
+  if (!labels.length && c.source_mode === "value_return") labels.push("价值");
   if (!labels.length && c.list_id) labels.push("列表");
   return labels.length ? labels.join("+") : "";
 }
@@ -7242,6 +7262,7 @@ const SIG_CARDS_PAGE_SIZE = 20;
 let _sigCardsPage = 1;
 
 function renderSigCardItem(c) {
+  const isValue = state.sigMode === "value" || c.source_mode === "value_return";
   const sig = c.signal || {};
   const trade = isSigTradeSignal(sig);
   const dirKey = normalizeSigDirectionKey(sig.direction) || "unknown";
@@ -7285,23 +7306,65 @@ function renderSigCardItem(c) {
   const summaryText = stripSigTimePrefix(sig.summary || c.text || "");
   const sourceTag = sigSourceLabel(c);
   const tid = escapeAttr(String(c.tweet_id || ""));
-  return `<article class="sig-card${trade ? " is-trade" : " is-noise"}" data-tweet-id="${tid}" data-dedup-key="${escapeAttr(sigCardDedupKey(c))}">
+  const ev = c.value_eval && typeof c.value_eval === "object" ? c.value_eval : {};
+  const score =
+    c.value_score != null ? Number(c.value_score) : ev.score != null ? Number(ev.score) : null;
+  const rec = !!(c.value_recommended || ev.is_recommended);
+  const takeaways = Array.isArray(c.key_takeaways)
+    ? c.key_takeaways
+    : Array.isArray(ev.key_takeaways)
+      ? ev.key_takeaways
+      : [];
+  const scoreBadge =
+    score != null && !Number.isNaN(score)
+      ? `<span class="sig-value-score${rec ? " is-rec" : ""}">${score.toFixed(1)}${rec ? " 荐" : ""}</span>`
+      : "";
+  const valueMeta = isValue
+    ? `<div class="sig-value-meta">
+        ${ev.category ? `<span>${escapeHtml(String(ev.category))}</span>` : ""}
+        ${ev.format ? `<span>${escapeHtml(String(ev.format))}</span>` : ""}
+        ${ev.threshold != null ? `<span>门槛 ${escapeHtml(String(ev.threshold))}</span>` : ""}
+        ${c.archived ? `<span>已归档</span>` : ""}
+        ${c.expires_at && !c.archived ? `<span>过期 ${escapeHtml(String(c.expires_at).slice(0, 16))}</span>` : ""}
+      </div>
+      ${
+        takeaways.length
+          ? `<ul class="sig-value-takeaways">${takeaways
+              .slice(0, 4)
+              .map((t) => `<li>${escapeHtml(String(t))}</li>`)
+              .join("")}</ul>`
+          : ""
+      }`
+    : "";
+  const topBadge = isValue
+    ? scoreBadge
+    : `<span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>${coins}`;
+  const footConf = isValue
+    ? `${rec ? "推荐" : "未达门槛"} · 得分 ${score != null ? score.toFixed(2) : "-"}${
+        ev.provider ? ` · ${escapeHtml(String(ev.provider))}` : ""
+      }${sourceTag ? ` · ${escapeHtml(sourceTag)}` : ""}${c.archived ? " · 归档" : ""}`
+    : `${trade ? "信号" : "非交易"} · 置信度 ${escapeHtml(String(sig.confidence ?? ""))} · ${escapeHtml(
+        sig.provider === "heuristic" ? "规则解析" : "AI 解析"
+      )}${sourceTag ? ` · ${escapeHtml(sourceTag)}` : ""}${c.cache_only ? " · 缓存" : ""}`;
+
+  return `<article class="sig-card${isValue ? (rec ? " is-value-rec" : " is-value") : trade ? " is-trade" : " is-noise"}" data-tweet-id="${tid}" data-dedup-key="${escapeAttr(sigCardDedupKey(c))}">
     <div class="sig-card-top">
-      <span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>
-      ${coins}
+      ${topBadge}
       <span class="sig-author">${authorLabel}</span>
       ${channelMeta}
       <span class="sig-time" title="发帖时间">${escapeHtml(timeLabel)}</span>
     </div>
     <p class="sig-summary">${escapeHtml(summaryText).slice(0, 240)}</p>
-    ${levels.length ? `<div class="sig-levels">${levels.join("")}</div>` : ""}
-    ${sig.image_notes ? `<p class="muted" style="margin:0;font-size:.74rem">图注：${escapeHtml(String(sig.image_notes).slice(0, 160))}</p>` : ""}
+    ${valueMeta}
+    ${!isValue && levels.length ? `<div class="sig-levels">${levels.join("")}</div>` : ""}
+    ${!isValue && sig.image_notes ? `<p class="muted" style="margin:0;font-size:.74rem">图注：${escapeHtml(String(sig.image_notes).slice(0, 160))}</p>` : ""}
     ${imgs ? `<div class="sig-imgs">${imgs}</div>` : ""}
     <pre class="sig-text">${escapeHtml(stripSigTimePrefix(c.text || ""))}</pre>
     <div class="sig-card-foot">
       <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">原帖</a>
-      ${tid ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
-      <span class="sig-conf">${trade ? "信号" : "非交易"} · 置信度 ${escapeHtml(String(sig.confidence ?? ""))} · ${escapeHtml(sig.provider === "heuristic" ? "规则解析" : "AI 解析")}${sourceTag ? ` · ${escapeHtml(sourceTag)}` : ""}${c.cache_only ? " · 缓存" : ""}</span>
+      ${tid && !isValue ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
+      ${tid && isValue && !c.archived ? `<button type="button" class="btn-link" data-sig-value-archive="${tid}">归档</button>` : ""}
+      <span class="sig-conf">${footConf}</span>
     </div>
   </article>`;
 }
@@ -7417,7 +7480,14 @@ async function loadSignalCards() {
   if (!box) return;
   const onlyTrade = !!$("#sigFilterTrade")?.checked;
   const filter = collectSigCardsFilter();
-  let url = `/api/signals/cards?limit=500&merge=1${onlyTrade ? "&trade=1" : ""}`;
+  const valueMode = state.sigMode === "value";
+  let url = `/api/signals/cards?limit=500&merge=${valueMode ? "0" : "1"}`;
+  if (valueMode) {
+    url += "&source=value_return";
+    if ($("#sigValueRecommendedOnly")?.checked) url += "&recommended=1";
+  } else if (onlyTrade) {
+    url += "&trade=1";
+  }
   if (filter.handle) {
     url += `&handle=${encodeURIComponent(filter.handle)}`;
   }
@@ -7441,6 +7511,16 @@ async function loadSignalCards() {
         );
       }
     }
+    const cfg = data.config || {};
+    if ($("#sigValueListUrl")) {
+      $("#sigValueListUrl").value = cfg.list_url || (cfg.list_id ? `https://x.com/i/lists/${cfg.list_id}` : $("#sigListUrl")?.value || "");
+    }
+    if (cfg.value_cutoff_hours && $("#sigValueCutoffHours")) {
+      $("#sigValueCutoffHours").value = cfg.value_cutoff_hours;
+    }
+    if (cfg.value_max_tweets && $("#sigValueMaxTweets")) {
+      $("#sigValueMaxTweets").value = cfg.value_max_tweets;
+    }
     _sigCardsCache = dedupSigCards(data.items || []);
     _sigCardsPage = 1;
     renderSigCardsView();
@@ -7448,6 +7528,108 @@ async function loadSignalCards() {
     box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
     renderSigCardsPager(0, 1);
   }
+}
+
+async function runValueReturnCrawl() {
+  const btn = $("#btnSigValueRun");
+  const logEl = $("#sigValueRunLog");
+  if (btn) btn.disabled = true;
+  setStatus($("#sigValueStatus"), "提交价值评估…");
+  if (logEl) {
+    logEl.hidden = false;
+    logEl.textContent = "";
+  }
+  setSigValueControlButtons({ running: false, paused: false });
+  try {
+    const listUrl = $("#sigListUrl")?.value.trim() || $("#sigValueListUrl")?.value.trim() || "";
+    const start = await api("/api/signals/value/run", {
+      method: "POST",
+      body: JSON.stringify({
+        list_url: listUrl,
+        cutoff_hours: Number($("#sigValueCutoffHours")?.value || 24),
+        max_tweets: Number($("#sigValueMaxTweets")?.value || 40),
+        reparse: !!$("#sigValueReparse")?.checked,
+      }),
+    });
+    if (!start.success || !start.job_id) {
+      setStatus($("#sigValueStatus"), start.error || "启动失败", "error");
+      return;
+    }
+    const jobId = start.job_id;
+    _sigActiveJobId = jobId;
+    setSigValueControlButtons({ running: true, paused: false });
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const data = await api(`/api/jobs/${jobId}`);
+      const job = data.job || {};
+      if (logEl) {
+        logEl.hidden = false;
+        logEl.textContent = (job.logs || []).slice(-80).join("\n");
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      const paused = job.status === "paused" || job.control_status === "paused";
+      setSigValueControlButtons({
+        running: !["done", "error", "cancelled"].includes(job.status),
+        paused,
+      });
+      setStatus(
+        $("#sigValueStatus"),
+        paused ? `已暂停 · ${job.message || ""}` : job.message || job.status || "运行中…"
+      );
+      if (["done", "error", "cancelled"].includes(job.status)) {
+        const result = job.result || {};
+        const ok = job.status === "done" || job.status === "cancelled";
+        const msg =
+          result.message ||
+          job.message ||
+          (job.status === "cancelled" ? "已终止" : "完成");
+        setStatus($("#sigValueStatus"), msg, ok ? "ok" : "error");
+        if (ok) {
+          toast(msg, "ok");
+          await loadSignalCards();
+        }
+        break;
+      }
+    }
+  } catch (e) {
+    setStatus($("#sigValueStatus"), String(e), "error");
+  } finally {
+    _sigActiveJobId = "";
+    setSigValueControlButtons({ running: false, paused: false });
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setSigValueControlButtons({ running = false, paused = false } = {}) {
+  const pause = $("#btnSigValuePause");
+  const resume = $("#btnSigValueResume");
+  const stop = $("#btnSigValueStop");
+  const run = $("#btnSigValueRun");
+  if (run) run.disabled = running;
+  if (pause) {
+    pause.disabled = !running || paused;
+    pause.hidden = paused;
+  }
+  if (resume) {
+    resume.disabled = !running || !paused;
+    resume.hidden = !paused;
+  }
+  if (stop) stop.disabled = !running;
+}
+
+async function archiveSigValueCard(tweetId) {
+  const tid = String(tweetId || "").trim();
+  if (!tid) return;
+  const data = await api("/api/signals/value/archive", {
+    method: "POST",
+    body: JSON.stringify({ tweet_id: tid }),
+  });
+  if (!data.success) {
+    toast(data.error || "归档失败", "error");
+    return;
+  }
+  toast("已归档", "ok");
+  await loadSignalCards();
 }
 
 const SIG_CARDS_FILTER_LS = "sigCardsFilterPrefs";

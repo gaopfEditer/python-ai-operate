@@ -25,6 +25,7 @@ alwaysApply: false
 - UI：`#panel-signals`；JS：`sig*` / `runSignalsCrawl` / `loadSignalCards`
 - API：`/api/signals/*`
 - 后端：`signals/`（`crawl.py`、`pipeline.py`、`push.py`）；配置 `config/signals_channels.yaml`
+- **价值回归**：子 Tab `data-sig-mode=value`；`signals/value/`（fetcher/deduplicator/prefilter/evaluator/threshold/notifier/pipeline）；API `/api/signals/value/*`；卡片 `source_mode=value_return`
 
 ## CDP 发布
 

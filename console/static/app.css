@@ -2658,6 +2658,38 @@ label.publish-media-add {
 }
 .sig-card.is-trade { border-color: rgba(15, 118, 110, .45); }
 .sig-card.is-noise { opacity: .72; }
+.sig-card.is-value { border-color: rgba(217, 119, 6, .35); }
+.sig-card.is-value-rec { border-color: rgba(217, 119, 6, .7); box-shadow: 0 0 0 1px rgba(217, 119, 6, .12); }
+.sig-value-score {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: rgba(217, 119, 6, 0.12);
+  color: #9a3412;
+}
+.sig-value-score.is-rec {
+  background: rgba(217, 119, 6, 0.22);
+  color: #7c2d12;
+}
+.sig-value-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 0 0 0.35rem;
+}
+.sig-value-takeaways {
+  margin: 0 0 0.5rem;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+.sig-value-takeaways li { margin: 0.15rem 0; }
 .sig-card-top {
   display: flex;
   flex-wrap: wrap;

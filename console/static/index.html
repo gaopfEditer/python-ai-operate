@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260831p" />
+  <link rel="stylesheet" href="/app.css?v=20260902a" />
 </head>
 <body>
   <div class="shell">
@@ -503,6 +503,7 @@
         <div class="sig-mode-tabs" role="tablist">
           <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号</button>
           <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">博主回溯</button>
+          <button type="button" class="sig-mode-tab" data-sig-mode="value" role="tab" aria-selected="false">价值回归</button>
         </div>
         <div id="sigModeList">
         <div class="sig-config form-grid">
@@ -639,6 +640,45 @@
           </div>
           <p id="sigUserStatus" class="status"></p>
           <pre id="sigUserRunLog" class="sig-run-log" hidden></pre>
+        </div>
+
+        <div id="sigModeValue" hidden>
+          <div class="sig-config form-grid">
+            <label class="field full">
+              <span>列表（与列表信号共用）</span>
+              <input id="sigValueListUrl" type="text" readonly placeholder="同步自列表信号配置" />
+            </label>
+            <label class="field">
+              <span>截至时间（小时）</span>
+              <input id="sigValueCutoffHours" type="number" min="1" max="336" value="24" />
+            </label>
+            <label class="field">
+              <span>最多条数</span>
+              <input id="sigValueMaxTweets" type="number" min="5" max="120" value="40" />
+            </label>
+            <label class="field check">
+              <input id="sigValueReparse" type="checkbox" />
+              <span>重新评估已入库</span>
+            </label>
+            <label class="field check">
+              <input id="sigValueRecommendedOnly" type="checkbox" />
+              <span>仅显示推荐</span>
+            </label>
+            <div class="field full">
+              <p class="muted" style="margin:0;font-size:.78rem">
+                预过滤水帖 → LLM 打分（深度30% / 结构30% / 可落实40%）→ 按当日质量动态门槛入库。
+                达标长期保留；未达标缓存 2 天；归档不过期。
+              </p>
+            </div>
+            <div class="field full sig-action-bar">
+              <button id="btnSigValueRun" class="btn primary" type="button">价值评估一轮</button>
+              <button id="btnSigValuePause" class="btn ghost" type="button" disabled>暂停</button>
+              <button id="btnSigValueResume" class="btn ghost" type="button" disabled hidden>继续</button>
+              <button id="btnSigValueStop" class="btn danger" type="button" disabled>终止</button>
+            </div>
+          </div>
+          <p id="sigValueStatus" class="status"></p>
+          <pre id="sigValueRunLog" class="sig-run-log" hidden></pre>
         </div>
 
         <div class="sig-meta">
@@ -805,6 +845,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=20260831t"></script>
+  <script src="/app.js?v=20260902a"></script>
 </body>
 </html>

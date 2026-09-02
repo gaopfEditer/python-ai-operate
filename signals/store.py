@@ -262,6 +262,18 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
         cfg["user_push_enabled"] = bool(patch["user_push_enabled"])
     if "user_force_push" in patch:
         cfg["user_force_push"] = bool(patch["user_force_push"])
+    if "value_push_enabled" in patch:
+        cfg["value_push_enabled"] = bool(patch["value_push_enabled"])
+    if "value_cutoff_hours" in patch and patch["value_cutoff_hours"] is not None:
+        try:
+            cfg["value_cutoff_hours"] = max(1, min(int(patch["value_cutoff_hours"]), 24 * 14))
+        except Exception:
+            pass
+    if "value_max_tweets" in patch and patch["value_max_tweets"] is not None:
+        try:
+            cfg["value_max_tweets"] = max(1, min(int(patch["value_max_tweets"]), 120))
+        except Exception:
+            pass
     if "debugger_url" in patch:
         raw = normalize_debugger_url(str(patch.get("debugger_url") or ""))
         if raw:
@@ -415,6 +427,10 @@ def list_cards(
     to_raw: str = "",
     backfill_range: str = "",
     merge_sources: bool = False,
+    source_mode: str = "",
+    min_score: Optional[float] = None,
+    recommended_only: bool = False,
+    hide_expired: bool = True,
 ) -> List[Dict[str, Any]]:
     from signals.backfill_range import resolve_backfill_time_range
     from signals.card_db import db_list_cards, dedup_cards_by_user_time, ensure_migrated, resolve_time_range
@@ -441,6 +457,10 @@ def list_cards(
         from_ts=f_ts,
         to_ts=t_ts,
         merge_sources=merge_sources,
+        source_mode=source_mode,
+        min_score=min_score,
+        recommended_only=recommended_only,
+        hide_expired=hide_expired,
     )
     if merge_sources:
         return dedup_cards_by_user_time(items)
