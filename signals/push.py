@@ -307,7 +307,15 @@ def build_cards_payload(
     ch = resolve_channel(str(card.get("author") or ""), cfg)
     sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
 
-    coins = [str(c).upper() for c in (sig.get("coins") or []) if c]
+    coins = []
+    for c in sig.get("coins") or []:
+        s = str(c).strip()
+        if not s:
+            continue
+        if s.lower().startswith("0x"):
+            coins.append(s)
+        else:
+            coins.append(s.upper())
     symbol = coins[0] if coins else ""
     entries = [str(x) for x in (sig.get("entries") or []) if x]
     targets = [str(x) for x in (sig.get("take_profits") or []) if x]

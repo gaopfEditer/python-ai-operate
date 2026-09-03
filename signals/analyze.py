@@ -27,10 +27,37 @@ SYSTEM = """你是加密货币/合约交易信号解析器。根据推文正文�
 - has_trade_signal=true 必须同时满足：① 明确币种代码 coins 非空；② 明确做多/做空 direction 为 long 或 short。仅有「做多/做空」口语但无币种 → false。
 - 无明确交易意图则 has_trade_signal=false，其余尽量填空。
 - coins 用常见代码大写（BTC/ETH/SOL…），中文名也映射成代码。
+- 若正文出现 EVM 合约地址（0x 开头十六进制）且没有明确 ticker：把该地址原样写入 coins，direction 默认 long（做多）。
 - direction：做多/long/买入/点火/拉满/跟了/冲→long；做空/short/卖出→short；观望→watch；震荡/中性→flat。
 - 口语里提到「多了xxx」「跟了xxx」时，xxx 常为币种代码（如 zama→ZAMA）。
 - 价位原样保留，不要臆造没有的数字。
 """
+
+
+# EVM 地址：完整 40 hex，也兼容推文里较短的 0x… 片段（≥6）
+_ETH_ADDR_RE = re.compile(r"(?<![a-zA-Z0-9])(0x[a-fA-F0-9]{6,40})(?![a-fA-F0-9])")
+
+
+def _norm_coin_token(raw: str) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    if re.fullmatch(r"0x[a-fA-F0-9]{6,40}", s):
+        return s  # 保留地址大小写（常见为小写）
+    return s.upper()
+
+
+def _extract_contract_addresses(text: str) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for m in _ETH_ADDR_RE.finditer(text or ""):
+        addr = m.group(1)
+        key = addr.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(addr)
+    return out
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -53,10 +80,29 @@ def _extract_json(text: str) -> Dict[str, Any]:
 from signals.labels import normalize_direction
 
 
-def _normalize_trade_signal(data: Dict[str, Any]) -> Dict[str, Any]:
-    """推送/入库判定：必须同时有币种 + 做多/做空方向。"""
-    coins = [str(c).upper() for c in (data.get("coins") or []) if str(c).strip()][:8]
+def _normalize_trade_signal(data: Dict[str, Any], *, text: str = "") -> Dict[str, Any]:
+    """推送/入库判定：必须同时有币种 + 做多/做空方向。
+
+    无 ticker 但有 0x 合约地址时：地址写入 coins，方向缺省为 long。
+    """
+    coins: List[str] = []
+    for c in data.get("coins") or []:
+        n = _norm_coin_token(str(c))
+        if n and n not in coins and n.lower() not in {x.lower() for x in coins}:
+            coins.append(n)
+    coins = coins[:8]
+
     direction = normalize_direction(str(data.get("direction") or "unknown"))
+    addr_filled = False
+    if not coins:
+        for addr in _extract_contract_addresses(text or str(data.get("summary") or "")):
+            coins.append(addr)
+            addr_filled = True
+            if len(coins) >= 8:
+                break
+    if addr_filled and direction not in ("long", "short"):
+        direction = "long"
+
     ready = bool(coins) and direction in ("long", "short")
     data["coins"] = coins
     data["direction"] = direction
@@ -67,27 +113,31 @@ def _normalize_trade_signal(data: Dict[str, Any]) -> Dict[str, Any]:
 def _heuristic(text: str) -> Dict[str, Any]:
     """AI 失败时的弱规则兜底。"""
     t = text or ""
-    coins = []
+    coins: List[str] = []
     for m in re.finditer(
         r"\b(BTC|ETH|SOL|BNB|XRP|DOGE|ADA|AVAX|LINK|OP|ARB|SUI|PEPE|WIF|ORDI|TON|APT|NEAR|MATIC|DOT)\b",
         t,
         re.I,
     ):
-        c = m.group(1).upper()
-        if c not in coins:
+        c = _norm_coin_token(m.group(1))
+        if c and c not in coins:
             coins.append(c)
     for m in re.finditer(r"\$([A-Za-z]{2,10})\b", t):
-        c = m.group(1).upper()
-        if c not in coins and c.isalpha():
+        c = _norm_coin_token(m.group(1))
+        if c and c.isalpha() and c not in coins:
             coins.append(c)
     for m in re.finditer(r"多了\s*([A-Za-z]{2,12})", t, re.I):
-        c = m.group(1).upper()
-        if c not in coins:
+        c = _norm_coin_token(m.group(1))
+        if c and c not in coins:
             coins.append(c)
     for m in re.finditer(r"#([A-Za-z]{2,12})\b", t):
-        c = m.group(1).upper()
-        if c not in coins:
+        c = _norm_coin_token(m.group(1))
+        if c and c not in coins:
             coins.append(c)
+    for addr in _extract_contract_addresses(t):
+        if addr not in coins and addr.lower() not in {x.lower() for x in coins}:
+            coins.append(addr)
+
     direction = "unknown"
     low = t.lower()
     if re.search(r"做多|long|看多|买入|多单|点火|拉满|跟了|冲了|上了", low, re.I):
@@ -96,6 +146,13 @@ def _heuristic(text: str) -> Dict[str, Any]:
         direction = "short"
     elif re.search(r"观望|wait", low, re.I):
         direction = "watch"
+    # 仅有合约地址作币种时，默认做多
+    if coins and any(str(c).lower().startswith("0x") for c in coins) and direction not in (
+        "long",
+        "short",
+    ):
+        direction = "long"
+
     tps = re.findall(r"(?:TP|止盈)\s*[1-3]?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)", t, re.I)
     sl_m = re.search(r"(?:SL|止损)\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)", t, re.I)
     has = bool(coins) and (
@@ -119,7 +176,8 @@ def _heuristic(text: str) -> Dict[str, Any]:
             "summary": (t[:120] + ("…" if len(t) > 120 else "")),
             "image_notes": "",
             "provider": "heuristic",
-        }
+        },
+        text=t,
     )
 
 
@@ -132,9 +190,10 @@ def analyze_tweet_signal(
 ) -> Dict[str, Any]:
     image_alts = [str(x) for x in (image_alts or []) if str(x).strip()]
     image_urls = [str(x) for x in (image_urls or []) if str(x).strip()]
+    body = (text or "").strip()
     prompt = (
         f"作者：{author or '(未知)'}\n"
-        f"正文：\n{(text or '').strip()[:4000]}\n\n"
+        f"正文：\n{body[:4000]}\n\n"
     )
     if image_alts or image_urls:
         prompt += "配图信息（请结合推断价位/标注）：\n"
@@ -161,7 +220,9 @@ def analyze_tweet_signal(
             if data:
                 out = {
                     "has_trade_signal": bool(data.get("has_trade_signal")),
-                    "coins": [str(c).upper() for c in (data.get("coins") or []) if c][:8],
+                    "coins": [
+                        _norm_coin_token(str(c)) for c in (data.get("coins") or []) if str(c).strip()
+                    ][:8],
                     "direction": normalize_direction(str(data.get("direction") or "unknown")),
                     "entries": [str(x) for x in (data.get("entries") or []) if x][:6],
                     "take_profits": [str(x) for x in (data.get("take_profits") or []) if x][:6],
@@ -174,10 +235,10 @@ def analyze_tweet_signal(
                     "image_notes": str(data.get("image_notes") or ""),
                     "provider": provider or "ai",
                 }
-                return _normalize_trade_signal(out)
+                return _normalize_trade_signal(out, text=body)
     except Exception as e:
         provider = f"error:{e}"
 
-    h = _heuristic(text)
+    h = _heuristic(body)
     h["provider"] = provider or h.get("provider") or "heuristic"
     return h
