@@ -27,6 +27,7 @@ const state = {
   memosNextPageToken: "",
   memosTags: [],
   memosEditIndex: -1,
+  memosBaseUrl: "",
   labConfigActiveTab: "general",
   labConfigProfiles: [],
   sigMode: "list",
@@ -2545,7 +2546,10 @@ function syncMemosPickAll() {
 }
 
 /** 轻量 Markdown → HTML（标题/列表/代码/引用/链接/图片/加粗斜体） */
-function renderMarkdown(src) {
+function renderMarkdown(src, opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
+  const rewriteUrl =
+    typeof options.rewriteUrl === "function" ? options.rewriteUrl : null;
   let text = String(src || "").replace(/\r\n/g, "\n");
   const blocks = [];
   text = text.replace(/```([\w-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
@@ -2559,12 +2563,14 @@ function renderMarkdown(src) {
   const inline = (s) => {
     let t = escapeHtml(s);
     t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, alt, url) => {
-      const u = String(url || "");
+      let u = String(url || "");
+      if (rewriteUrl) u = rewriteUrl(u) || u;
       if (!/^(https?:|\/|data:image\/)/i.test(u)) return escapeHtml(`![${alt}](${url})`);
       return `<img src="${escapeHtml(u)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
     });
     t = t.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => {
-      const u = String(url || "");
+      let u = String(url || "");
+      if (rewriteUrl) u = rewriteUrl(u) || u;
       if (!/^(https?:|mailto:|\/)/i.test(u)) return escapeHtml(`[${label}](${url})`);
       return `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${label}</a>`;
     });
@@ -2659,6 +2665,7 @@ function formatMemosTime(iso) {
 function applyMemosConfigForm(cfg) {
   if (!cfg) return;
   if ($("#memosBaseUrl") && cfg.base_url != null) $("#memosBaseUrl").value = cfg.base_url;
+  if (cfg.base_url != null) state.memosBaseUrl = String(cfg.base_url || "").replace(/\/$/, "");
   if ($("#memosPageSize") && cfg.page_size != null) $("#memosPageSize").value = cfg.page_size;
   if ($("#memosFilter") && cfg.filter != null) $("#memosFilter").value = cfg.filter;
   const tok = $("#memosToken");
@@ -2668,6 +2675,73 @@ function applyMemosConfigForm(cfg) {
       ? `已保存 ${cfg.access_token_masked}`
       : "Memos 设置里创建的 Token";
   }
+}
+
+function memosBaseUrl() {
+  const fromInput = $("#memosBaseUrl")?.value.trim() || "";
+  const base = (fromInput || state.memosBaseUrl || "").replace(/\/$/, "");
+  if (base) state.memosBaseUrl = base;
+  return base;
+}
+
+/** 把 Memos 相对附件路径转到 Console 代理，避免打到 8787 本域或丢 Token */
+function resolveMemosMediaUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (/^data:/i.test(raw)) return raw;
+  if (raw.startsWith("/api/corpus/memos/asset")) return raw;
+
+  let path = "";
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      const base = memosBaseUrl();
+      if (base) {
+        const b = new URL(base.includes("://") ? base : `https://${base}`);
+        if (u.origin === b.origin && u.pathname.startsWith("/file/")) {
+          path = u.pathname + (u.search || "");
+        } else {
+          return raw;
+        }
+      } else if (u.pathname.startsWith("/file/")) {
+        path = u.pathname + (u.search || "");
+      } else {
+        return raw;
+      }
+    } catch (_) {
+      return raw;
+    }
+  } else if (raw.startsWith("/file/")) {
+    path = raw;
+  } else if (raw.startsWith("/")) {
+    // 其它相对站内路径也挂到 Memos（如历史绝对路径被写成相对）
+    path = raw;
+  } else {
+    return raw;
+  }
+
+  if (!path.startsWith("/file/")) {
+    const base = memosBaseUrl();
+    return base ? `${base}${path}` : path;
+  }
+  return `/api/corpus/memos/asset?path=${encodeURIComponent(path)}`;
+}
+
+function renderMemosMarkdown(src) {
+  return renderMarkdown(src, { rewriteUrl: resolveMemosMediaUrl });
+}
+
+function extractMemosContentImages(content) {
+  const out = [];
+  const re = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  let m;
+  const text = String(content || "");
+  while ((m = re.exec(text))) {
+    const src = resolveMemosMediaUrl(m[2]);
+    if (!src || !/^(https?:|\/|data:)/i.test(src)) continue;
+    out.push({ url: src, alt: m[1] || "配图" });
+  }
+  return out;
 }
 
 async function loadMemosConfig() {
@@ -2910,11 +2984,19 @@ function renderMemosList(items, { selectAllIfEmpty = false } = {}) {
         .slice(0, 8)
         .map((t) => `#${escapeHtml(String(t))}`)
         .join(" ");
-      const imgs = (it.images || [])
-        .map(
-          (im) =>
-            `<img class="lab-vimg" src="${escapeHtml(im.url || "")}" alt="配图" loading="lazy" />`
-        )
+      const contentImgs = extractMemosContentImages(it.content || "");
+      const localImgs = it.images || [];
+      const seen = new Set();
+      const imgs = [...localImgs, ...contentImgs]
+        .map((im) => {
+          const src = resolveMemosMediaUrl(im.url || im.src || "");
+          if (!src || seen.has(src)) return "";
+          seen.add(src);
+          return `<img class="lab-vimg" src="${escapeHtml(src)}" alt="${escapeHtml(
+            im.alt || "配图"
+          )}" loading="lazy" />`;
+        })
+        .filter(Boolean)
         .join("");
       const when = escapeHtml(formatMemosTime(it.display_time || it.create_time || it.update_time));
       return `<article class="memos-card" data-midx="${i}" title="双击编辑 · 右键发布到 CDP">
@@ -2927,7 +3009,7 @@ function renderMemosList(items, { selectAllIfEmpty = false } = {}) {
         <div class="memos-meta">${when}${tags ? " · " + tags : ""}${
         it.name ? ` · ${escapeHtml(it.name)}` : ""
       } · 双击编辑 · 右键发布</div>
-        <div class="memos-md-preview">${renderMarkdown(it.content || "")}</div>
+        <div class="memos-md-preview">${renderMemosMarkdown(it.content || "")}</div>
         ${imgs ? `<div class="lab-vimgs">${imgs}</div>` : ""}
       </article>`;
     })
@@ -3056,7 +3138,7 @@ function setMemosEditView(mode) {
 function refreshMemosEditPreview() {
   const src = $("#memosEditSource")?.value || "";
   const box = $("#memosEditPreview");
-  if (box) box.innerHTML = renderMarkdown(src);
+  if (box) box.innerHTML = renderMemosMarkdown(src);
 }
 
 function openMemosEditor(idx) {

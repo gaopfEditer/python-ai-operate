@@ -2141,6 +2141,18 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
         return _json_bytes({"success": True, "config": public_config()})
 
+    if path == "/api/corpus/memos/asset" and method == "GET":
+        from corpus.memos_client import fetch_asset
+
+        asset_path = (query.get("path") or query.get("url") or [""])[0].strip()
+        try:
+            asset = fetch_asset(asset_path)
+            return asset["data"], 200, asset.get("content_type") or "application/octet-stream"
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 502)
+
     if path == "/api/corpus/memos/config" and method == "POST":
         from corpus.memos_client import save_config
 

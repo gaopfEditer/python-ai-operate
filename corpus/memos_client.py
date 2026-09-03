@@ -513,6 +513,58 @@ def attachment_markdown(att: Dict[str, Any], *, absolute: bool = False) -> str:
     return f"![配图]({rel})"
 
 
+def fetch_asset(path_or_url: str) -> Dict[str, Any]:
+    """拉取 Memos 附件（带 Token、默认直连），供 Console 预览代理。"""
+    raw = str(path_or_url or "").strip()
+    if not raw:
+        raise ValueError("缺少附件路径")
+    cfg = load_config()
+    base = str(cfg.get("base_url") or "").rstrip("/")
+    if not base:
+        raise ValueError("未配置 Memos base_url")
+
+    if re.match(r"^https?://", raw, re.I):
+        parsed = urllib.parse.urlparse(raw)
+        base_p = urllib.parse.urlparse(base)
+        if parsed.netloc and base_p.netloc and parsed.netloc.lower() != base_p.netloc.lower():
+            raise ValueError("只允许代理当前 Memos 域名下的附件")
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+    else:
+        path = raw if raw.startswith("/") else f"/{raw}"
+
+    if not path.startswith("/file/"):
+        raise ValueError("仅允许 /file/ 附件路径")
+
+    url = f"{base}{path}"
+    headers = {
+        "Accept": "*/*",
+        "User-Agent": "TrendRadar-lab-memos/1.0",
+        "Connection": "close",
+    }
+    token = str(cfg.get("access_token") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    opener = _build_opener(use_system_proxy=bool(cfg.get("use_system_proxy")))
+    timeout = float(cfg.get("timeout_sec") or 20)
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            data = resp.read()
+            ctype = (
+                resp.headers.get("Content-Type")
+                or _guess_mime(Path(urllib.parse.urlparse(path).path))
+                or "application/octet-stream"
+            )
+            return {"data": data, "content_type": ctype.split(";")[0].strip(), "url": url}
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace") if e.fp else ""
+        raise RuntimeError(f"Memos 附件 HTTP {e.code}: {(err_body or e.reason)[:200]}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"无法拉取 Memos 附件：{e.reason}") from e
+
+
 _LAB_MEDIA_MD_RE = re.compile(
     r"\n*!\[([^\]]*)\]\(/api/corpus/lab/media\?rel=[^\)]+\)\s*",
     re.MULTILINE,
