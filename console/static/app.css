@@ -957,6 +957,10 @@ input:focus, textarea:focus, select:focus {
   padding-top: 12px;
   padding-bottom: 12px;
 }
+.stage:has(#panel-corpus:not([hidden]) #labModeMemos:not([hidden])) {
+  height: 100vh;
+  overflow-y: auto;
+}
 #panel-corpus.lab-panel { max-width: none; }
 .lab-bar {
   position: relative;
@@ -998,7 +1002,7 @@ input:focus, textarea:focus, select:focus {
   background: #f3eee2;
   box-shadow: var(--shadow);
   padding: 14px 16px 18px;
-  min-height: calc(100vh - 160px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1068,8 +1072,7 @@ input:focus, textarea:focus, select:focus {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  overflow: auto;
-  max-height: calc(100vh - 400px);
+  overflow: visible;
   min-height: 280px;
   align-content: start;
 }

@@ -16,6 +16,7 @@ from public.platforms.cdp_common import (
     human_pause,
     normalize_media_paths,
     open_url_new_tab,
+    sanitize_typed_text,
     split_media,
     type_text_human,
 )
@@ -799,8 +800,8 @@ class BinanceSquarePublisher:
         submit: bool = True,
         title: str = "",
     ) -> Dict:
-        body = (text or "").strip()
-        title_text = (title or "").strip()
+        body = sanitize_typed_text((text or "").strip())
+        title_text = sanitize_typed_text((title or "").strip())
         if self.platform_id == "bitget":
             if not title_text and body:
                 first, _, rest = body.partition("\n")
@@ -1424,6 +1425,8 @@ class BinanceSquarePublisher:
 
     def _type_text(self, driver, text: str, *, clear_first: bool = True) -> None:
         from selenium.webdriver.common.by import By
+
+        text = sanitize_typed_text(text)
 
         for _ in range(4):
             if not self._find_body_editor(driver):

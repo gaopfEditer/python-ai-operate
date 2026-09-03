@@ -12,6 +12,7 @@ from public.platforms.cdp_common import (
     human_pause,
     normalize_media_paths,
     open_url_new_tab,
+    sanitize_typed_text,
     split_media,
     type_text_human,
     upload_files,
@@ -43,11 +44,11 @@ class XPublisher:
         submit: bool = True,
         title: str = "",
     ) -> Dict:
-        body = (text or "").strip()
+        body = sanitize_typed_text((text or "").strip())
         if title and title.strip():
             # 社交帖：标题并入正文首行（若尚未包含）
-            t = title.strip()
-            if t not in body:
+            t = sanitize_typed_text(title.strip())
+            if t and t not in body:
                 body = f"{t}\n\n{body}".strip() if body else t
 
         media = normalize_media_paths(media_paths)

@@ -65,19 +65,20 @@ def preserve_os_focus() -> Iterator[None]:
         yield
     finally:
         if prev is None:
-            return
-        try:
-            time.sleep(0.05)
-            if sys.platform == "win32":
-                import ctypes
-
-                ctypes.windll.user32.SetForegroundWindow(prev)
-            elif sys.platform == "darwin":
-                from binance.cdp_silent import activate_unix_pid
-
-                activate_unix_pid(int(prev))
-        except Exception:
             pass
+        else:
+            try:
+                time.sleep(0.05)
+                if sys.platform == "win32":
+                    import ctypes
+
+                    ctypes.windll.user32.SetForegroundWindow(prev)
+                elif sys.platform == "darwin":
+                    from binance.cdp_silent import activate_unix_pid
+
+                    activate_unix_pid(int(prev))
+            except Exception:
+                pass
 
 
 def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
@@ -95,10 +96,15 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
     ):
         os.environ.pop(var, None)
 
+    addr = debugger_url.strip()
     options = Options()
-    options.add_experimental_option("debuggerAddress", debugger_url.strip())
+    options.add_experimental_option("debuggerAddress", addr)
     driver = webdriver.Chrome(options=options)
-    logger.info("CDP 已连接: %s（不抢焦点）", debugger_url)
+    try:
+        driver._cdp_debugger_url = addr  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    logger.info("CDP 已连接: %s（不抢焦点）", addr)
     return driver
 
 
@@ -235,6 +241,76 @@ def human_pause(a: float = 0.4, b: float = 1.0) -> None:
     time.sleep(max(0.1, a + random.random() * max(0.0, b - a)))
 
 
+def sanitize_typed_text(text: str) -> str:
+    """去掉 Selenium Keys 私用区和控制符，避免广场正文出现 a 这类乱码。"""
+    if not text:
+        return ""
+    # Cmd/Ctrl+A、Backspace 被当成正文插入时的完整序列
+    for meta in ("\ue03d", "\ue009"):  # COMMAND, CONTROL
+        for letter in ("a", "A"):
+            text = text.replace(meta + letter + "\ue003", "")
+            text = text.replace(meta + letter + "\ue017", "")  # DELETE
+            text = text.replace(meta + letter, "")
+        text = text.replace(meta + "\ue010", "")  # END
+    out: list[str] = []
+    for ch in text:
+        o = ord(ch)
+        if 0xE000 <= o <= 0xF8FF:
+            continue
+        if o < 32 and ch not in "\n\t":
+            continue
+        if o in (0x7F, 0x200B, 0x200C, 0x200D, 0xFEFF, 0x00AD):
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+_CLEAR_EDITOR_JS = """
+const el = arguments[0];
+if (!el) return false;
+try { el.click(); } catch (_) {}
+el.focus && el.focus();
+if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+  try { el.select(); } catch (_) {}
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+try {
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  document.execCommand('delete', false, null);
+} catch (_) {}
+const left = String(el.innerText || el.textContent || '').replace(/\\s+/g, '');
+if (left) {
+  try { el.textContent = ''; } catch (_) {}
+}
+el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '' }));
+return true;
+"""
+
+_CARET_END_JS = """
+const el = arguments[0];
+if (!el) return;
+el.focus && el.focus();
+if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+  const len = (el.value || '').length;
+  try { el.setSelectionRange(len, len); } catch (_) {}
+  return;
+}
+const sel = window.getSelection();
+const range = document.createRange();
+range.selectNodeContents(el);
+range.collapse(false);
+sel.removeAllRanges();
+sel.addRange(range);
+"""
+
+
 def type_text_human(
     driver,
     element,
@@ -245,11 +321,10 @@ def type_text_human(
     pause_every: int = 36,
     clear_first: bool = True,
 ) -> None:
-    """逐字输入，模拟人工打字延迟。"""
+    """逐字输入。清空必须走 JS / clear()，禁止把 Cmd+A 等 Selenium Keys 当正文插入。"""
     import random
 
-    from selenium.webdriver.common.keys import Keys
-
+    text = sanitize_typed_text(text)
     if not text:
         return
     try:
@@ -257,39 +332,24 @@ def type_text_human(
     except Exception:
         driver.execute_script("arguments[0].click(); arguments[0].focus();", element)
     human_pause(0.15, 0.35)
-    mod = Keys.COMMAND if sys.platform == "darwin" else Keys.CONTROL
     if clear_first:
+        cleared = False
         try:
-            element.send_keys(mod, "a")
-            element.send_keys(Keys.BACKSPACE)
+            driver.execute_script(_CLEAR_EDITOR_JS, element)
+            cleared = True
         except Exception:
             pass
+        if not cleared:
+            try:
+                element.clear()
+            except Exception:
+                pass
         human_pause(0.08, 0.2)
     else:
         try:
-            driver.execute_script(
-                """
-                const el = arguments[0];
-                el.focus();
-                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-                  const len = (el.value || '').length;
-                  el.setSelectionRange(len, len);
-                  return;
-                }
-                const sel = window.getSelection();
-                const range = document.createRange();
-                range.selectNodeContents(el);
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                """,
-                element,
-            )
+            driver.execute_script(_CARET_END_JS, element)
         except Exception:
-            try:
-                element.send_keys(mod, Keys.END)
-            except Exception:
-                pass
+            pass
         human_pause(0.08, 0.18)
     for i, ch in enumerate(text):
         element.send_keys(ch)

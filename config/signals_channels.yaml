@@ -9,7 +9,7 @@ cards_api:
   enabled: true
   base_url: "http://127.0.0.1:3851"
   path: "/api/v1/cards"
-  api_key: "Gpf123456"  # 默认密钥；环境变量 CARDS_API_KEY 可覆盖
+  api_key: "1dd372b918ddae5188a9a781680"  # 默认密钥；环境变量 CARDS_API_KEY 可覆盖
   # 来源后缀，请求体 source = python-ai-operate:<后缀>，列表信号默认 x
   source: "x"
   # 仅推送 AI 判定为交易信号的卡片
