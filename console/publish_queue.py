@@ -826,9 +826,9 @@ def _run_publish(item_id: str, *, force: bool = False) -> Dict[str, Any]:
         return {"success": False, "error": "发布通道繁忙，请稍后"}
 
     try:
-        from public.index import publish_content
+        from public.index import publish_content_with_retry
 
-        result = publish_content(
+        result = publish_content_with_retry(
             content={
                 "title": snapshot["title"],
                 "content": snapshot["content"],

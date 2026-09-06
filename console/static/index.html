@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260903a" />
+  <link rel="stylesheet" href="/app.css?v=20260906a" />
 </head>
 <body>
   <div class="shell">
@@ -19,12 +19,13 @@
         <div class="signal" aria-hidden="true"></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="功能分区">
-        <button class="tab active" type="button" role="tab" data-tab="signals" aria-selected="true">列表信号 <span class="tab-count" id="countSignals">0</span></button>
+        <button class="tab active" type="button" role="tab" data-tab="signals" aria-selected="true">列表信号 <span class="tab-count" id="countSignals">0</span><span id="sigCycleDot" class="tab-live" hidden title="周期抓取未开启"></span></button>
         <button class="tab" type="button" role="tab" data-tab="realtime" aria-selected="false">资讯预警 <span class="tab-count" id="countRealtime">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="tweetcards" aria-selected="false">推文卡片 <span class="tab-count" id="countTweetCards">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="corpus" aria-selected="false">灵感碰撞 <span class="tab-count" id="countCorpus">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
         <button class="tab" type="button" role="tab" data-tab="publish" aria-selected="false">CDP 发布</button>
+        <button class="tab" type="button" role="tab" data-tab="realtimesend" aria-selected="false">实时发送</button>
       </nav>
       <div class="rail-foot">
         <span id="healthDot" class="dot" aria-hidden="true"></span>
@@ -362,7 +363,10 @@
         </div>
         <div class="form-grid publish-simple">
           <label class="field full">
-            <span>正文 <em class="muted">可粘贴图文（Ctrl/⌘+V）</em></span>
+            <span class="publish-content-label">
+              <span>正文 <em class="muted">可粘贴图文（Ctrl/⌘+V）</em></span>
+              <em id="publishContentCount" class="publish-char-count">0 字</em>
+            </span>
             <textarea id="publishContent" rows="8" placeholder="推文 / 帖子正文… 也可直接粘贴截图"></textarea>
           </label>
           <div class="field full publish-media-field">
@@ -404,6 +408,7 @@
           <button id="btnCacheSave" class="btn ghost" type="button">存草稿</button>
           <button id="btnQueueAdd" class="btn primary" type="button">保存并加入定时队列</button>
           <button id="btnPublish" class="btn primary" type="button">发布</button>
+          <button id="btnPublishClear" class="btn ghost" type="button">清空正文和图片</button>
           <button id="btnQueueRefresh" class="btn ghost" type="button">刷新队列</button>
           <button id="btnQueueClearDone" class="btn ghost" type="button">清理已完成</button>
         </div>
@@ -501,7 +506,7 @@
           </div>
         </div>
         <div class="sig-mode-tabs" role="tablist">
-          <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号</button>
+          <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号 <span id="sigCycleTabMark" class="sig-cycle-mark" hidden>周期</span></button>
           <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">博主回溯</button>
           <button type="button" class="sig-mode-tab" data-sig-mode="value" role="tab" aria-selected="false">价值回归</button>
         </div>
@@ -843,8 +848,89 @@
         </div>
         <div id="tcCards" class="tc-cards"></div>
       </section>
+      </section>
+
+      <!-- ═══ 实时发送面板 ═══ -->
+      <section id="panel-realtimesend" class="panel rt-panel" role="tabpanel" hidden>
+
+        <header class="rt-bar">
+          <div class="rt-bar-left">
+            <h2>实时发送</h2>
+            <span id="rtEventCount" class="rt-badge">0 条待发</span>
+          </div>
+          <div class="rt-bar-right">
+            <label class="field check" style="margin:0">
+              <input id="rtAutoRefresh" type="checkbox" checked />
+              <span>自动刷新</span>
+            </label>
+            <button id="btnRtRefresh" class="btn ghost btn-sm" type="button">刷新数据</button>
+            <button id="btnRtQueue" class="btn ghost btn-sm" type="button" data-action="queue">发送队列 <span id="rtQueueCount" class="rt-badge rt-badge-warn">0</span></button>
+            <button id="btnRtGenImages" class="btn ghost btn-sm" type="button">生成配图</button>
+          </div>
+        </header>
+
+        <div class="rt-layout">
+          <!-- 左侧：事件列表 -->
+          <aside class="rt-col rt-events-col">
+            <div class="rt-toolbar">
+              <select id="rtChannel">
+                <option value="all">全部通道</option>
+                <option value="economy">宏观日历</option>
+                <option value="crypto">币圈事件</option>
+                <option value="hot">热榜</option>
+              </select>
+              <select id="rtMinStar">
+                <option value="0">全部星级</option>
+                <option value="3" selected>≥3星</option>
+                <option value="4">≥4星</option>
+                <option value="5">仅5星</option>
+              </select>
+              <input id="rtKeyword" type="search" placeholder="搜索标题…" />
+            </div>
+            <div id="rtEvents" class="rt-event-list"></div>
+          </aside>
+
+          <!-- 右侧：预览 + 平台选择 -->
+          <section class="rt-col rt-preview-col">
+            <div class="rt-preview" id="rtPreview">
+              <div class="rt-preview-empty">
+                <p>← 左侧选中一条事件</p>
+              </div>
+            </div>
+
+            <div class="rt-platforms" id="rtPlatforms">
+              <p class="muted" style="font-size:.82rem;margin:0 0 6px">发布平台</p>
+              <div class="rt-platform-checks">
+                <label class="field check"><input id="rtPlatBinance" type="checkbox" checked /><span>币安广场</span></label>
+                <label class="field check"><input id="rtPlatOkx" type="checkbox" checked /><span>OKX 星球</span></label>
+                <label class="field check"><input id="rtPlatX" type="checkbox" /><span>X</span></label>
+              </div>
+            </div>
+
+            <div class="rt-actions">
+              <button id="btnRtAddToQueue" class="btn primary" type="button" disabled>+ 加入发送队列</button>
+              <button id="btnRtRemoveFromQueue" class="btn ghost btn-sm" type="button" disabled>移出队列</button>
+            </div>
+
+            <div class="rt-queue-panel" id="rtQueuePanel" hidden>
+              <div class="rt-queue-head">
+                <h3>发送队列</h3>
+                <button id="btnRtQueueClose" type="button" class="btn-link">收起</button>
+              </div>
+              <div id="rtQueueList" class="rt-queue-list"></div>
+              <div class="rt-queue-actions">
+                <button id="btnRtStartSchedule" class="btn primary btn-sm" type="button" disabled>开始定时发送</button>
+                <button id="btnRtClearQueue" class="btn ghost btn-sm" type="button">清空队列</button>
+              </div>
+              <div id="rtScheduleLog" class="rt-schedule-log"></div>
+            </div>
+          </section>
+        </div>
+
+      </section>
+
     </main>
   </div>
-  <script src="/app.js?v=20260902b"></script>
+  <script src="/app.js?v=20260906a"></script>
 </body>
 </html>

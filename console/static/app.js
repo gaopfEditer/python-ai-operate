@@ -244,6 +244,7 @@ const APP_MAIN_TABS = [
   "corpus",
   "create",
   "publish",
+  "realtimesend",
 ];
 
 /** CDP 发布页展示顺序与默认全选 */
@@ -790,6 +791,11 @@ function switchTab(name) {
     loadPublishPlatforms(loadPublishPrefs().platforms || undefined);
     restorePublishPrefsFields();
     restorePublishWorkbenchMode();
+  }
+  if (name === "realtimesend") {
+    rtLoadState();
+    rtBindEvents();
+    rtFetchEvents();
   }
 }
 
@@ -2386,6 +2392,7 @@ async function labSendToPublish(draft) {
   }
   state.lastCreate = { title: "", content: d.content, path: "" };
   if ($("#publishContent")) $("#publishContent").value = d.content;
+  updatePublishContentCount();
   if (d.media_paths?.length) {
     publishServerMediaPaths = [...d.media_paths];
     publishServerMediaRels = [];
@@ -3918,6 +3925,16 @@ function loadPublishPrefs() {
   }
 }
 
+function publishContentCharCount(s) {
+  return Array.from(String(s || "")).length;
+}
+
+function updatePublishContentCount() {
+  const n = publishContentCharCount($("#publishContent")?.value || "");
+  const box = $("#publishContentCount");
+  if (box) box.textContent = `${n} 字`;
+}
+
 function savePublishPrefs(patch) {
   try {
     const cur = loadPublishPrefs();
@@ -3949,6 +3966,7 @@ function restorePublishPrefsFields() {
   if (p.content != null && $("#publishContent")) $("#publishContent").value = p.content;
   restorePublishMediaItems(p.mediaFiles);
   renderMediaPreview();
+  updatePublishContentCount();
   return Array.isArray(p.platforms) ? p.platforms : null;
 }
 
@@ -3961,7 +3979,10 @@ function bindPublishPrefsAutosave() {
     timer = setTimeout(snapshotPublishPrefs, 280);
   };
   $("#debuggerUrl")?.addEventListener("input", queue);
-  $("#publishContent")?.addEventListener("input", queue);
+  $("#publishContent")?.addEventListener("input", () => {
+    updatePublishContentCount();
+    queue();
+  });
   $("#publishScheduleAt")?.addEventListener("change", queue);
   $("#useCdp")?.addEventListener("change", queue);
   $("#publishDryRun")?.addEventListener("change", queue);
@@ -4177,35 +4198,68 @@ function formatPublishStepSummary(results) {
     .map((r) => {
       const name = r.name || publishPlatformLabel(r.platform);
       if (r.success) return `${name} ✓`;
-      const err = r.error ? ` (${String(r.error).slice(0, 24)})` : "";
-      return `${name} ✗${err}`;
+      const err = r.error ? ` (${String(r.error).slice(0, 80)})` : "";
+      const att = r.attempts > 1 ? ` 已试${r.attempts}次` : "";
+      return `${name} ✗${att}${err}`;
     })
     .join(" · ");
 }
 
-function renderPublishProgress({ phase, index, total, name, results }) {
+function formatPublishCountdown(sec) {
+  const s = Math.max(0, Math.ceil(Number(sec) || 0));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function renderPublishProgress({
+  phase,
+  index,
+  total,
+  name,
+  results,
+  retry,
+  retryMax,
+  waitLeft,
+  retryNames,
+}) {
   const box = $("#publishProgress");
   if (!box) return;
   box.hidden = false;
   const done = (results || []).length;
   const pct = total ? Math.round((Math.max(0, index - (phase === "running" ? 1 : 0)) / total) * 100) : 0;
-  const barPct = phase === "running" ? Math.round(((index - 1) / total) * 100 + 50 / total) : 100;
+  const barPct =
+    phase === "retry_wait"
+      ? Math.max(8, 100 - Math.round(((waitLeft || 0) / (5 * 60)) * 40))
+      : phase === "running"
+        ? Math.round(((index - 1) / total) * 100 + 50 / total)
+        : 100;
   const rows = (results || [])
     .map((r) => {
       const label = r.name || publishPlatformLabel(r.platform);
-      const cls = r.success ? "done" : "failed";
-      const mark = r.success ? "✓" : "✗";
-      return `<li class="publish-step ${cls}"><span>${escapeHtml(label)}</span><em>${mark}</em></li>`;
+      const waiting = phase === "retry_wait" && !r.success;
+      const cls = r.success ? "done" : waiting ? "retrying" : "failed";
+      const mark = r.success ? "✓" : waiting ? "…" : "✗";
+      const bits = [];
+      if (r.attempts > 1) bits.push(`第 ${r.attempts} 次`);
+      if (!r.success && r.error) bits.push(String(r.error).slice(0, 140));
+      const extra = bits.length ? `<small>${escapeHtml(bits.join(" · "))}</small>` : "";
+      return `<li class="publish-step ${cls}"><span>${escapeHtml(label)}${extra}</span><em>${mark}</em></li>`;
     })
     .join("");
   const current =
     phase === "running" && name
       ? `<li class="publish-step running"><span>${escapeHtml(name)}</span><em>…</em></li>`
       : "";
+  let head = `已完成 ${done}/${total}`;
+  if (phase === "running") head = `正在发布 ${index}/${total}`;
+  if (phase === "retry_wait") {
+    head = `${retryNames || "失败平台"} · ${retry}/${retryMax} 次重试倒计时 ${formatPublishCountdown(waitLeft)}`;
+  }
   box.innerHTML = `
     <div class="publish-progress-head">
-      <span>${phase === "running" ? `正在发布 ${index}/${total}` : `已完成 ${done}/${total}`}</span>
-      <span class="muted">${pct}%</span>
+      <span>${escapeHtml(head)}</span>
+      <span class="muted">${phase === "retry_wait" ? "等待重试" : `${pct}%`}</span>
     </div>
     <div class="publish-progress-bar"><i style="width:${Math.min(100, barPct)}%"></i></div>
     <ul class="publish-progress-steps">${rows}${current}</ul>`;
@@ -4216,6 +4270,54 @@ function clearPublishProgress() {
   if (!box) return;
   box.hidden = true;
   box.innerHTML = "";
+}
+
+const PUBLISH_RETRY_MAX = 5;
+const PUBLISH_RETRY_WAIT_MIN_MS = 3 * 60 * 1000;
+const PUBLISH_RETRY_WAIT_MAX_MS = 5 * 60 * 1000;
+
+function publishRetryDelayMs() {
+  return (
+    PUBLISH_RETRY_WAIT_MIN_MS +
+    Math.floor(Math.random() * (PUBLISH_RETRY_WAIT_MAX_MS - PUBLISH_RETRY_WAIT_MIN_MS + 1))
+  );
+}
+
+async function sleepPublishRetry(ms, onTick) {
+  const end = Date.now() + Math.max(0, ms);
+  while (Date.now() < end) {
+    const left = end - Date.now();
+    onTick?.(Math.ceil(left / 1000));
+    await new Promise((r) => setTimeout(r, Math.min(1000, Math.max(0, left))));
+  }
+}
+
+async function postPublishPlatform({ pid, name, base, stagedMediaPaths, media_files }) {
+  const data = await api("/api/publish", {
+    method: "POST",
+    body: JSON.stringify({
+      ...base,
+      platforms: [pid],
+      media_paths: stagedMediaPaths,
+      media_files: stagedMediaPaths.length ? [] : media_files,
+    }),
+  });
+  const nextPaths = data.media_paths?.length ? data.media_paths : stagedMediaPaths;
+  const row = data.results?.[0] || {
+    platform: pid,
+    platform_name: name,
+    success: !!data.success,
+    error: data.error,
+  };
+  return {
+    stagedMediaPaths: nextPaths,
+    result: {
+      platform: pid,
+      name: row.platform_name || name,
+      success: !!row.success,
+      error: row.error || (row.success ? "" : data.error),
+    },
+  };
 }
 
 async function publishNowViaCdp(onProgress) {
@@ -4241,51 +4343,87 @@ async function publishNowViaCdp(onProgress) {
   };
   const stepResults = [];
   let stagedMediaPaths = [...initialPaths];
-  for (let i = 0; i < platforms.length; i++) {
-    const pid = platforms[i];
+
+  const runOne = async (pid, attempt) => {
     const name = publishPlatformLabel(pid);
+    const label = attempt > 1 ? `${name}（重试 ${attempt - 1}/${PUBLISH_RETRY_MAX}）` : name;
+    const idx = platforms.indexOf(pid) + 1;
     onProgress?.({
       phase: "running",
-      index: i + 1,
+      index: idx || stepResults.length + 1,
       total: platforms.length,
       platform: pid,
-      name,
+      name: label,
       results: stepResults,
     });
-    setStatus($("#publishStatus"), `正在发布 (${i + 1}/${platforms.length}) ${name}…`);
-    const data = await api("/api/publish", {
-      method: "POST",
-      body: JSON.stringify({
-        ...base,
-        platforms: [pid],
-        media_paths: stagedMediaPaths,
-        media_files: stagedMediaPaths.length ? [] : media_files,
-      }),
+    setStatus(
+      $("#publishStatus"),
+      attempt > 1
+        ? `第 ${attempt - 1}/${PUBLISH_RETRY_MAX} 次重试 ${name}…`
+        : `正在发布 (${idx}/${platforms.length}) ${name}…`
+    );
+    const posted = await postPublishPlatform({
+      pid,
+      name,
+      base,
+      stagedMediaPaths,
+      media_files,
     });
-    if (data.media_paths?.length) {
-      stagedMediaPaths = data.media_paths;
-    }
-    const row = data.results?.[0] || {
-      platform: pid,
-      platform_name: name,
-      success: !!data.success,
-      error: data.error,
+    stagedMediaPaths = posted.stagedMediaPaths;
+    const prev = stepResults.find((r) => r.platform === pid);
+    const row = {
+      ...posted.result,
+      attempts: (prev?.attempts || 0) + 1,
     };
-    stepResults.push({
-      platform: pid,
-      name: row.platform_name || name,
-      success: !!row.success,
-      error: row.error || (row.success ? "" : data.error),
-    });
+    if (prev) {
+      Object.assign(prev, row);
+    } else {
+      stepResults.push(row);
+    }
     onProgress?.({
       phase: row.success ? "done" : "fail",
-      index: i + 1,
+      index: idx || stepResults.length,
       total: platforms.length,
       platform: pid,
       name,
       results: stepResults,
     });
+    return row;
+  };
+
+  for (let i = 0; i < platforms.length; i++) {
+    await runOne(platforms[i], 1);
   }
+
+  if (!dry) {
+    for (let retry = 1; retry <= PUBLISH_RETRY_MAX; retry++) {
+      const failed = stepResults.filter((r) => !r.success);
+      if (!failed.length) break;
+      const names = failed.map((r) => r.name).join("、");
+      const waitMs = publishRetryDelayMs();
+      await sleepPublishRetry(waitMs, (leftSec) => {
+        setStatus(
+          $("#publishStatus"),
+          `${names} 失败，${retry}/${PUBLISH_RETRY_MAX} 次重试将在 ${formatPublishCountdown(leftSec)} 后开始…`
+        );
+        onProgress?.({
+          phase: "retry_wait",
+          index: platforms.length,
+          total: platforms.length,
+          retry,
+          retryMax: PUBLISH_RETRY_MAX,
+          waitLeft: leftSec,
+          retryNames: names,
+          results: stepResults,
+        });
+      });
+      for (const row of failed) {
+        if (stepResults.find((r) => r.platform === row.platform)?.success) continue;
+        await runOne(row.platform, retry + 1);
+      }
+    }
+  }
+
   const success_count = stepResults.filter((r) => r.success).length;
   return {
     success: success_count > 0,
@@ -4358,6 +4496,7 @@ function clearPublishEditorKeepMeta() {
   const input = $("#publishMediaFiles");
   if (input) input.value = "";
   renderMediaPreview();
+  updatePublishContentCount();
   resetPublishScheduleDefault();
   snapshotPublishPrefs();
 }
@@ -4541,6 +4680,7 @@ async function loadQueueItemIntoPublishEditor(it, { switchMode = true } = {}) {
   if (switchMode) applyPublishWorkbenchMode("publish");
   if ($("#publishTitle")) $("#publishTitle").value = it.title || "";
   if ($("#publishContent")) $("#publishContent").value = it.content || "";
+  updatePublishContentCount();
   if ($("#publishTags")) $("#publishTags").value = it.tags || "";
   if ($("#publishSeriesNote") && it.series_note) {
     $("#publishSeriesNote").value = it.series_note;
@@ -5128,6 +5268,7 @@ function bind() {
       return;
     }
     $("#publishContent").value = state.lastCreate.content;
+    updatePublishContentCount();
     switchTab("publish");
   });
 
@@ -5143,7 +5284,15 @@ function bind() {
     }
     $("#publishTitle").value = data.title || "";
     $("#publishContent").value = data.content || "";
+    updatePublishContentCount();
     setStatus($("#publishStatus"), `已载入 ${path}`, "ok");
+  });
+
+  $("#btnPublishClear")?.addEventListener("click", () => {
+    clearPublishEditorKeepMeta();
+    clearPublishProgress();
+    setStatus($("#publishStatus"), "已清空正文和图片", "ok");
+    toast("已清空正文和图片", "ok");
   });
 
   $("#btnPublish").addEventListener("click", async () => {
@@ -5173,14 +5322,16 @@ function bind() {
           total,
           results: data.results,
         });
+        const failN = (data.results || []).filter((r) => !r.success).length;
+        const allOk = total > 0 && failN === 0 && okN === total;
         setStatus(
           $("#publishStatus"),
-          data.success
+          allOk
             ? `发布完成 ${okN}/${total}${detail ? ` · ${detail}` : ""}`
-            : detail || data.error || "发布失败",
-          data.success ? "ok" : "error"
+            : `${detail || data.error || "发布失败"} · 正文和图片已保留`,
+          allOk ? "ok" : "error"
         );
-        if (data.success) clearPublishEditorKeepMeta();
+        if (allOk) clearPublishEditorKeepMeta();
       } else {
         const it = result.data.item || {};
         const when = it.scheduled_at || $("#publishScheduleAt")?.value || "";
@@ -5194,7 +5345,7 @@ function bind() {
         await loadPublishCache();
       }
     } catch (e) {
-      setStatus($("#publishStatus"), String(e), "error");
+      setStatus($("#publishStatus"), `${String(e)} · 正文和图片已保留`, "error");
     } finally {
       $("#btnPublish").disabled = false;
     }
@@ -5357,6 +5508,7 @@ function bind() {
           .trim();
         $("#publishTitle").value = title;
         $("#publishContent").value = body;
+        updatePublishContentCount();
         setStatus($("#publishStatus"), `已载入 ${rel}`, "ok");
       }
     } catch (e) {
@@ -5835,6 +5987,8 @@ async function loadSignalsPanel() {
     renderSigSchedule(data.schedule || [], data.watch || {}, data.daily_estimate || {});
     renderSigCycle(data.cycle || {}, cfg);
     updateSigCycleButton(data.cycle || {}, cfg);
+    updateSigCycleLiveUi(data.cycle || {});
+    ensureSigCyclePoller(!!(data.cycle?.cycle_enabled ?? cfg.cycle_enabled));
     const ch = data.channels || {};
     const hint = $("#sigChannelsHint");
     if (hint) {
@@ -6832,6 +6986,84 @@ function updateSigCycleButton(cycle, cfg) {
   btn.classList.toggle("ghost", on);
 }
 
+function updateSigCycleLiveUi(cycle) {
+  const on = !!(cycle?.cycle_enabled);
+  const running = !!cycle?.running;
+  const tab = document.querySelector('.sig-mode-tab[data-sig-mode="list"]');
+  if (tab) tab.classList.toggle("is-cycling", on);
+  const mark = $("#sigCycleTabMark");
+  if (mark) {
+    mark.hidden = !on;
+    mark.textContent = running ? "抓取中" : "周期";
+  }
+  const dot = $("#sigCycleDot");
+  if (dot) {
+    dot.hidden = !on;
+    dot.classList.toggle("is-running", running);
+    dot.title = on
+      ? (running ? "周期抓取中 · 正在抓取 X 列表" : "周期抓取已开启 · 后台等待下一轮")
+      : "周期抓取未开启";
+  }
+}
+
+let _sigCyclePollTimer = null;
+let _sigCycleLastRunAt = "";
+let _sigCyclePollBusy = false;
+
+function ensureSigCyclePoller(enabled) {
+  if (!enabled) {
+    if (_sigCyclePollTimer) {
+      clearInterval(_sigCyclePollTimer);
+      _sigCyclePollTimer = null;
+    }
+    updateSigCycleLiveUi({ cycle_enabled: false, running: false });
+    return;
+  }
+  if (_sigCyclePollTimer) return;
+  _sigCyclePollTimer = setInterval(() => {
+    pollSigCycleInBackground();
+  }, 8000);
+  pollSigCycleInBackground();
+}
+
+async function pollSigCycleInBackground() {
+  if (_sigCyclePollBusy) return;
+  _sigCyclePollBusy = true;
+  try {
+    const data = await api("/api/signals/cycle");
+    const cycle = data.cycle || {};
+    const on = !!cycle.cycle_enabled;
+    updateSigCycleButton(cycle, { cycle_enabled: on, last_crawl_at: cycle.last_crawl_at });
+    renderSigCycle(cycle, { cycle_enabled: on, last_crawl_at: cycle.last_crawl_at });
+    updateSigCycleLiveUi(cycle);
+    if (!on) {
+      ensureSigCyclePoller(false);
+      return;
+    }
+    const last = String(cycle.last_run_at || cycle.last_crawl_at || "");
+    const finishedNewRound = last && last !== _sigCycleLastRunAt;
+    if (finishedNewRound) {
+      _sigCycleLastRunAt = last;
+      try {
+        const cfgData = await api("/api/signals/config");
+        const count = cfgData.card_count || 0;
+        const badge = $("#countSignals");
+        if (badge) badge.textContent = String(count);
+        const onSignals = $("#panel-signals") && !$("#panel-signals").hidden;
+        if (onSignals && state.sigMode === "list") {
+          await loadSignalCards();
+        }
+      } catch (_) {
+        /* 后台刷新失败不影响下一轮抓取 */
+      }
+    }
+  } catch (_) {
+    /* 切 tab 后仍继续轮询 */
+  } finally {
+    _sigCyclePollBusy = false;
+  }
+}
+
 async function toggleSigCycle() {
   const btn = $("#btnSigCycle");
   if (btn) btn.disabled = true;
@@ -6854,7 +7086,14 @@ async function toggleSigCycle() {
     const cycle = data.cycle || {};
     updateSigCycleButton(cycle, { cycle_enabled: cycle.cycle_enabled });
     renderSigCycle(cycle, { cycle_enabled: cycle.cycle_enabled, last_crawl_at: cycle.last_crawl_at });
-    toast(cycle.cycle_enabled ? "周期抓取已开启（5–15 分钟）" : "周期抓取已关闭", "ok");
+    updateSigCycleLiveUi(cycle);
+    ensureSigCyclePoller(!!cycle.cycle_enabled);
+    toast(
+      cycle.cycle_enabled
+        ? "周期抓取已开启：切到其他 Tab 也会在后台继续，直到手动关闭"
+        : "周期抓取已关闭",
+      "ok"
+    );
   } catch (e) {
     toast(String(e), "error");
   } finally {
@@ -6982,11 +7221,12 @@ async function saveSignalsConfig() {
       const cfg = data.config || {};
       let msg = "配置已保存";
       if (cfg.watch_enabled) msg += " · 分时监听已开";
-      if (cfg.cycle_enabled) msg += " · 周期抓取已开";
+      if (cfg.cycle_enabled) msg += " · 周期抓取已开（后台持续）";
       toast(msg, "ok");
       if (data.config?.list_url && $("#sigListUrl")) {
         $("#sigListUrl").value = data.config.list_url;
       }
+      ensureSigCyclePoller(!!cfg.cycle_enabled);
       await loadSignalsPanel();
     } else toast(data.error || "保存失败", "error");
   } catch (e) {
@@ -7992,6 +8232,478 @@ async function boot() {
     const panel = $("#panel-realtime");
     if (panel && !panel.hidden) loadRealtimePanel();
   }, 45000);
+  // 周期抓取与当前 Tab 无关：只要已开启就在后台轮询状态
+  try {
+    const data = await api("/api/signals/cycle");
+    const cycle = data.cycle || {};
+    updateSigCycleLiveUi(cycle);
+    ensureSigCyclePoller(!!cycle.cycle_enabled);
+  } catch (_) {
+    /* 启动时接口未就绪则等进入列表信号面板再挂 */
+  }
+}
+
+/* ══════════════════════════════════════════
+   实时发送
+══════════════════════════════════════════ */
+const RT_STATE = {
+  events: [],
+  queue: [],
+  selectedId: null,
+  scheduleRunning: false,
+  scheduleTimer: null,
+  autoRefreshTimer: null,
+};
+
+function rtLoadState() {
+  try {
+    const raw = localStorage.getItem("pai_rt_queue");
+    if (raw) RT_STATE.queue = JSON.parse(raw);
+  } catch (_) { RT_STATE.queue = []; }
+}
+function rtPersistQueue() {
+  localStorage.setItem("pai_rt_queue", JSON.stringify(RT_STATE.queue));
+  updateRtQueueBadge();
+}
+
+async function rtFetchEvents() {
+  const channel = $("#rtChannel")?.value || "all";
+  const minStar = parseInt($("#rtMinStar")?.value || "0", 10);
+  const kw = ($("#rtKeyword")?.value || "").trim().toLowerCase();
+  try {
+    const data = await api(`/api/realtime/events?channel=${channel}&min_star=${minStar}`);
+    let items = Array.isArray(data.items) ? data.items : [];
+    if (kw) items = items.filter(
+      (it) => (it.title || "").toLowerCase().includes(kw) ||
+               (it.description || "").toLowerCase().includes(kw)
+    );
+    RT_STATE.events = items;
+    rtRenderEventList();
+    updateRtEventCount(items.length);
+  } catch (e) {
+    console.error("rtFetchEvents", e);
+  }
+}
+
+function updateRtEventCount(n) {
+  const el = $("#rtEventCount");
+  if (el) el.textContent = `${n} 条待发`;
+}
+
+function rtRenderEventList() {
+  const container = $("#rtEvents");
+  if (!container) return;
+  container.innerHTML = "";
+  const queueIds = new Set(RT_STATE.queue.filter(q => q.status === "pending").map(q => q.id));
+  for (const it of RT_STATE.events) {
+    const inQueue = queueIds.has(it.id);
+    const selected = it.id === RT_STATE.selectedId;
+    const el = document.createElement("div");
+    el.className = [
+      "rt-event-item",
+      selected ? "selected" : "",
+      inQueue ? "in-queue" : "",
+    ].filter(Boolean).join(" ");
+    el.setAttribute("data-id", it.id);
+
+    const starStr = "★".repeat(it.star || 0);
+    const biasLabel = it.bias_label || "";
+    const biasClass = biasLabel === "利好" ? "evt-bias-bull"
+                    : biasLabel === "利空" ? "evt-bias-bear"
+                    : "evt-bias-neu";
+    const catName = it.category?.name || it.category_id || "";
+    const timeStr = it.publish_at ? new Date(it.publish_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+
+    const imgPath = RT_STATE.queue.find(q => q.id === it.id)?.image_path;
+
+    el.innerHTML = `
+      <div class="evt-meta">
+        ${starStr ? `<span class="evt-star">${starStr}</span>` : ""}
+        ${catName ? `<span class="evt-cat">${catName}</span>` : ""}
+        ${biasLabel ? `<span class="${biasClass}">${biasLabel}</span>` : ""}
+        ${timeStr ? `<span class="evt-time">${timeStr}</span>` : ""}
+      </div>
+      <p class="evt-title">${escHtml(it.title || "")}</p>
+      ${it.description ? `<p class="evt-desc">${escHtml(it.description || "")}</p>` : ""}
+      ${imgPath
+        ? `<img class="evt-img" src="file://${escAttr(imgPath)}" alt="配图" loading="lazy" />`
+        : `<div class="evt-img-placeholder"></div>`
+      }
+    `;
+    el.addEventListener("click", () => rtSelectEvent(it.id));
+    container.appendChild(el);
+  }
+}
+
+function rtSelectEvent(id) {
+  RT_STATE.selectedId = id;
+  rtRenderEventList();
+  rtRenderPreview();
+  updateRtAddBtn();
+}
+
+function rtRenderPreview() {
+  const panel = $("#rtPreview");
+  if (!panel) return;
+  const it = RT_STATE.events.find(e => e.id === RT_STATE.selectedId);
+  const q = RT_STATE.queue.find(q => q.id === RT_STATE.selectedId);
+
+  if (!it) {
+    panel.innerHTML = `<div class="rt-preview-empty"><p>← 左侧选中一条事件</p></div>`;
+    return;
+  }
+
+  const summary = q?.summary || it.description || "";
+  const imgPath = q?.image_path || "";
+  const biasLabel = it.bias_label || "";
+  const catName = it.category?.name || "";
+  const starStr = "★".repeat(it.star || 0);
+  const timeStr = it.publish_at ? new Date(it.publish_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai", month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+
+  panel.innerHTML = `
+    <div class="rt-preview-meta">
+      ${starStr ? `<span class="evt-star">${starStr}</span>` : ""}
+      ${catName ? `<span class="evt-cat">${catName}</span>` : ""}
+      ${biasLabel ? `<span>${biasLabel}</span>` : ""}
+      ${timeStr ? `<span class="evt-time">${timeStr}</span>` : ""}
+      ${it.source ? `<span style="font-size:.72rem;color:var(--muted)">${escHtml(it.source)}</span>` : ""}
+    </div>
+    <h3 class="rt-preview-title">${escHtml(it.title || "")}</h3>
+    <textarea id="rtSummaryEdit" class="rt-summary-edit" rows="4" placeholder="摘要（可手动编辑）…">${escHtml(summary)}</textarea>
+    ${imgPath
+      ? `<img class="rt-preview-img" src="file://${escAttr(imgPath)}" alt="配图" />`
+      : `<div class="rt-preview-img-loading" id="rtImgLoading">暂无配图（可点击「生成配图」）</div>`
+    }
+  `;
+
+  // Sync summary edits
+  const ta = $("#rtSummaryEdit");
+  if (ta) {
+    ta.addEventListener("input", () => {
+      const q = RT_STATE.queue.find(q => q.id === RT_STATE.selectedId);
+      if (q) { q.summary = ta.value; rtPersistQueue(); }
+    });
+  }
+
+  updateRtAddBtn();
+}
+
+function updateRtAddBtn() {
+  const btn = $("#btnRtAddToQueue");
+  const remBtn = $("#btnRtRemoveFromQueue");
+  const id = RT_STATE.selectedId;
+  const inQueue = RT_STATE.queue.some(q => q.id === id && q.status === "pending");
+  if (btn) btn.disabled = !id || inQueue;
+  if (remBtn) remBtn.disabled = !inQueue;
+}
+
+function updateRtQueueBadge() {
+  const n = RT_STATE.queue.filter(q => q.status === "pending").length;
+  const el = $("#rtQueueCount");
+  if (el) el.textContent = n;
+}
+
+function rtAddToQueue() {
+  const it = RT_STATE.events.find(e => e.id === RT_STATE.selectedId);
+  if (!it) return;
+  const summary = $("#rtSummaryEdit")?.value || it.description || "";
+  const imgPath = RT_STATE.queue.find(q => q.id === it.id)?.image_path || "";
+  // 计算优先级
+  const priority = (it.star || 0) * 100 + (it.category?.star || 0) * 10 + (it.publish_at ? -new Date(it.publish_at).getTime() / 1000 : 0);
+  RT_STATE.queue = RT_STATE.queue.filter(q => q.id !== it.id);
+  RT_STATE.queue.push({
+    id: it.id,
+    title: it.title,
+    category_id: it.category_id,
+    category_name: it.category?.name || "",
+    star: it.star || 0,
+    bias: it.bias || "",
+    bias_label: it.bias_label || "",
+    source: it.source || "",
+    url: it.url || "",
+    publish_at: it.publish_at,
+    summary,
+    image_path: imgPath,
+    status: "pending",
+    priority,
+    created_at: Date.now(),
+    sent_at: null,
+    error: null,
+  });
+  RT_STATE.queue.sort((a, b) => b.priority - a.priority);
+  rtPersistQueue();
+  rtRenderEventList();
+  rtRenderQueueList();
+  updateRtAddBtn();
+}
+
+function rtRemoveFromQueue() {
+  const id = RT_STATE.selectedId;
+  RT_STATE.queue = RT_STATE.queue.filter(q => q.id !== id);
+  rtPersistQueue();
+  rtRenderEventList();
+  rtRenderQueueList();
+  updateRtAddBtn();
+}
+
+function rtRenderQueueList() {
+  const container = $("#rtQueueList");
+  if (!container) return;
+  container.innerHTML = "";
+  const pending = RT_STATE.queue.filter(q => q.status === "pending");
+  if (!pending.length) {
+    container.innerHTML = '<p class="muted" style="font-size:.8rem;padding:8px">队列为空</p>';
+    return;
+  }
+  pending.forEach((q, idx) => {
+    const el = document.createElement("div");
+    el.className = `rt-queue-item ${q.status}`;
+    el.setAttribute("data-id", q.id);
+    el.style.cursor = "pointer";
+    el.innerHTML = `
+      <span class="qi-rank">${idx + 1}</span>
+      <div class="qi-body">
+        <div class="qi-title">${escHtml(q.title || "")}</div>
+        <div class="qi-meta">
+          ${q.category_name ? `<span class="evt-cat">${escHtml(q.category_name)}</span>` : ""}
+          ${q.image_path ? '<span style="font-size:.7rem;color:var(--teal)">🖼 已配图</span>' : '<span style="font-size:.7rem;color:var(--muted)">无配图</span>'}
+        </div>
+      </div>
+      ${q.image_path ? `<img class="qi-img-thumb" src="file://${escAttr(q.image_path)}" alt="" />` : ""}
+    `;
+    el.addEventListener("click", () => {
+      RT_STATE.selectedId = q.id;
+      rtRenderEventList();
+      rtRenderPreview();
+      updateRtAddBtn();
+    });
+    container.appendChild(el);
+  });
+}
+
+function rtClearQueue() {
+  RT_STATE.queue = RT_STATE.queue.filter(q => q.status !== "pending");
+  rtPersistQueue();
+  rtRenderQueueList();
+  rtRenderEventList();
+  updateRtAddBtn();
+}
+
+async function rtGenImages() {
+  const id = RT_STATE.selectedId;
+  const q = RT_STATE.queue.find(q => q.id === id);
+  if (!q) return;
+  if (!q.summary && !q.title) { toast("请先生成摘要", "warn"); return; }
+  const btn = $("#btnRtGenImages");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/realtime/gen-image", {
+      method: "POST",
+      body: JSON.stringify({ id: q.id, title: q.title, content: q.summary || q.title }),
+    });
+    if (r.success && r.path) {
+      q.image_path = r.path;
+      rtPersistQueue();
+      rtRenderEventList();
+      rtRenderPreview();
+      rtRenderQueueList();
+      toast("配图生成完成", "ok");
+    } else {
+      toast(r.error || "配图生成失败", "error");
+    }
+  } catch (e) {
+    toast("配图生成失败: " + e, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function rtStartSchedule() {
+  if (RT_STATE.scheduleRunning) {
+    rtStopSchedule();
+    return;
+  }
+  RT_STATE.scheduleRunning = true;
+  const btn = $("#btnRtStartSchedule");
+  if (btn) { btn.textContent = "停止发送"; btn.classList.remove("primary"); btn.classList.add("danger"); }
+  const logEl = $("#rtScheduleLog");
+  const addLog = (msg) => {
+    if (logEl) {
+      const ts = new Date().toLocaleTimeString("zh-CN");
+      logEl.textContent += `[${ts}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  };
+  const pending = () => RT_STATE.queue.filter(q => q.status === "pending");
+  const platforms = {
+    binance: $("#rtPlatBinance")?.checked,
+    okx: $("#rtPlatOkx")?.checked,
+    x: $("#rtPlatX")?.checked,
+  };
+  addLog(`定时发送开始，平台: ${Object.entries(platforms).filter(([,v])=>v).map(([k])=>k).join(", ") || "无"}`);
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // 模拟真实人类发推时间窗口
+  const HUMAN_WINDOWS = [
+    {hour:9,  jitter:30},
+    {hour:10, jitter:30},
+    {hour:11, jitter:30},
+    {hour:13, jitter:30},
+    {hour:14, jitter:30},
+    {hour:17, jitter:30},
+    {hour:18, jitter:30},
+    {hour:19, jitter:30},
+    {hour:22, jitter:30},
+    {hour:23, jitter:30},
+  ];
+
+  const now = () => new Date();
+  const shanghaiTz = () => now().toLocaleString("zh-CN", {timeZone:"Asia/Shanghai", hour:"numeric", minute:"numeric", second:"numeric", year:"numeric", month:"2-digit", day:"2-digit"});
+  const msUntilSlot = (slotHour) => {
+    const next = new Date(now());
+    next.setHours(slotHour, Math.floor(Math.random() * 30), 0, 0);
+    if (next <= now()) next.setDate(next.getDate() + 1);
+    // 随机偏移 ±jitter 分钟
+    const jitter = (Math.random() - 0.5) * 2 * (HUMAN_WINDOWS.find(w => w.hour === slotHour)?.jitter || 30) * 60 * 1000;
+    return Math.max(0, next.getTime() - now().getTime() + jitter);
+  };
+
+  const sleepUntilNextSlot = async () => {
+    const upcoming = HUMAN_WINDOWS
+      .map(w => ({...w, ms: msUntilSlot(w.hour)}))
+      .filter(w => w.ms > 0)
+      .sort((a, b) => a.ms - b.ms);
+    if (!upcoming.length) return sleep(30 * 60 * 1000);
+    const next = upcoming[0];
+    addLog(`下次发送窗口: ${next.hour}点 (约 ${Math.round(next.ms/60000)} 分钟后)`);
+    await sleep(Math.min(next.ms, 5 * 60 * 1000)); // 最多等5分钟检查
+  };
+
+  const _PUBLISH_PLATFORMS = {
+    binance_square: { plat: "binance_square", label: "币安广场", okx: false },
+    okx:            { plat: "okx",            label: "OKX星球",  okx: true  },
+    x_cdp:          { plat: "x-cdp",         label: "X",        okx: false },
+  };
+
+  const sendOne = async (item) => {
+    const summary = item.summary || item.title || "";
+    let finalText = summary;
+    const activePlatforms = Object.entries(platforms).filter(([,v]) => v).map(([k]) => k);
+
+    for (const platKey of activePlatforms) {
+      const cfg = _PUBLISH_PLATFORMS[platKey];
+      if (!cfg) continue;
+      // OKX 限制 500 字
+      let text = finalText;
+      if (platKey === "okx" && text.length > 480) {
+        text = text.slice(0, 477) + "…";
+        addLog(`[${cfg.label}] 摘要至500字`);
+      }
+      addLog(`→ 发送至 ${cfg.label}: "${text.slice(0, 40)}…"`);
+      try {
+        const r = await api("/api/realtime/publish-one", {
+          method: "POST",
+          body: JSON.stringify({
+            platform: cfg.plat,
+            text,
+            image_path: item.image_path || null,
+          }),
+        });
+        if (r.success) {
+          addLog(`✓ ${cfg.label} 发送成功`);
+        } else {
+          addLog(`✗ ${cfg.label}: ${r.error || "失败"}`);
+        }
+      } catch (e) {
+        addLog(`✗ ${cfg.label} 异常: ${e}`);
+      }
+      await sleep(800 + Math.random() * 1200);
+    }
+  };
+
+  while (RT_STATE.scheduleRunning) {
+    const items = pending();
+    if (!items.length) {
+      addLog("队列已空，停止");
+      break;
+    }
+    await sleepUntilNextSlot();
+    if (!RT_STATE.scheduleRunning) break;
+    const item = pending()[0];
+    if (!item) break;
+    try {
+      await sendOne(item);
+      item.status = "sent";
+      item.sent_at = Date.now();
+      addLog(`✓ 已发送: "${item.title?.slice(0, 30)}"`);
+    } catch (e) {
+      item.status = "failed";
+      item.error = String(e);
+      addLog(`✗ 失败: ${e}`);
+    }
+    rtPersistQueue();
+    rtRenderQueueList();
+    // 发完一条随机等待
+    const waitMs = (10 + Math.random() * 20) * 60 * 1000;
+    addLog(`随机等待 ${Math.round(waitMs/60000)} 分钟后检查下一条…`);
+    await sleep(Math.min(waitMs, 30 * 60 * 1000));
+  }
+
+  RT_STATE.scheduleRunning = false;
+  if (btn) { btn.textContent = "开始定时发送"; btn.classList.remove("danger"); btn.classList.add("primary"); }
+  addLog("定时发送已停止");
+}
+
+function rtStopSchedule() {
+  RT_STATE.scheduleRunning = false;
+  const btn = $("#btnRtStartSchedule");
+  if (btn) { btn.textContent = "开始定时发送"; btn.classList.remove("danger"); btn.classList.add("primary"); }
+}
+
+function rtToggleQueuePanel() {
+  const panel = $("#rtQueuePanel");
+  if (!panel) return;
+  const isHidden = panel.hidden;
+  panel.hidden = !isHidden;
+  if (!isHidden) rtRenderQueueList();
+}
+
+function rtBindEvents() {
+  $("#btnRtRefresh")?.addEventListener("click", rtFetchEvents);
+  $("#btnRtQueue")?.addEventListener("click", rtToggleQueuePanel);
+  $("#btnRtGenImages")?.addEventListener("click", rtGenImages);
+  $("#btnRtAddToQueue")?.addEventListener("click", rtAddToQueue);
+  $("#btnRtRemoveFromQueue")?.addEventListener("click", rtRemoveFromQueue);
+  $("#btnRtClearQueue")?.addEventListener("click", rtClearQueue);
+  $("#btnRtStartSchedule")?.addEventListener("click", rtStartSchedule);
+  $("#btnRtQueueClose")?.addEventListener("click", rtToggleQueuePanel);
+  $("#rtChannel")?.addEventListener("change", rtFetchEvents);
+  $("#rtMinStar")?.addEventListener("change", rtFetchEvents);
+  let kwTimer;
+  $("#rtKeyword")?.addEventListener("input", () => {
+    clearTimeout(kwTimer);
+    kwTimer = setTimeout(rtFetchEvents, 400);
+  });
+
+  // Auto-refresh
+  let autoTimer;
+  $("#rtAutoRefresh")?.addEventListener("change", () => {
+    clearInterval(autoTimer);
+    if ($("#rtAutoRefresh")?.checked) {
+      autoTimer = setInterval(rtFetchEvents, 60000);
+    }
+  });
+  if ($("#rtAutoRefresh")?.checked) {
+    autoTimer = setInterval(rtFetchEvents, 60000);
+  }
+}
+
+function escHtml(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function escAttr(s) {
+  return String(s||"").replace(/"/g,"&quot;");
 }
 
 boot();

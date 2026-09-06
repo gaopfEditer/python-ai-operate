@@ -5,8 +5,10 @@
 """
 
 import logging
+import random
 import re
 import sys
+import time
 import yaml
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -213,6 +215,94 @@ def publish_content(
         'success_count': success_count,
         'results': results
     }
+
+
+PUBLISH_RETRY_MAX = 5
+PUBLISH_RETRY_WAIT_SEC = (180, 300)
+
+
+def _failed_platform_ids(result: Dict) -> List[str]:
+    out: List[str] = []
+    for row in result.get("results") or []:
+        if row.get("success"):
+            continue
+        pid = str(row.get("platform") or "").strip()
+        if pid:
+            out.append(pid)
+    return out
+
+
+def _merge_publish_results(base: Dict, nxt: Dict) -> Dict:
+    order: List[str] = []
+    by_id: Dict[str, Dict] = {}
+    for row in (base.get("results") or []) + (nxt.get("results") or []):
+        pid = str(row.get("platform") or "").strip()
+        if not pid:
+            continue
+        if pid not in by_id:
+            order.append(pid)
+        by_id[pid] = row
+    results = [by_id[p] for p in order]
+    ok_n = sum(1 for r in results if r.get("success"))
+    return {
+        **base,
+        "results": results,
+        "total": len(results),
+        "success_count": ok_n,
+        "success": ok_n > 0,
+        "media_paths": nxt.get("media_paths") or base.get("media_paths"),
+    }
+
+
+def publish_content_with_retry(
+    content: Dict,
+    platform_ids: Optional[List[str]] = None,
+    tags: Optional[str] = None,
+    use_cdp: bool = True,
+    debugger_url: Optional[str] = None,
+    media_paths: Optional[List[str]] = None,
+    submit: bool = True,
+    *,
+    max_retries: int = PUBLISH_RETRY_MAX,
+) -> Dict:
+    """发布失败后间隔 3–5 分钟重试，最多重试 max_retries 次（只重试失败平台）。"""
+    result = publish_content(
+        content=content,
+        platform_ids=platform_ids,
+        tags=tags,
+        use_cdp=use_cdp,
+        debugger_url=debugger_url,
+        media_paths=media_paths,
+        submit=submit,
+    )
+    if not submit:
+        return result
+    retries = max(0, int(max_retries or 0))
+    for attempt in range(1, retries + 1):
+        failed = _failed_platform_ids(result)
+        if not failed:
+            break
+        wait_s = random.uniform(*PUBLISH_RETRY_WAIT_SEC)
+        logger.warning(
+            "发布失败 %s，%.0f 秒后第 %s/%s 次重试",
+            ",".join(failed),
+            wait_s,
+            attempt,
+            retries,
+        )
+        time.sleep(wait_s)
+        nxt = publish_content(
+            content=content,
+            platform_ids=failed,
+            tags=tags,
+            use_cdp=use_cdp,
+            debugger_url=debugger_url,
+            media_paths=media_paths,
+            submit=submit,
+        )
+        result = _merge_publish_results(result, nxt)
+        result["retry_count"] = attempt
+    return result
 
 
 def list_platforms() -> List[Dict]:

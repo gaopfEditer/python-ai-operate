@@ -2702,6 +2702,168 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
         return _json_bytes({"success": False, "error": f"未知操作: {action}"}, 404)
 
+    # ——— 实时发送（资讯 -> 摘要 -> 配图 -> 定时发送队列）———
+    if path == "/api/realtime/events" and method == "GET":
+        try:
+            import requests as _req
+        except ImportError:
+            return _json_bytes({"ok": False, "error": "requests 未安装", "items": []})
+        base = "http://127.0.0.1:8770"
+        try:
+            channel = (query.get("channel") or ["all"])[0]
+            min_star = int((query.get("min_star") or ["1"])[0])
+            limit = int((query.get("limit") or ["50"])[0])
+            resp = _req.get(
+                f"{base}/api/v1/events",
+                params={"channel": channel, "min_star": min_star, "limit": limit},
+                timeout=12,
+            )
+            if resp.status_code != 200:
+                return _json_bytes({"ok": False, "error": f"接口返回 {resp.status_code}", "items": []})
+            data = resp.json()
+            return _json_bytes({"ok": True, "items": data.get("items", []), "total": data.get("total", 0)})
+        except _req.exceptions.ConnectionError:
+            return _json_bytes({"ok": False, "error": "news_mornitor 服务未启动（需 python -m news_mornitor）", "items": []})
+        except Exception as e:
+            return _json_bytes({"ok": False, "error": str(e), "items": []})
+
+    if path == "/api/realtime/summarize" and method == "POST":
+        from utils.ai_client import generate_text
+        item_id = str(body.get("id") or "")
+        title = str(body.get("title") or "")
+        description = str(body.get("description") or "")
+        category_name = str(body.get("category_name") or "")
+        bias_label = str(body.get("bias_label") or "")
+        star = int(body.get("star") or 3)
+        source = str(body.get("source") or "")
+        url = str(body.get("url") or "")
+
+        if not description:
+            return _json_bytes({"success": False, "error": "无 description，无法摘要"})
+
+        prompt = f"""你是一个加密货币内容编辑。请把以下事件改写成一条适合社交平台发布的短文（不超过400字）：
+
+事件：{description}
+类目：{category_name}
+偏向：{bias_label}
+星级：{"重要" if star >= 4 else "一般"}
+
+要求：
+- 开头有吸引力（疑问句或数据开场）
+- 简洁专业，有观点不只有描述
+- 可加1-2个相关话题标签
+- 中文输出
+- 若是利空/利多请明确说明
+"""
+        try:
+            summary = generate_text(prompt, model="gpt-4o-mini", max_tokens=400, temperature=0.7)
+            if not summary:
+                return _json_bytes({"success": False, "error": "摘要生成失败"})
+            return _json_bytes({"success": True, "summary": summary.strip()})
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)})
+
+    if path == "/api/realtime/gen-image" and method == "POST":
+        import shutil, uuid, subprocess, sys, os as _os
+        from pathlib import Path as _Path
+        item_id = str(body.get("id") or "")
+        title = str(body.get("title") or "")
+        content = str(body.get("content") or title)
+
+        # 调用 lab_tti 生成配图
+        try:
+            sys.path.insert(0, str(PROJECT_ROOT))
+            from corpus.lab_tti import compose_memos_image_brief, build_memos_image_prompt
+            from utils.ai_client import generate_text
+
+            brief = compose_memos_image_brief(content, hook=title, title=title)
+            prompt_text = build_memos_image_prompt(brief, title=title)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": f"生成 prompt 失败: {e}"})
+
+        out_dir = PROJECT_ROOT / "output" / "rt_images"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tag = f"rt_{item_id[:8]}" if len(item_id) >= 8 else f"rt_{uuid.uuid4().hex[:8]}"
+        img_path = out_dir / f"{tag}.png"
+
+        # 尝试 browser_media_runner
+        try:
+            sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
+            from browser_media_runner import text_to_image
+            result = text_to_image(prompt_text, prompt_is_text=True, out_dir=str(out_dir), domain_tag=tag)
+            if result and result.get("image_path"):
+                return _json_bytes({"success": True, "path": str(_Path(result["image_path"]).resolve())})
+        except Exception as e:
+            pass
+
+        # 备选：尝试 Gemini Web 自动化
+        try:
+            sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
+            from gemini_web_automation import generate_image_with_gemini_web
+            result = generate_image_with_gemini_web(prompt_text, out_dir=str(out_dir), tag=tag)
+            if result and result.get("image_path"):
+                return _json_bytes({"success": True, "path": str(_Path(result["image_path"]).resolve())})
+        except Exception as e:
+            return _json_bytes({"success": False, "error": f"图片生成失败: {e}"})
+
+        return _json_bytes({"success": False, "error": "所有图片生成方式均失败"})
+
+    if path == "/api/realtime/publish-one" and method == "POST":
+        platform = str(body.get("platform") or "").strip()
+        text = str(body.get("text") or "").strip()
+        image_path = body.get("image_path")
+        debugger_url = str(body.get("debugger_url") or "127.0.0.1:9223").strip()
+
+        if not platform:
+            return _json_bytes({"success": False, "error": "需要 platform"})
+        if not text:
+            return _json_bytes({"success": False, "error": "正文不能为空"})
+
+        try:
+            sys.path.insert(0, str(PROJECT_ROOT))
+            from public.platforms.binance_square_publisher import BinanceSquarePublisher
+            from public.platforms.okx_publisher import OkxPublisher
+            from public.platforms.x_publisher import XPublisher
+        except Exception as e:
+            return _json_bytes({"success": False, "error": f"导入失败: {e}"})
+
+        images = [image_path] if image_path and _Path(image_path).exists() else None
+
+        try:
+            if platform == "binance_square":
+                pub = BinanceSquarePublisher(
+                    square_url="https://www.binance.com/zh-CN/square",
+                    platform_id="binance_square",
+                    platform_name="币安广场",
+                    debugger_url=debugger_url,
+                    close_driver=False,
+                )
+                result = pub.publish(text=text, media_paths=images or [])
+                return _json_bytes({"success": bool(result.get("success")), "result": result})
+            elif platform == "okx":
+                pub = OkxPublisher(
+                    square_url="https://www.okx.com/cn/orbit",
+                    platform_id="okx",
+                    platform_name="OKX星球",
+                    debugger_url=debugger_url,
+                    close_driver=False,
+                )
+                result = pub.publish(text=text, media_paths=images or [])
+                return _json_bytes({"success": bool(result.get("success")), "result": result})
+            elif platform in ("x", "x-cdp"):
+                pub = XPublisher(
+                    platform_id="x-cdp",
+                    platform_name="X",
+                    debugger_url=debugger_url,
+                    close_driver=False,
+                )
+                result = pub.publish(text=text, media_paths=images or [])
+                return _json_bytes({"success": bool(result.get("success")), "result": result})
+            else:
+                return _json_bytes({"success": False, "error": f"未知平台: {platform}"})
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)})
+
     # ——— 实时资讯 realtime_info（本地审阅，默认不外发）———
     if path == "/api/realtime/events" and method == "GET":
         from realtime_info.review.api import list_for_review

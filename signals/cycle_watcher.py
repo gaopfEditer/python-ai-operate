@@ -185,4 +185,6 @@ def set_cycle(enabled: bool) -> Dict[str, Any]:
     save_config({"cycle_enabled": bool(enabled)})
     if enabled:
         start_cycle_watcher(force=True)
+    else:
+        stop_cycle_watcher()
     return status()
