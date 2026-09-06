@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260906a" />
+  <link rel="stylesheet" href="/app.css?v=20260906f" />
 </head>
 <body>
   <div class="shell">
@@ -425,6 +425,7 @@
         <div class="publish-only-section">
           <div class="queue-head">
             <h3>发布队列 <span id="queueStats" class="muted"></span></h3>
+            <button id="btnQueuePause" class="btn ghost" type="button" title="暂停/继续定时调度">⏸ 暂停</button>
           </div>
           <div id="publishQueueList" class="card-list queue-list"></div>
           <div class="queue-head" style="margin-top:28px">
@@ -873,6 +874,15 @@
           <!-- 左侧：事件列表 -->
           <aside class="rt-col rt-events-col">
             <div class="rt-toolbar">
+              <select id="rtPlatformFilter">
+                <option value="all">全部平台</option>
+                <option value="binance">币安广场</option>
+                <option value="okx">OKX 星球</option>
+                <option value="foresight">Foresight</option>
+                <option value="coindesk">CoinDesk</option>
+                <option value="blockbeats">BlockBeats</option>
+                <option value="macro">宏观日历</option>
+              </select>
               <select id="rtChannel">
                 <option value="all">全部通道</option>
                 <option value="economy">宏观日历</option>
@@ -880,8 +890,8 @@
                 <option value="hot">热榜</option>
               </select>
               <select id="rtMinStar">
-                <option value="0">全部星级</option>
-                <option value="3" selected>≥3星</option>
+                <option value="0" selected>全部星级</option>
+                <option value="3">≥3星</option>
                 <option value="4">≥4星</option>
                 <option value="5">仅5星</option>
               </select>
@@ -931,6 +941,6 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260906a"></script>
+  <script src="/app.js?v=20260906u"></script>
 </body>
 </html>

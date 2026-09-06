@@ -4739,6 +4739,12 @@ async function loadPublishQueue() {
     if (statsEl) {
       statsEl.textContent = `共 ${stats.all || 0} · 待发 ${stats.pending || 0} · 缓存 ${stats.draft || 0} · 完成 ${stats.done || 0} · 失败 ${stats.failed || 0}`;
     }
+    const paused = data.paused;
+    const pauseBtn = $("#btnQueuePause");
+    if (pauseBtn) {
+      pauseBtn.textContent = paused ? "▶ 继续" : "⏸ 暂停";
+      pauseBtn.classList.toggle("paused", paused);
+    }
     if (data.cache_root && $("#cacheRootLabel")) {
       $("#cacheRootLabel").textContent = data.cache_root;
     }
@@ -5361,6 +5367,12 @@ function bind() {
     });
   });
   $("#btnSeriesBatchPublish")?.addEventListener("click", () => batchPublishSeriesSelected());
+  $("#btnQueuePause")?.addEventListener("click", async () => {
+    const data = await api("/api/publish/queue/pause", { method: "POST" });
+    const isPaused = data.paused;
+    const btn = $("#btnQueuePause");
+    if (btn) { btn.textContent = isPaused ? "▶ 继续" : "⏸ 暂停"; btn.classList.toggle("paused", isPaused); }
+  });
   $("#btnSeriesClearDrafts")?.addEventListener("click", async () => {
     try {
       const data = await api("/api/publish/queue/clear-done", {
@@ -8266,13 +8278,51 @@ function rtPersistQueue() {
   updateRtQueueBadge();
 }
 
+/** TOP 类目自动配图 */
+const RT_MAX_RETRIES = 3;
+const RT_RETRY_DELAY_MS = 12000; // 12s 重试间隔
+
+/** TOP 类目自动配图 */
+const RT_TOP_CATEGORIES = [
+  "crypto_cex_listing",   // 交易所上线与爆款标的 ★TOP1
+  "crypto_macro_fomc",     // 顶级宏观经济与美联储决策 ★TOP2
+];
+
+const RT_PLATFORM_LABELS = {
+  binance: "币安广场",
+  okx: "OKX 星球",
+  foresight: "Foresight",
+  coindesk: "CoinDesk",
+  blockbeats: "BlockBeats",
+  macro: "宏观日历",
+  "": "宏观日历",
+};
+
+const RT_PLATFORM_BADGE = {
+  binance: { cls: "plat-binance", label: "币安" },
+  okx: { cls: "plat-okx", label: "OKX" },
+  foresight: { cls: "plat-foresight", label: "Foresight" },
+  coindesk: { cls: "plat-coindesk", label: "CoinDesk" },
+  blockbeats: { cls: "plat-blockbeats", label: "BlockBeats" },
+  macro: { cls: "plat-macro", label: "宏观" },
+  "": { cls: "plat-macro", label: "宏观" },
+};
+
 async function rtFetchEvents() {
   const channel = $("#rtChannel")?.value || "all";
   const minStar = parseInt($("#rtMinStar")?.value || "0", 10);
   const kw = ($("#rtKeyword")?.value || "").trim().toLowerCase();
+  const platformFilter = $("#rtPlatformFilter")?.value || "all";
   try {
-    const data = await api(`/api/realtime/events?channel=${channel}&min_star=${minStar}`);
+    const data = await api(`/api/realtime/events?channel=${channel}&min_star=${minStar}&limit=100`);
     let items = Array.isArray(data.items) ? data.items : [];
+    if (platformFilter !== "all") {
+      if (platformFilter === "macro") {
+        items = items.filter(it => !it.platform || it.platform === "");
+      } else {
+        items = items.filter(it => it.platform === platformFilter);
+      }
+    }
     if (kw) items = items.filter(
       (it) => (it.title || "").toLowerCase().includes(kw) ||
                (it.description || "").toLowerCase().includes(kw)
@@ -8280,10 +8330,140 @@ async function rtFetchEvents() {
     RT_STATE.events = items;
     rtRenderEventList();
     updateRtEventCount(items.length);
+    // TOP 类目自动配图（加锁防重复）
+    rtAutoGenImagesForTopCategories(items);
   } catch (e) {
     console.error("rtFetchEvents", e);
   }
 }
+
+/** 全局锁，防止刷新时重复触发 */
+let _rtGenLock = false;
+
+async function rtAutoGenImagesForTopCategories(items) {
+  if (_rtGenLock) return;
+  _rtGenLock = true;
+
+  try {
+    // 每次进入从 localStorage 同步最新队列状态（含 image_path）
+    try { RT_STATE.queue = JSON.parse(localStorage.getItem("pai_rt_queue") || "[]"); } catch (_) {}
+
+    const topItems = items.filter(it => RT_TOP_CATEGORIES.includes(it.category_id));
+    for (const it of topItems) {
+      // 已有配图或在生成中 → 跳过（queue 同步后 image_path 已含）
+      const q = RT_STATE.queue.find(q => q.id === it.id);
+      if (q) {
+        if (q.image_path || q._genning) continue;
+      }
+      // 也检查文件是否真实存在（防止 queue 数据残留但文件被删）
+      if (q && q.image_path) {
+        try {
+          const r = await fetch(`/api/file/exists?path=${encodeURIComponent(q.image_path)}`);
+          const data = await r.json();
+          if (!data.exists) { q.image_path = null; rtPersistQueue(); rtRenderEventList(); }
+          else continue;
+        } catch (_) {}
+      }
+      // 还没在队列里 → 入队
+      const entry = {
+      id: it.id,
+      title: it.title,
+      category_id: it.category_id,
+      category_name: it.category?.name || "",
+      star: it.star || 0,
+      bias: it.bias || "",
+      bias_label: it.bias_label || "",
+      source: it.source || "",
+      url: it.url || "",
+      publish_at: it.publish_at,
+      summary: it.description || "",
+      image_path: null,
+      _genning: true,
+      _retry: 0,
+      status: "pending",
+      priority: 999 + (it.star || 0) * 10,
+      created_at: Date.now(),
+      sent_at: null,
+      error: null,
+    };
+    RT_STATE.queue = RT_STATE.queue.filter(q => q.id !== it.id);
+    RT_STATE.queue.push(entry);
+    RT_STATE.queue.sort((a, b) => b.priority - a.priority);
+    rtPersistQueue();
+    rtRenderEventList();
+    // 串行生成，成功或重试耗尽才继续下一个
+    await _genImageWithRetry(entry.id, entry.title, entry.summary);
+  }
+  } catch(e) {
+    console.error("[RT] rtAutoGenImagesForTopCategories error:", e);
+  } finally {
+    _rtGenLock = false;
+  }
+}
+
+async function _genImageWithRetry(id, title, content, attempt) {
+  attempt = attempt || 0;
+  const q = RT_STATE.queue.find(q => q.id === id);
+  if (!q) return;
+  q._genning = true;
+  q._retry = attempt;
+  rtPersistQueue();
+  rtRenderEventList();
+
+  try {
+    const r = await api("/api/realtime/gen-image", {
+      method: "POST",
+      body: JSON.stringify({ id, title, content: content || title }),
+    });
+    if (r.success && r.path) {
+      q._genning = false;
+      q.image_path = r.path;
+      q._retry = 0;
+      _rtLog("配图成功 [%s]: %s", id, r.path);
+    } else {
+      const err = r.error || "未知错误";
+      if (attempt < RT_MAX_RETRIES - 1) {
+        q._genning = false;
+        q._retry = attempt + 1;
+        q._retryMsg = `第 ${attempt + 1} 次失败，${RT_RETRY_DELAY_MS / 1000}s 后重试…`;
+        rtPersistQueue();
+        rtRenderEventList();
+        _rtWarn("配图失败 [%s]，%d/%d 次重试: %s", id, attempt + 1, RT_MAX_RETRIES, err);
+        await _sleep(RT_RETRY_DELAY_MS);
+        await _genImageWithRetry(id, title, content, attempt + 1);
+      } else {
+        q._genning = false;
+        q.image_path = null;
+        q._retry = RT_MAX_RETRIES;
+        q.error = `重试${RT_MAX_RETRIES}次后仍失败: ${err}`;
+        _rtWarn("配图彻底失败 [%s]: %s", id, err);
+      }
+    }
+  } catch (e) {
+    if (attempt < RT_MAX_RETRIES - 1) {
+      q._genning = false;
+      q._retry = attempt + 1;
+      q._retryMsg = `网络错误，${RT_RETRY_DELAY_MS / 1000}s 后重试…`;
+      rtPersistQueue();
+      rtRenderEventList();
+      _rtWarn("配图网络错误 [%s]，%d/%d 次重试", id, attempt + 1, RT_MAX_RETRIES);
+      await _sleep(RT_RETRY_DELAY_MS);
+      await _genImageWithRetry(id, title, content, attempt + 1);
+    } else {
+      q._genning = false;
+      q.error = `网络错误 ${RT_MAX_RETRIES} 次: ${e}`;
+      _rtWarn("配图网络彻底失败 [%s]", id);
+    }
+  }
+  rtPersistQueue();
+  rtRenderEventList();
+  rtRenderQueueList();
+}
+
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function _rtLog(...args) { console.info("[RT]", ...args); }
+function _rtWarn(...args) { console.warn("[RT]", ...args); }
 
 function updateRtEventCount(n) {
   const el = $("#rtEventCount");
@@ -8313,11 +8493,41 @@ function rtRenderEventList() {
                     : "evt-bias-neu";
     const catName = it.category?.name || it.category_id || "";
     const timeStr = it.publish_at ? new Date(it.publish_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+    const platform = it.platform || "";
+    const platCfg = RT_PLATFORM_BADGE[platform] || { cls: "plat-unknown", label: platform || "其他" };
+    const q = RT_STATE.queue.find(q => q.id === it.id);
+    const imgPath = q?.image_path;
+    const isTopCat = RT_TOP_CATEGORIES.includes(it.category_id);
+    const isGenning = !!(q?._genning);
+    const retry = q?._retry || 0;
+    const retryMsg = q?._retryMsg || "";
+    const errMsg = q?.error || "";
 
-    const imgPath = RT_STATE.queue.find(q => q.id === it.id)?.image_path;
+    // 兼容老绝对路径：/Users/.../python-ai-operate/output/xxx → output/xxx
+    const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
+    const imgSrc = imgPath
+      ? imgPath.replace(PROJECT_ROOT_RE, "")
+      : "";
+    const imgSrcFull = imgSrc ? `/api/file/${imgSrc}` : "";
+    const imgHtml = imgSrcFull
+      ? `<img class="evt-img" src="${imgSrcFull}" alt="配图" loading="lazy" />`
+      : isGenning
+      ? `<div class="evt-img-genning">
+           <span class="spin-dot"></span>
+           <span>配图中… ${retry > 0 ? `(重试 ${retry}/${RT_MAX_RETRIES})` : ""}</span>
+         </div>`
+      : retryMsg
+      ? `<div class="evt-img-genning error">${escHtml(retryMsg)}</div>`
+      : errMsg
+      ? `<div class="evt-img-genning error">✗ ${escHtml(errMsg)}</div>`
+      : isTopCat
+      ? `<div class="evt-img-gen">⭐ 自动配图中</div>`
+      : `<div class="evt-img-placeholder"></div>`;
 
     el.innerHTML = `
       <div class="evt-meta">
+        <span class="plat-badge ${platCfg.cls}">${platCfg.label}</span>
+        ${isTopCat ? '<span class="evt-top-cat">★TOP</span>' : ""}
         ${starStr ? `<span class="evt-star">${starStr}</span>` : ""}
         ${catName ? `<span class="evt-cat">${catName}</span>` : ""}
         ${biasLabel ? `<span class="${biasClass}">${biasLabel}</span>` : ""}
@@ -8325,10 +8535,7 @@ function rtRenderEventList() {
       </div>
       <p class="evt-title">${escHtml(it.title || "")}</p>
       ${it.description ? `<p class="evt-desc">${escHtml(it.description || "")}</p>` : ""}
-      ${imgPath
-        ? `<img class="evt-img" src="file://${escAttr(imgPath)}" alt="配图" loading="lazy" />`
-        : `<div class="evt-img-placeholder"></div>`
-      }
+      ${imgHtml}
     `;
     el.addEventListener("click", () => rtSelectEvent(it.id));
     container.appendChild(el);
@@ -8360,6 +8567,15 @@ function rtRenderPreview() {
   const starStr = "★".repeat(it.star || 0);
   const timeStr = it.publish_at ? new Date(it.publish_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai", month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
 
+  const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
+  const imgSrc = imgPath
+    ? imgPath.replace(PROJECT_ROOT_RE, "")
+    : "";
+  const imgSrcFull = imgSrc ? `/api/file/${imgSrc}` : "";
+  const imgHtml = imgSrcFull
+    ? `<img class="rt-preview-img" src="${imgSrcFull}" alt="配图" />`
+    : `<div class="rt-preview-img-loading" id="rtImgLoading">暂无配图（可点击「生成配图」）</div>`;
+
   panel.innerHTML = `
     <div class="rt-preview-meta">
       ${starStr ? `<span class="evt-star">${starStr}</span>` : ""}
@@ -8370,12 +8586,29 @@ function rtRenderPreview() {
     </div>
     <h3 class="rt-preview-title">${escHtml(it.title || "")}</h3>
     <textarea id="rtSummaryEdit" class="rt-summary-edit" rows="4" placeholder="摘要（可手动编辑）…">${escHtml(summary)}</textarea>
-    ${imgPath
-      ? `<img class="rt-preview-img" src="file://${escAttr(imgPath)}" alt="配图" />`
-      : `<div class="rt-preview-img-loading" id="rtImgLoading">暂无配图（可点击「生成配图」）</div>`
-    }
+    <button class="btn ghost btn-sm" id="rtGenSummaryBtn" type="button">生成摘要</button>
+    ${imgHtml}
   `;
 
+  // 事件委托：按钮可能随 innerHTML 重建，用 panel 做代理
+  panel.addEventListener("click", (e) => {
+    if (e.target.id === "rtGenSummaryBtn") {
+      console.log("rtGenSummary click (delegate), selectedId:", RT_STATE.selectedId);
+      rtGenSummary(RT_STATE.selectedId);
+    }
+  });
+  panel.addEventListener("click", (e) => {
+    if (e.target.id === "btnRtGenImages") {
+      console.log("rtGenImages click (delegate), selectedId:", RT_STATE.selectedId);
+      rtGenImages(RT_STATE.selectedId);
+    }
+  });
+  panel.addEventListener("click", (e) => {
+    if (e.target.id === "btnRtAddToQueue") { rtAddToQueue(RT_STATE.selectedId); }
+    if (e.target.id === "btnRtRemoveFromQueue") { rtRemoveFromQueue(RT_STATE.selectedId); }
+    if (e.target.id === "btnRtStartSchedule") { rtStartSchedule(); }
+    if (e.target.id === "btnRtPublishNow") { rtPublishNow(RT_STATE.selectedId); }
+  });
   // Sync summary edits
   const ta = $("#rtSummaryEdit");
   if (ta) {
@@ -8384,17 +8617,19 @@ function rtRenderPreview() {
       if (q) { q.summary = ta.value; rtPersistQueue(); }
     });
   }
-
   updateRtAddBtn();
 }
 
 function updateRtAddBtn() {
   const btn = $("#btnRtAddToQueue");
   const remBtn = $("#btnRtRemoveFromQueue");
+  const startBtn = $("#btnRtStartSchedule");
   const id = RT_STATE.selectedId;
   const inQueue = RT_STATE.queue.some(q => q.id === id && q.status === "pending");
   if (btn) btn.disabled = !id || inQueue;
   if (remBtn) remBtn.disabled = !inQueue;
+  const hasPending = RT_STATE.queue.some(q => q.status === "pending");
+  if (startBtn) startBtn.disabled = !hasPending;
 }
 
 function updateRtQueueBadge() {
@@ -8469,7 +8704,12 @@ function rtRenderQueueList() {
           ${q.image_path ? '<span style="font-size:.7rem;color:var(--teal)">🖼 已配图</span>' : '<span style="font-size:.7rem;color:var(--muted)">无配图</span>'}
         </div>
       </div>
-      ${q.image_path ? `<img class="qi-img-thumb" src="file://${escAttr(q.image_path)}" alt="" />` : ""}
+      <button class="btn-sm btn-ghost" data-qid="${q.id}" data-action="publish-now" style="flex-shrink:0;margin-left:4px">📤 立即发</button>
+      ${q.image_path ? (() => {
+        const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
+        const p = q.image_path.replace(PROJECT_ROOT_RE, "");
+        return `<img class="qi-img-thumb" src="/api/file/${escAttr(p)}" alt="" />`;
+      })() : ""}
     `;
     el.addEventListener("click", () => {
       RT_STATE.selectedId = q.id;
@@ -8479,6 +8719,13 @@ function rtRenderQueueList() {
     });
     container.appendChild(el);
   });
+  // 事件委托：队列项的立即发送按钮
+  container.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='publish-now']");
+    if (!btn) return;
+    const qid = btn.getAttribute("data-qid");
+    if (qid) rtPublishQueueItem(qid);
+  });
 }
 
 function rtClearQueue() {
@@ -8487,6 +8734,47 @@ function rtClearQueue() {
   rtRenderQueueList();
   rtRenderEventList();
   updateRtAddBtn();
+}
+
+async function rtGenSummary(id) {
+  const it = RT_STATE.events.find(e => e.id === id);
+  if (!it) { toast("未找到事件: " + id, "error"); return; }
+  const btn = $("#rtGenSummaryBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const payload = {
+      id: it.id,
+      title: it.title,
+      description: it.description,
+      category_name: it.category?.name || "",
+      bias_label: it.bias_label || "",
+      star: it.star || 3,
+      source: it.source || "",
+      url: it.url || "",
+    };
+    console.log("rtGenSummary payload:", payload);
+    const r = await api("/api/realtime/summarize", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    console.log("rtGenSummary r:", r);
+    if (r.success && r.summary) {
+      const ta = $("#rtSummaryEdit");
+      if (ta) ta.value = r.summary;
+      const q = RT_STATE.queue.find(q => q.id === id);
+      if (q) { q.summary = r.summary; rtPersistQueue(); }
+      // 更新列表里该项的摘要预览
+      rtRenderEventList();
+      toast("摘要生成成功", "ok");
+    } else {
+      console.log("rtGenSummary r:", r);
+      toast("生成失败: " + JSON.stringify(r), "error");
+    }
+  } catch (e) {
+    toast("生成异常: " + e, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function rtGenImages() {
@@ -8661,6 +8949,49 @@ function rtStopSchedule() {
   if (btn) { btn.textContent = "开始定时发送"; btn.classList.remove("danger"); btn.classList.add("primary"); }
 }
 
+async function rtPublishQueueItem(qid) {
+  const item = RT_STATE.queue.find(q => q.id === qid);
+  if (!item) { toast("队列项不存在", "error"); return; }
+  if (!item.summary && !item.title) { toast("内容为空，请先生成摘要", "warn"); return; }
+
+  // 复用 rtStartSchedule 里的平台+发送逻辑，但只发这一条
+  const platforms = { binance_square: true, okx: true, x_cdp: true };
+  const _PUBLISH_PLATFORMS = {
+    binance_square: { plat: "binance_square", label: "币安广场" },
+    okx:            { plat: "okx",            label: "OKX星球"  },
+    x_cdp:          { plat: "x-cdp",         label: "X"        },
+  };
+  const summary = item.summary || item.title || "";
+  const results = [];
+
+  for (const [platKey, enabled] of Object.entries(platforms)) {
+    if (!enabled) continue;
+    const cfg = _PUBLISH_PLATFORMS[platKey];
+    if (!cfg) continue;
+    let text = summary;
+    if (platKey === "okx" && text.length > 480) text = text.slice(0, 477) + "…";
+    try {
+      const r = await api("/api/realtime/publish-one", {
+        method: "POST",
+        body: JSON.stringify({ platform: cfg.plat, text, image_path: item.image_path || null }),
+      });
+      results.push({ label: cfg.label, ok: r.success, error: r.error });
+    } catch (e) {
+      results.push({ label: cfg.label, ok: false, error: String(e) });
+    }
+    await sleep(800 + Math.random() * 600);
+  }
+
+  item.status = "sent";
+  item.sent_at = Date.now();
+  rtPersistQueue();
+  rtRenderQueueList();
+  const okList = results.filter(r => r.ok).map(r => r.label);
+  const failList = results.filter(r => !r.ok).map(r => r.label + ":" + r.error);
+  if (okList.length) toast(`已发送至: ${okList.join(", ")}`);
+  if (failList.length) toast(`发送失败: ${failList.join("; ")}`, "error");
+}
+
 function rtToggleQueuePanel() {
   const panel = $("#rtQueuePanel");
   if (!panel) return;
@@ -8680,6 +9011,7 @@ function rtBindEvents() {
   $("#btnRtQueueClose")?.addEventListener("click", rtToggleQueuePanel);
   $("#rtChannel")?.addEventListener("change", rtFetchEvents);
   $("#rtMinStar")?.addEventListener("change", rtFetchEvents);
+  $("#rtPlatformFilter")?.addEventListener("change", rtFetchEvents);
   let kwTimer;
   $("#rtKeyword")?.addEventListener("input", () => {
     clearTimeout(kwTimer);

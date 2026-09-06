@@ -1244,6 +1244,29 @@ def _save_article(topic: str, content: str, meta: Optional[Dict[str, Any]] = Non
 
 
 def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[str, Any]) -> tuple[bytes, int, str]:
+    # ── 文件代理：/api/file/<safe-path> 避免浏览器 file:// 限制 ──────
+    import urllib.parse
+    if path.startswith("/api/file/"):
+        import urllib.parse
+        safe_path = urllib.parse.unquote(path[10:])
+        safe_path = (PROJECT_ROOT / safe_path).resolve()
+        if not str(safe_path).startswith(str(PROJECT_ROOT)):
+            return '{"error":"非法路径"}'.encode("utf-8"), 403, "application/json"
+        if not safe_path.is_file():
+            return '{"error":"文件不存在"}'.encode("utf-8"), 404, "application/json"
+        ext = safe_path.suffix.lower()
+        ctype = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                 "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml"}.get(ext.lstrip("."), "application/octet-stream")
+        return safe_path.read_bytes(), 200, ctype
+
+    if path == "/api/file/exists":
+        import urllib.parse
+        raw = (query.get("path") or [None])[0]
+        if not raw:
+            return b'{"exists":false}', 200, "application/json"
+        p = _Path(urllib.parse.unquote(raw)).resolve()
+        return _json_bytes({"exists": p.is_file() and p.stat().st_size > 0})
+
     if path == "/api/health":
         return _json_bytes(
             {
@@ -2545,8 +2568,23 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 "items": pq.list_items(status=status, include_done=include_done),
                 "stats": pq.stats(),
                 "cache_root": str(pq.cache_root()),
+                "paused": pq.is_paused(),
             }
         )
+
+    if path == "/api/publish/queue/pause" and method == "POST":
+        from console.publish_queue import pause_scheduler, is_paused
+        was_running = pause_scheduler()
+        return _json_bytes({"success": True, "paused": True, "was_running": was_running})
+
+    if path == "/api/publish/queue/resume" and method == "POST":
+        from console.publish_queue import resume_scheduler, is_paused
+        was_paused = resume_scheduler()
+        return _json_bytes({"success": True, "paused": is_paused(), "was_paused": was_paused})
+
+    if path == "/api/publish/queue/pause" and method == "GET":
+        from console.publish_queue import is_paused
+        return _json_bytes({"paused": is_paused()})
 
     if path == "/api/publish/queue" and method == "POST":
         pq = _publish_queue_module()
@@ -2741,22 +2779,24 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         if not description:
             return _json_bytes({"success": False, "error": "无 description，无法摘要"})
 
-        prompt = f"""你是一个加密货币内容编辑。请把以下事件改写成一条适合社交平台发布的短文（不超过400字）：
+        prompt = f"""你是一个加密货币内容编辑。请根据以下事件的标题和内容，撰写一条面向币圈人士的社交平台短文（约300字）：
 
+标题：{title}
 事件：{description}
 类目：{category_name}
 偏向：{bias_label}
 星级：{"重要" if star >= 4 else "一般"}
+来源：{source}
 
 要求：
-- 开头有吸引力（疑问句或数据开场）
-- 简洁专业，有观点不只有描述
+- 开头结合标题制造吸引力（疑问句或数据开场），不重复标题原话
+- 围绕"这对币圈/相关赛道/相关币种有什么影响"展开分析
+- 明确指出利多还是利空，以及影响程度
+- 简洁专业，有观点有判断，不只是描述事件
 - 可加1-2个相关话题标签
-- 中文输出
-- 若是利空/利多请明确说明
-"""
+- 中文输出"""
         try:
-            summary = generate_text(prompt, model="gpt-4o-mini", max_tokens=400, temperature=0.7)
+            summary = generate_text(prompt, max_tokens=400, temperature=0.7)
             if not summary:
                 return _json_bytes({"success": False, "error": "摘要生成失败"})
             return _json_bytes({"success": True, "summary": summary.strip()})
@@ -2764,18 +2804,16 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return _json_bytes({"success": False, "error": str(e)})
 
     if path == "/api/realtime/gen-image" and method == "POST":
-        import shutil, uuid, subprocess, sys, os as _os
+        import shutil, uuid, subprocess, sys, os as _os, time as _time
         from pathlib import Path as _Path
         item_id = str(body.get("id") or "")
         title = str(body.get("title") or "")
         content = str(body.get("content") or title)
 
-        # 调用 lab_tti 生成配图
+        # 生成 prompt
         try:
             sys.path.insert(0, str(PROJECT_ROOT))
             from corpus.lab_tti import compose_memos_image_brief, build_memos_image_prompt
-            from utils.ai_client import generate_text
-
             brief = compose_memos_image_brief(content, hook=title, title=title)
             prompt_text = build_memos_image_prompt(brief, title=title)
         except Exception as e:
@@ -2786,27 +2824,74 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         tag = f"rt_{item_id[:8]}" if len(item_id) >= 8 else f"rt_{uuid.uuid4().hex[:8]}"
         img_path = out_dir / f"{tag}.png"
 
-        # 尝试 browser_media_runner
-        try:
-            sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
-            from browser_media_runner import text_to_image
-            result = text_to_image(prompt_text, prompt_is_text=True, out_dir=str(out_dir), domain_tag=tag)
-            if result and result.get("image_path"):
-                return _json_bytes({"success": True, "path": str(_Path(result["image_path"]).resolve())})
-        except Exception as e:
-            pass
-
-        # 备选：尝试 Gemini Web 自动化
-        try:
+        # ── 核心：隔离新页签生成图片，成功才返回 ──────────────────────────
+        def _gen_in_isolated_tab(max_retries=3, retry_delay=12):
             sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
             from gemini_web_automation import generate_image_with_gemini_web
-            result = generate_image_with_gemini_web(prompt_text, out_dir=str(out_dir), tag=tag)
-            if result and result.get("image_path"):
-                return _json_bytes({"success": True, "path": str(_Path(result["image_path"]).resolve())})
-        except Exception as e:
-            return _json_bytes({"success": False, "error": f"图片生成失败: {e}"})
+            from browser_automation import init_browser
 
-        return _json_bytes({"success": False, "error": "所有图片生成方式均失败"})
+            last_err = ""
+            for attempt in range(1, max_retries + 1):
+                # 每次重试都开一个完全独立的 browser 实例
+                driver = None
+                try:
+                    driver = init_browser()
+                    # 强制在新页签打开 Gemini（不走 navigate_in_last_tab，避免切走用户当前页签）
+                    main_handle = driver.current_window_handle if driver.window_handles else None
+                    driver.execute_script("window.open('about:blank');")
+                    _time.sleep(1.5)
+                    handles = list(driver.window_handles)
+                    new_handle = next((h for h in handles if h != main_handle), handles[-1])
+                    driver.switch_to.window(new_handle)
+                    driver.get("https://gemini.google.com/app")
+                    _time.sleep(5)  # 等待页面完全加载
+
+                    # 调用文生图
+                    result = generate_image_with_gemini_web(
+                        prompt_text,
+                        out_dir=str(out_dir),
+                        tag=tag,
+                        keep_browser_open=False,
+                    )
+                    driver.quit()
+                    driver = None
+
+                    images = result.get("images") or []
+                    if images:
+                        saved_path = images[0]
+                        # 验证文件真实存在且大小合理，并转相对路径
+                        if _Path(saved_path).is_file() and _Path(saved_path).stat().st_size > 4096:
+                            rel = _Path(saved_path).resolve().relative_to(PROJECT_ROOT.resolve())
+                            return {"success": True, "path": str(rel)}
+                        else:
+                            last_err = f"图片文件无效或过小: {saved_path}"
+                    else:
+                        last_err = result.get("error", "未返回图片路径")
+
+                    if attempt < max_retries:
+                        print(f"[RT] 配图失败 [{tag}]，{attempt}/{max_retries} 次重试中…", file=sys.stderr)
+                        _time.sleep(retry_delay)
+                        continue
+                    else:
+                        return {"success": False, "error": f"重试{max_retries}次仍失败: {last_err}"}
+
+                except Exception as e:
+                    last_err = str(e)
+                    if driver:
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
+                    if attempt < max_retries:
+                        print(f"[RT] 配图异常 [{tag}]，{attempt}/{max_retries} 次重试: {e}", file=sys.stderr)
+                        _time.sleep(retry_delay)
+                    else:
+                        return {"success": False, "error": f"重试{max_retries}次仍异常: {last_err}"}
+
+            return {"success": False, "error": last_err}
+
+        result = _gen_in_isolated_tab(max_retries=3, retry_delay=12)
+        return _json_bytes(result)
 
     if path == "/api/realtime/publish-one" and method == "POST":
         platform = str(body.get("platform") or "").strip()

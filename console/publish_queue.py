@@ -24,6 +24,7 @@ CACHE_ROOT: Optional[Path] = None
 _LOCK = threading.RLock()
 _ITEMS: Dict[str, Dict[str, Any]] = {}
 _SCHEDULER_STOP = threading.Event()
+_SCHEDULER_PAUSE = threading.Event()   # set → 暂停，清除 → 继续
 _SCHEDULER_THREAD: Optional[threading.Thread] = None
 _PUBLISH_LOCK = threading.Lock()
 
@@ -877,6 +878,7 @@ def _run_publish(item_id: str, *, force: bool = False) -> Dict[str, Any]:
 
 def _scheduler_loop() -> None:
     while not _SCHEDULER_STOP.is_set():
+        _SCHEDULER_PAUSE.wait()          # set → 阻塞直到清除；stop → 继续循环退出
         try:
             due = _due_items()
             for item_id in due:
@@ -902,6 +904,26 @@ def _ensure_scheduler() -> None:
 
 def stop_scheduler() -> None:
     _SCHEDULER_STOP.set()
+
+
+def pause_scheduler() -> bool:
+    """暂停调度，True=刚暂停（之前在运行），False=已暂停"""
+    if _SCHEDULER_PAUSE.is_set():
+        return False
+    _SCHEDULER_PAUSE.set()
+    return True
+
+
+def resume_scheduler() -> bool:
+    """继续调度，True=刚恢复（之前已暂停），False=本来就在运行"""
+    if not _SCHEDULER_PAUSE.is_set():
+        return False
+    _SCHEDULER_PAUSE.clear()
+    return True
+
+
+def is_paused() -> bool:
+    return _SCHEDULER_PAUSE.is_set()
 
 
 def stats() -> Dict[str, int]:
