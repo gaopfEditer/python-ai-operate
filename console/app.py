@@ -718,8 +718,6 @@ def _run_crawl_job(
     prev_kw = os.environ.get("X_SEARCH_KEYWORDS")
     prev_queries = os.environ.get("X_SEARCH_QUERIES")
     try:
-        import sys
-
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -2804,7 +2802,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return _json_bytes({"success": False, "error": str(e)})
 
     if path == "/api/realtime/gen-image" and method == "POST":
-        import shutil, uuid, subprocess, sys, os as _os, time as _time
+        import shutil, uuid, subprocess, os as _os, time as _time
         from pathlib import Path as _Path
         item_id = str(body.get("id") or "")
         title = str(body.get("title") or "")
