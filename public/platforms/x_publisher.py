@@ -83,8 +83,9 @@ class XPublisher:
             if editor is None:
                 # 回退首页再试
                 open_url_new_tab(driver, HOME_URL)
-                human_pause(1.0, 1.6)
+                human_pause(2.0, 3.5)
                 self._click_home_compose(driver)
+                human_pause(1.5, 2.5)
                 editor = self._wait_editor(driver, timeout=20)
             if editor is None:
                 return {
@@ -94,11 +95,12 @@ class XPublisher:
                     "platform": "x",
                 }
             steps.append("editor")
+            human_pause(1.2, 2.5)
 
             if body:
                 self._fill_text(driver, editor, body)
                 steps.append("text")
-                human_pause(0.4, 0.9)
+                human_pause(0.8, 1.5)
 
             # 先图后视频（X 通常同一条帖里图/视频有限制，尽量都传）
             if images:
@@ -202,6 +204,7 @@ class XPublisher:
                 for el in driver.find_elements(By.CSS_SELECTOR, sel):
                     if el.is_displayed():
                         el.click()
+                        human_pause(0.8, 1.5)
                         return True
             except Exception:
                 continue
@@ -304,12 +307,16 @@ class XPublisher:
                 btn = self._tweet_button(driver)
                 if btn is None:
                     return False
+            human_pause(1.5, 3.0)
             driver.execute_script("arguments[0].click();", btn)
             logger.info("X 已点击发帖按钮（尚未确认发出）")
+            human_pause(1.5, 2.5)
             return True
         except Exception:
+            human_pause(1.0, 2.0)
             try:
                 btn.click()
+                human_pause(1.5, 2.5)
                 return True
             except Exception:
                 return False

@@ -217,7 +217,7 @@ def publish_content(
     }
 
 
-PUBLISH_RETRY_MAX = 5
+PUBLISH_RETRY_MAX = 0
 PUBLISH_RETRY_WAIT_SEC = (180, 300)
 
 

@@ -28,6 +28,19 @@ from urllib.parse import parse_qs, urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+import sys as _sys
+if str(PROJECT_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(PROJECT_ROOT))
+# 直接加载 cdp_common.py，绕过 public.__init__ 的 yaml 依赖
+import importlib.util as _util
+_spec = _util.spec_from_file_location(
+    "_cdp_common", PROJECT_ROOT / "public" / "platforms" / "cdp_common.py"
+)
+_cdp_mod = _util.module_from_spec(_spec)
+_spec.loader.exec_module(_cdp_mod)
+human_pause = _cdp_mod.human_pause
+del _spec, _cdp_mod, _util
 STATE_PATH = PROJECT_ROOT / "output" / "trendradar_posts_state.json"
 ARTICLES_DIR = PROJECT_ROOT / "output" / "articles"
 
@@ -1264,6 +1277,42 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return b'{"exists":false}', 200, "application/json"
         p = _Path(urllib.parse.unquote(raw)).resolve()
         return _json_bytes({"exists": p.is_file() and p.stat().st_size > 0})
+
+    # ── 文件上传：粘贴图片或拖拽图片 ───────────────────────────────
+    if path == "/api/file/upload" and method == "POST":
+        try:
+            import urllib.parse, uuid, base64, re
+            b64 = body.get("base64", "") if isinstance(body, dict) else ""
+
+            if not b64:
+                b64 = (query.get("base64") or [None])[0]
+
+            if not b64:
+                return _json_bytes({"success": False, "error": "无图片数据"})
+
+            # 去除 data:image/xxx;base64, 前缀
+            b64 = re.sub(r"^data:image/\w+;base64,", "", b64)
+            img_bytes = base64.b64decode(b64)
+            ext = "png"
+            # 检测格式
+            if img_bytes[:4] == b"\xff\xd8\xff":
+                ext = "jpg"
+            elif img_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+                ext = "png"
+            elif img_bytes[:3] == b"GIF":
+                ext = "gif"
+            elif img_bytes[:4] == b"RIFF" and img_bytes[8:12] == b"WEBP":
+                ext = "webp"
+
+            filename = f"rt_manual_{uuid.uuid4().hex[:12]}.{ext}"
+            upload_dir = PROJECT_ROOT / "uploads" / "rt"
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            file_path = upload_dir / filename
+            file_path.write_bytes(img_bytes)
+            rel_path = str(file_path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+            return _json_bytes({"success": True, "path": rel_path})
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)})
 
     if path == "/api/health":
         return _json_bytes(
@@ -2538,9 +2587,9 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
         try:
-            from public.index import publish_content
+            from public.index import publish_content_with_retry
 
-            result = publish_content(
+            result = publish_content_with_retry(
                 content={"title": title, "content": content},
                 platform_ids=platforms,
                 tags=tags,
@@ -2775,7 +2824,9 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         url = str(body.get("url") or "")
 
         if not description:
-            return _json_bytes({"success": False, "error": "无 description，无法摘要"})
+            if not title:
+                return _json_bytes({"success": False, "error": "标题和描述都为空，无法摘要"})
+            description = f"标题：{title}（暂无详细内容，请根据标题和类目自行生成摘要）"
 
         prompt = f"""你是一个加密货币内容编辑。请根据以下事件的标题和内容，撰写一条面向币圈人士的社交平台短文（约300字）：
 
@@ -2787,17 +2838,20 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 来源：{source}
 
 要求：
-- 开头结合标题制造吸引力（疑问句或数据开场），不重复标题原话
-- 围绕"这对币圈/相关赛道/相关币种有什么影响"展开分析
-- 明确指出利多还是利空，以及影响程度
-- 简洁专业，有观点有判断，不只是描述事件
-- 可加1-2个相关话题标签
-- 中文输出"""
+  - 开头结合标题制造吸引力（疑问句或数据开场），不重复标题原话
+  - 围绕"这对币圈/相关赛道/相关币种有什么影响"展开分析
+  - 明确指出利多还是利空，以及影响程度
+  - 简洁专业，有观点有判断，不只是描述事件
+  - 可加1-2个相关话题标签
+  - 中文输出"""
         try:
-            summary = generate_text(prompt, max_tokens=400, temperature=0.7)
+            result = generate_text(prompt, max_tokens=400, temperature=0.7)
+            if not result.get("success"):
+                return _json_bytes({"success": False, "error": f"摘要生成失败: {result.get('error', '')}"})
+            summary = str(result.get("content") or "").strip()
             if not summary:
-                return _json_bytes({"success": False, "error": "摘要生成失败"})
-            return _json_bytes({"success": True, "summary": summary.strip()})
+                return _json_bytes({"success": False, "error": "摘要内容为空"})
+            return _json_bytes({"success": True, "summary": summary})
         except Exception as e:
             return _json_bytes({"success": False, "error": str(e)})
 
@@ -2823,7 +2877,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         img_path = out_dir / f"{tag}.png"
 
         # ── 核心：隔离新页签生成图片，成功才返回 ──────────────────────────
-        def _gen_in_isolated_tab(max_retries=3, retry_delay=12):
+        def _gen_in_isolated_tab(max_retries=5, retry_delay=20):
             sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
             from gemini_web_automation import generate_image_with_gemini_web
             from browser_automation import init_browser
@@ -2837,12 +2891,12 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                     # 强制在新页签打开 Gemini（不走 navigate_in_last_tab，避免切走用户当前页签）
                     main_handle = driver.current_window_handle if driver.window_handles else None
                     driver.execute_script("window.open('about:blank');")
-                    _time.sleep(1.5)
+                    human_pause(2.0, 4.0)
                     handles = list(driver.window_handles)
                     new_handle = next((h for h in handles if h != main_handle), handles[-1])
                     driver.switch_to.window(new_handle)
                     driver.get("https://gemini.google.com/app")
-                    _time.sleep(5)  # 等待页面完全加载
+                    human_pause(6.0, 9.0)  # 等待页面完全加载
 
                     # 调用文生图
                     result = generate_image_with_gemini_web(
@@ -2868,7 +2922,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
                     if attempt < max_retries:
                         print(f"[RT] 配图失败 [{tag}]，{attempt}/{max_retries} 次重试中…", file=sys.stderr)
-                        _time.sleep(retry_delay)
+                        human_pause(retry_delay * 0.8, retry_delay * 1.2)
                         continue
                     else:
                         return {"success": False, "error": f"重试{max_retries}次仍失败: {last_err}"}
@@ -2882,14 +2936,131 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                             pass
                     if attempt < max_retries:
                         print(f"[RT] 配图异常 [{tag}]，{attempt}/{max_retries} 次重试: {e}", file=sys.stderr)
-                        _time.sleep(retry_delay)
+                        human_pause(retry_delay * 0.8, retry_delay * 1.2)
                     else:
                         return {"success": False, "error": f"重试{max_retries}次仍异常: {last_err}"}
 
             return {"success": False, "error": last_err}
 
-        result = _gen_in_isolated_tab(max_retries=3, retry_delay=12)
+        result = _gen_in_isolated_tab(max_retries=5, retry_delay=20)
         return _json_bytes(result)
+
+    # ——— 批量生图（当天事件优先，宏观日历最后）———
+    if path == "/api/realtime/gen-images-batch" and method == "POST":
+        import shutil as _shutil, uuid as _uuid2
+        items = body.get("items") if isinstance(body.get("items"), list) else []
+        if not items:
+            return _json_bytes({"success": False, "error": "缺少 items"}, 400)
+
+        out_dir = PROJECT_ROOT / "output" / "rt_images"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # 优先级：当天事件 0，宏观日历 2，其余 1
+        TODAY = datetime.now().strftime("%Y-%m-%d")
+
+        def _priority(item: dict) -> int:
+            pub_at = str(item.get("publish_at") or "")
+            cat = str(item.get("category_name") or "").lower()
+            if pub_at.startswith(TODAY):
+                return 0
+            if any(k in cat for k in ("宏观", "日历", "economic", "calendar", "macro")):
+                return 2
+            return 1
+
+        sorted_items = sorted(items, key=_priority)
+
+        results = []
+        ok_n = 0
+        total = len(sorted_items)
+
+        for i, item in enumerate(sorted_items):
+            item_id = str(item.get("id") or _uuid2.uuid4().hex[:8])
+            title = str(item.get("title") or "")
+            content = str(item.get("content") or title)
+            tag = f"rt_{item_id[:8]}"
+            job_id = f"rt_batch_{_uuid2.uuid4().hex[:8]}"
+
+            # 进度回调
+            _set_job(
+                job_id,
+                status="running",
+                message=f"配图 {i+1}/{total} · {title[:20] or tag}…",
+                type="rt_batch_images",
+                progress={"current": i + 1, "total": total, "item_id": item_id},
+            )
+
+            # 生成 prompt
+            try:
+                sys.path.insert(0, str(PROJECT_ROOT))
+                from corpus.lab_tti import compose_memos_image_brief, build_memos_image_prompt
+
+                brief = compose_memos_image_brief(content, hook=title, title=title)
+                prompt_text = build_memos_image_prompt(brief, title=title)
+            except Exception as e:
+                results.append({"id": item_id, "success": False, "error": f"生成 prompt 失败: {e}"})
+                continue
+
+            # 调用生图（复用一个 tab）
+            def _gen_single(max_retries=5, retry_delay=20):
+                sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
+                from gemini_web_automation import generate_image_with_gemini_web
+                from browser_automation import init_browser
+
+                last_err = ""
+                driver = None
+                try:
+                    driver = init_browser()
+                    main_handle = driver.current_window_handle if driver.window_handles else None
+                    driver.execute_script("window.open('about:blank');")
+                    human_pause(2.0, 4.0)
+                    handles = list(driver.window_handles)
+                    new_handle = next((h for h in handles if h != main_handle), handles[-1])
+                    driver.switch_to.window(new_handle)
+                    driver.get("https://gemini.google.com/app")
+                    human_pause(6.0, 9.0)
+
+                    result = generate_image_with_gemini_web(
+                        prompt_text,
+                        out_dir=str(out_dir),
+                        tag=tag,
+                        keep_browser_open=False,
+                    )
+                    driver.quit()
+                    driver = None
+
+                    images = result.get("images") or []
+                    if images:
+                        saved_path = images[0]
+                        if _Path(saved_path).is_file() and _Path(saved_path).stat().st_size > 4096:
+                            rel = _Path(saved_path).resolve().relative_to(PROJECT_ROOT.resolve())
+                            return {"success": True, "path": str(rel)}
+                        else:
+                            last_err = f"图片文件无效或过小: {saved_path}"
+                    else:
+                        last_err = result.get("error", "未返回图片路径")
+                    return {"success": False, "error": last_err}
+
+                except Exception as e:
+                    if driver:
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
+                    return {"success": False, "error": str(e)}
+
+            gen_result = _gen_single()
+            if gen_result.get("success"):
+                ok_n += 1
+            results.append({"id": item_id, **gen_result})
+
+        msg = f"配图完成 {ok_n}/{total}"
+        _set_job(job_id, status="done", message=msg)
+        return _json_bytes({
+            "success": ok_n > 0,
+            "ok_count": ok_n,
+            "total": total,
+            "results": results,
+        })
 
     if path == "/api/realtime/publish-one" and method == "POST":
         platform = str(body.get("platform") or "").strip()

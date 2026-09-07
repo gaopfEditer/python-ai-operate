@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260906f" />
+  <link rel="stylesheet" href="/app.css?v=20260907a" />
 </head>
 <body>
   <div class="shell">
@@ -860,12 +860,13 @@
             <span id="rtEventCount" class="rt-badge">0 条待发</span>
           </div>
           <div class="rt-bar-right">
+            <span id="rtFetchStatus" class="rt-fetch-status" title="获取状态">●</span>
+            <span id="rtLastFetch" class="muted" style="font-size:.75rem"></span>
             <label class="field check" style="margin:0">
               <input id="rtAutoRefresh" type="checkbox" checked />
               <span>自动刷新</span>
             </label>
             <button id="btnRtRefresh" class="btn ghost btn-sm" type="button">刷新数据</button>
-            <button id="btnRtQueue" class="btn ghost btn-sm" type="button" data-action="queue">发送队列 <span id="rtQueueCount" class="rt-badge rt-badge-warn">0</span></button>
             <button id="btnRtGenImages" class="btn ghost btn-sm" type="button">生成配图</button>
           </div>
         </header>
@@ -900,33 +901,20 @@
             <div id="rtEvents" class="rt-event-list"></div>
           </aside>
 
-          <!-- 右侧：预览 + 平台选择 -->
+          <!-- 右侧：预览 + 发送队列并排 -->
           <section class="rt-col rt-preview-col">
-            <div class="rt-preview" id="rtPreview">
-              <div class="rt-preview-empty">
-                <p>← 左侧选中一条事件</p>
+            <!-- 左侧：预览 + 平台选择 -->
+            <div class="rt-left-panel">
+              <div class="rt-preview" id="rtPreview">
+                <div class="rt-preview-empty">
+                  <p>← 左侧选中一条事件</p>
+                </div>
               </div>
             </div>
 
-            <div class="rt-platforms" id="rtPlatforms">
-              <p class="muted" style="font-size:.82rem;margin:0 0 6px">发布平台</p>
-              <div class="rt-platform-checks">
-                <label class="field check"><input id="rtPlatBinance" type="checkbox" checked /><span>币安广场</span></label>
-                <label class="field check"><input id="rtPlatOkx" type="checkbox" checked /><span>OKX 星球</span></label>
-                <label class="field check"><input id="rtPlatX" type="checkbox" /><span>X</span></label>
-              </div>
-            </div>
-
-            <div class="rt-actions">
-              <button id="btnRtAddToQueue" class="btn primary" type="button" disabled>+ 加入发送队列</button>
-              <button id="btnRtRemoveFromQueue" class="btn ghost btn-sm" type="button" disabled>移出队列</button>
-            </div>
-
-            <div class="rt-queue-panel" id="rtQueuePanel" hidden>
-              <div class="rt-queue-head">
-                <h3>发送队列</h3>
-                <button id="btnRtQueueClose" type="button" class="btn-link">收起</button>
-              </div>
+            <!-- 右侧：发送队列 -->
+            <div class="rt-queue-panel" id="rtQueuePanel">
+              <h3 class="rt-queue-title">发送队列</h3>
               <div id="rtQueueList" class="rt-queue-list"></div>
               <div class="rt-queue-actions">
                 <button id="btnRtStartSchedule" class="btn primary btn-sm" type="button" disabled>开始定时发送</button>
@@ -941,6 +929,6 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260906u"></script>
+  <script src="/app.js?v=20260907d"></script>
 </body>
 </html>

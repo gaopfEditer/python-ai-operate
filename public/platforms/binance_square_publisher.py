@@ -548,13 +548,24 @@ function ownShort(el) {
 function isPublishWord(t) {
   const n = (t || '').toLowerCase();
   return n === '发布' || n === '发送' || n === '确认发布' || n === '立即发布'
-    || n === 'post' || n === 'publish' || n === 'submit' || n === 'submit'
-    || t === '发布' || t === '发送';
+    || n === 'post' || n === 'publish' || n === 'submit'
+    || t === '发布' || t === '发送'
+    // 编辑器内的提交按钮
+    || (insideEditor && (t === '发文' || t === '发帖' || t === '发帖子' || t === '发动态'));
 }
 const _COMPOSE_WORDS = new Set(['发文','发帖','发帖子','发动态','写动态']);
 const editor = document.querySelector('[data-pai-editor="1"]');
 const cluster = editor && editor.closest(
   '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="short-editor"], [class*="editor" i], [data-pai-editor-root="1"]'
+);
+// 判断是否已进入编辑器：①有 data-pai-editor 或 ②有常见编辑器类名
+const insideEditor = !!editor || !!(
+  document.querySelector('[class*="editor" i][class*="content" i]') ||
+  document.querySelector('[contenteditable="true"]') ||
+  document.querySelector('[role="textbox"]') ||
+  document.querySelector('[class*="short-editor" i]') ||
+  document.querySelector('[class*="composer" i]') ||
+  document.querySelector('[class*="ProseMirror" i]')
 );
 const roots = [];
 if (cluster) roots.push(cluster);
@@ -569,8 +580,8 @@ function consider(el) {
   if (!el || seen.has(el) || !vis(el) || isTab(el)) return;
   seen.add(el);
   const t = ownShort(el);
-  // 排除开帖按钮（打开编辑器用的，不是提交）
-  if (!t || _COMPOSE_WORDS.has(t)) return;
+  // 排除开帖按钮（打开编辑器用的，不是提交），但如果已进入编辑器则不排除
+  if (!t || (!insideEditor && _COMPOSE_WORDS.has(t))) return;
   if (!isPublishWord(t)) return;
   const btn = clickable(el);
   if (isTab(btn)) return;
@@ -2011,6 +2022,13 @@ class BinanceSquarePublisher:
                   return (el.getAttribute('aria-label') || el.innerText || el.textContent || '').replace(/\\s+/g, '').trim();
                 }
                 const editor = document.querySelector('[data-pai-editor="1"]');
+                const inEditor = !!editor || !!(
+                  document.querySelector('[contenteditable="true"]') ||
+                  document.querySelector('[role="textbox"]') ||
+                  document.querySelector('[class*="short-editor" i]') ||
+                  document.querySelector('[class*="composer" i]') ||
+                  document.querySelector('[class*="ProseMirror" i]')
+                );
                 const cluster = editor && editor.closest(
                   '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="editor" i]'
                 );
@@ -2020,7 +2038,9 @@ class BinanceSquarePublisher:
                   if (!vis(el)) continue;
                   const t = lab(el);
                   if (!t || t.length > 16) continue;
-                  if (t.includes('文章') || t === '发文' || t === '发帖') continue;
+                  if (t.includes('文章')) continue;
+                  // 已进入编辑器时，文/发帖/发动态 等是提交按钮，不排除
+                  if (!inEditor && (t === '发文' || t === '发帖')) continue;
                   if (!words.some(w => t === w || t.includes(w) || t.toLowerCase() === w.toLowerCase())) continue;
                   found = el;
                   if (t === '发布' || t.toLowerCase() === 'post' || t.toLowerCase() === 'publish') break;

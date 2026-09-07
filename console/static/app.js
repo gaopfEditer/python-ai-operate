@@ -8313,6 +8313,7 @@ async function rtFetchEvents() {
   const minStar = parseInt($("#rtMinStar")?.value || "0", 10);
   const kw = ($("#rtKeyword")?.value || "").trim().toLowerCase();
   const platformFilter = $("#rtPlatformFilter")?.value || "all";
+  rtSetFetchStatus("loading");
   try {
     const data = await api(`/api/realtime/events?channel=${channel}&min_star=${minStar}&limit=100`);
     let items = Array.isArray(data.items) ? data.items : [];
@@ -8327,14 +8328,36 @@ async function rtFetchEvents() {
       (it) => (it.title || "").toLowerCase().includes(kw) ||
                (it.description || "").toLowerCase().includes(kw)
     );
+    // 按 published_at 降序（最新在前），无时间则排末尾
+    items.sort((a, b) => {
+      const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
+      const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
+      return tb - ta;
+    });
     RT_STATE.events = items;
     rtRenderEventList();
     updateRtEventCount(items.length);
+    rtSetFetchStatus("ok");
+    rtUpdateLastFetch();
     // TOP 类目自动配图（加锁防重复）
     rtAutoGenImagesForTopCategories(items);
   } catch (e) {
     console.error("rtFetchEvents", e);
+    rtSetFetchStatus("error");
   }
+}
+
+function rtSetFetchStatus(status) {
+  const el = $("#rtFetchStatus");
+  if (!el) return;
+  el.className = "rt-fetch-status " + status;
+  el.textContent = status === "loading" ? "◐" : status === "error" ? "✗" : "●";
+}
+function rtUpdateLastFetch() {
+  const el = $("#rtLastFetch");
+  if (!el) return;
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 /** 全局锁，防止刷新时重复触发 */
@@ -8546,6 +8569,7 @@ function rtSelectEvent(id) {
   RT_STATE.selectedId = id;
   rtRenderEventList();
   rtRenderPreview();
+  rtRenderQueueList();
   updateRtAddBtn();
 }
 
@@ -8566,28 +8590,50 @@ function rtRenderPreview() {
   const catName = it.category?.name || "";
   const starStr = "★".repeat(it.star || 0);
   const timeStr = it.publish_at ? new Date(it.publish_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai", month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+  const inQueue = RT_STATE.queue.some(q => q.id === it.id && q.status === "pending");
 
   const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
   const imgSrc = imgPath
     ? imgPath.replace(PROJECT_ROOT_RE, "")
     : "";
   const imgSrcFull = imgSrc ? `/api/file/${imgSrc}` : "";
-  const imgHtml = imgSrcFull
-    ? `<img class="rt-preview-img" src="${imgSrcFull}" alt="配图" />`
-    : `<div class="rt-preview-img-loading" id="rtImgLoading">暂无配图（可点击「生成配图」）</div>`;
 
   panel.innerHTML = `
     <div class="rt-preview-meta">
-      ${starStr ? `<span class="evt-star">${starStr}</span>` : ""}
-      ${catName ? `<span class="evt-cat">${catName}</span>` : ""}
-      ${biasLabel ? `<span>${biasLabel}</span>` : ""}
-      ${timeStr ? `<span class="evt-time">${timeStr}</span>` : ""}
-      ${it.source ? `<span style="font-size:.72rem;color:var(--muted)">${escHtml(it.source)}</span>` : ""}
+      <div class="rt-preview-meta-left">
+        ${starStr ? `<span class="evt-star">${starStr}</span>` : ""}
+        ${catName ? `<span class="evt-cat">${catName}</span>` : ""}
+        ${biasLabel ? `<span>${biasLabel}</span>` : ""}
+        ${timeStr ? `<span class="evt-time">${timeStr}</span>` : ""}
+        ${it.source ? `<span style="font-size:.72rem;color:var(--muted)">${escHtml(it.source)}</span>` : ""}
+      </div>
+      <div class="rt-preview-meta-right">
+        <div class="rt-platforms-inline">
+          <label class="field check"><input id="rtPlatBinance" type="checkbox" checked /><span>币安</span><span class="plat-status" id="rtPlatBinanceStatus"></span></label>
+          <label class="field check"><input id="rtPlatOkx" type="checkbox" checked /><span>OKX</span><span class="plat-status" id="rtPlatOkxStatus"></span></label>
+          <label class="field check"><input id="rtPlatX" type="checkbox" /><span>X</span><span class="plat-status" id="rtPlatXStatus"></span></label>
+        </div>
+      </div>
     </div>
-    <h3 class="rt-preview-title">${escHtml(it.title || "")}</h3>
-    <textarea id="rtSummaryEdit" class="rt-summary-edit" rows="4" placeholder="摘要（可手动编辑）…">${escHtml(summary)}</textarea>
-    <button class="btn ghost btn-sm" id="rtGenSummaryBtn" type="button">生成摘要</button>
-    ${imgHtml}
+    <div class="rt-preview-title-row">
+      <h3 class="rt-preview-title">${escHtml(it.title || "")}</h3>
+      <div class="rt-actions-bar">
+        ${inQueue
+          ? `<button class="btn ghost btn-sm" id="btnRtRemoveFromQueue" type="button">移出队列</button>`
+          : `<button class="btn ghost btn-sm" id="btnRtAddToQueue" type="button">加入队列</button>`}
+        <button class="btn ghost btn-sm" id="btnRtPublishNow" type="button">立即发布</button>
+      </div>
+    </div>
+    <textarea id="rtSummaryEdit" data-pai-editor="1" class="rt-summary-edit" rows="4" placeholder="摘要（可手动编辑）…">${escHtml(summary)}</textarea>
+    <div class="rt-preview-actions">
+      <button class="btn ghost btn-sm" id="rtGenSummaryBtn" type="button">生成摘要</button>
+      ${imgSrcFull
+        ? `<button class="btn ghost btn-sm" id="btnRtDelImg" type="button">删除图片</button>`
+        : ""}
+      ${imgSrcFull
+        ? `<img class="rt-preview-img" src="${imgSrcFull}" alt="配图" style="width:222px" />`
+        : `<div class="rt-preview-img-loading" id="rtImgLoading">暂无配图（可点击「生成配图」）</div>`}
+    </div>
   `;
 
   // 事件委托：按钮可能随 innerHTML 重建，用 panel 做代理
@@ -8608,13 +8654,54 @@ function rtRenderPreview() {
     if (e.target.id === "btnRtRemoveFromQueue") { rtRemoveFromQueue(RT_STATE.selectedId); }
     if (e.target.id === "btnRtStartSchedule") { rtStartSchedule(); }
     if (e.target.id === "btnRtPublishNow") { rtPublishNow(RT_STATE.selectedId); }
+    if (e.target.id === "btnRtDelImg") {
+      const q = RT_STATE.queue.find(q => q.id === RT_STATE.selectedId);
+      if (q) { q.image_path = null; rtPersistQueue(); rtRenderPreview(); rtRenderQueueList(); rtRenderEventList(); }
+    }
+    if (e.target.id === "btnRtGenImagesBatch") { rtGenImagesBatch(); }
   });
-  // Sync summary edits
+  // Sync summary edits + 粘贴图片
   const ta = $("#rtSummaryEdit");
   if (ta) {
     ta.addEventListener("input", () => {
       const q = RT_STATE.queue.find(q => q.id === RT_STATE.selectedId);
       if (q) { q.summary = ta.value; rtPersistQueue(); }
+    });
+    ta.addEventListener("paste", async (e) => {
+      const items = [...(e.clipboardData?.items || [])];
+      const imgItem = items.find(item => item.type.startsWith("image/"));
+      if (!imgItem) return;
+      e.preventDefault();
+      const blob = imgItem.getAsFile();
+      if (!blob) return;
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const base64 = ev.target.result;
+        const r = await api("/api/file/upload", {
+          method: "POST",
+          body: JSON.stringify({ base64 }),
+        });
+        if (r.success && r.path) {
+          // 已在队列则更新 image_path；未在队列则先加入
+          let q = RT_STATE.queue.find(q => q.id === RT_STATE.selectedId);
+          if (!q) {
+            rtAddToQueue();
+            q = RT_STATE.queue.find(q => q.id === RT_STATE.selectedId);
+          }
+          if (q) {
+            // 有旧图则清除（用户粘贴即替换）
+            q.image_path = r.path;
+            rtPersistQueue();
+            rtRenderPreview();
+            rtRenderQueueList();
+            rtRenderEventList();
+          }
+          toast("图片已添加", "ok");
+        } else {
+          toast("图片上传失败: " + (r.error || ""), "error");
+        }
+      };
+      reader.readAsDataURL(blob);
     });
   }
   updateRtAddBtn();
@@ -8809,6 +8896,109 @@ async function rtGenImages() {
   }
 }
 
+async function rtGenImagesBatch() {
+  const btn = $('#btnRtGenImagesBatch');
+  if (btn) btn.disabled = true;
+  try {
+    const items = RT_STATE.queue.map(q => ({
+      id: q.id,
+      title: q.title || '',
+      content: q.summary || q.title || '',
+      publish_at: q.publish_at || '',
+      category_name: q.category_name || '',
+    }));
+    const hasImg = items.filter(i => {
+      const q = RT_STATE.queue.find(q => q.id === i.id);
+      return q?.image_path;
+    }).length;
+    if (hasImg === 0 && items.length === 0) { toast('队列为空，无可生图内容', 'warn'); return; }
+    const r = await api('/api/realtime/gen-images-batch', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+    if (r.success || r.ok_count > 0) {
+      // 更新队列中的图片路径
+      for (const res of (r.results || [])) {
+        const q = RT_STATE.queue.find(q => q.id === res.id);
+        if (q && res.path) {
+          q.image_path = res.path;
+        }
+      }
+      rtPersistQueue();
+      rtRenderEventList();
+      rtRenderPreview();
+      rtRenderQueueList();
+      toast(r.ok_count + '/' + r.total + ' 张配图生成完成', 'ok');
+    } else {
+      toast(r.error || '批量生图失败', 'error');
+    }
+  } catch (e) {
+    toast('批量生图失败: ' + e, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function rtPublishNow(id) {
+  const q = RT_STATE.queue.find(q => q.id === id) || RT_STATE.events.find(e => e.id === id);
+  if (!q) { toast("未找到内容", "error"); return; }
+  const text = q.summary || q.description || "";
+  if (!text) { toast("正文为空", "error"); return; }
+
+  const plats = [];
+  if ($("#rtPlatBinance")?.checked) plats.push({ pid: "binance_square", name: "币安广场" });
+  if ($("#rtPlatOkx")?.checked) plats.push({ pid: "okx", name: "OKX星球" });
+  if ($("#rtPlatX")?.checked) plats.push({ pid: "x", name: "X" });
+  if (!plats.length) { toast("请至少选一个平台", "error"); return; }
+
+  const image_path = q.image_path || null;
+  const btn = $("#btnRtPublishNow");
+  if (btn) { btn.disabled = true; btn.textContent = "发布中…"; }
+
+  // 显示各平台发布状态
+  const showPlatStatus = (pid, status, msg) => {
+    const labels = { binance_square: "rtPlatBinance", okx: "rtPlatOkx", x: "rtPlatX" };
+    const labelId = labels[pid];
+    const el = $(`#${labelId}Status`);
+    if (el) el.textContent = msg;
+  };
+
+  try {
+    for (const { pid, name } of plats) {
+      showPlatStatus(pid, "running", "发布中…");
+      try {
+        const r = await api("/api/publish", {
+          method: "POST",
+          body: JSON.stringify({
+            title: "",
+            content: text,
+            tags: "",
+            platforms: [pid],
+            media_paths: image_path ? [image_path] : [],
+            use_cdp: true,
+            debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+            submit: true,
+          }),
+        });
+        if (r.success) {
+          showPlatStatus(pid, "ok", "✓");
+          toast(`${name} 发布成功`, "ok");
+        } else {
+          showPlatStatus(pid, "err", "✗");
+          toast(`${name} 发布失败: ${r.error || r.results?.[0]?.error || "未知错误"}`, "error");
+        }
+      } catch (e) {
+        showPlatStatus(pid, "err", "✗");
+        toast(`${name} 发布异常: ${e}`, "error");
+      }
+    }
+    const qi = RT_STATE.queue.find(q => q.id === id);
+    if (qi) { qi.status = "done"; rtPersistQueue(); rtRenderQueueList(); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "立即发布"; }
+  }
+}
+
 async function rtStartSchedule() {
   if (RT_STATE.scheduleRunning) {
     rtStopSchedule();
@@ -8995,23 +9185,14 @@ async function rtPublishQueueItem(qid) {
   if (failList.length) toast(`发送失败: ${failList.join("; ")}`, "error");
 }
 
-function rtToggleQueuePanel() {
-  const panel = $("#rtQueuePanel");
-  if (!panel) return;
-  const isHidden = panel.hidden;
-  panel.hidden = !isHidden;
-  if (!isHidden) rtRenderQueueList();
-}
-
 function rtBindEvents() {
   $("#btnRtRefresh")?.addEventListener("click", rtFetchEvents);
-  $("#btnRtQueue")?.addEventListener("click", rtToggleQueuePanel);
   $("#btnRtGenImages")?.addEventListener("click", rtGenImages);
+  $("#btnRtGenImagesBatch")?.addEventListener("click", rtGenImagesBatch);
   $("#btnRtAddToQueue")?.addEventListener("click", rtAddToQueue);
   $("#btnRtRemoveFromQueue")?.addEventListener("click", rtRemoveFromQueue);
   $("#btnRtClearQueue")?.addEventListener("click", rtClearQueue);
   $("#btnRtStartSchedule")?.addEventListener("click", rtStartSchedule);
-  $("#btnRtQueueClose")?.addEventListener("click", rtToggleQueuePanel);
   $("#rtChannel")?.addEventListener("change", rtFetchEvents);
   $("#rtMinStar")?.addEventListener("change", rtFetchEvents);
   $("#rtPlatformFilter")?.addEventListener("change", rtFetchEvents);
@@ -9025,12 +9206,15 @@ function rtBindEvents() {
   let autoTimer;
   $("#rtAutoRefresh")?.addEventListener("change", () => {
     clearInterval(autoTimer);
-    if ($("#rtAutoRefresh")?.checked) {
+    const enabled = !!$("#rtAutoRefresh")?.checked;
+    if (enabled) {
       autoTimer = setInterval(rtFetchEvents, 60000);
     }
+    const el = $("#rtFetchStatus");
+    if (el) el.style.visibility = enabled ? "visible" : "hidden";
   });
   if ($("#rtAutoRefresh")?.checked) {
-    autoTimer = setInterval(rtFetchEvents, 60000);
+    autoTimer = setInterval(rtFetchEvents, 3600000);
   }
 }
 
