@@ -8761,6 +8761,9 @@ async function rtGenSummary(id) {
     if (r.success && r.summary) {
       const ta = $("#rtSummaryEdit");
       if (ta) ta.value = r.summary;
+      // 同步更新 RT_STATE.events，防止切换事件再切回来时数据回退
+      const ev = RT_STATE.events.find(e => e.id === id);
+      if (ev) { ev.description = r.summary; ev.summary = r.summary; }
       const q = RT_STATE.queue.find(q => q.id === id);
       if (q) { q.summary = r.summary; rtPersistQueue(); }
       // 更新列表里该项的摘要预览

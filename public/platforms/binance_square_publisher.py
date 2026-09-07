@@ -526,6 +526,10 @@ function clickable(el) {
   return el.closest('button, [role="button"], [type="submit"], a, [class*="btn" i], [class*="button" i]') || el;
 }
 function ownShort(el) {
+  // 优先读 aria-label/title（OKX/币安发布按钮的文本常在这里）
+  const aria = (el.getAttribute('aria-label') || el.getAttribute('title') || '').replace(/\s+/g, '').trim();
+  if (aria && aria.length <= 14) return aria;
+  // 再读 innerText
   let t = '';
   for (const n of el.childNodes) {
     if (n.nodeType === 3) t += n.textContent || '';
@@ -537,17 +541,17 @@ function ownShort(el) {
     const ct = (c.innerText || c.textContent || '').replace(/\s+/g, '').trim();
     if (ct && ct.length <= 8) return ct;
   }
-  const aria = (el.getAttribute('aria-label') || el.getAttribute('title') || '').replace(/\s+/g, '').trim();
-  if (aria && aria.length <= 12) return aria;
   const inner = (el.innerText || '').replace(/\s+/g, '').trim();
   if (inner && inner.length <= 8) return inner;
   return '';
 }
 function isPublishWord(t) {
   const n = (t || '').toLowerCase();
-  return t === '发布' || t === '发送' || t === '确认发布' || t === '立即发布'
-    || n === 'post' || n === 'publish' || n === 'submit';
+  return n === '发布' || n === '发送' || n === '确认发布' || n === '立即发布'
+    || n === 'post' || n === 'publish' || n === 'submit' || n === 'submit'
+    || t === '发布' || t === '发送';
 }
+const _COMPOSE_WORDS = new Set(['发文','发帖','发帖子','发动态','写动态']);
 const editor = document.querySelector('[data-pai-editor="1"]');
 const cluster = editor && editor.closest(
   '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="short-editor"], [class*="editor" i], [data-pai-editor-root="1"]'
@@ -565,8 +569,9 @@ function consider(el) {
   if (!el || seen.has(el) || !vis(el) || isTab(el)) return;
   seen.add(el);
   const t = ownShort(el);
+  // 排除开帖按钮（打开编辑器用的，不是提交）
+  if (!t || _COMPOSE_WORDS.has(t)) return;
   if (!isPublishWord(t)) return;
-  if (t === '发文' || t === '发帖') return;
   const btn = clickable(el);
   if (isTab(btn)) return;
   let sc = 80;
@@ -610,6 +615,412 @@ try {
     return { ok: false, label: best.label, waiting: false, candidates: nearby };
   }
 }
+}
+function labelOf(el) {
+  if (!el) return '';
+  const aria = (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('data-bn-toast') || '').trim();
+  const an = norm(aria);
+  if (an && isSubmitWord(an)) return aria.replace(/\s+/g, ' ').trim();
+  let own = '';
+  for (const node of el.childNodes) {
+    if (node.nodeType === 3) own += node.textContent || '';
+  }
+  own = own.replace(/\s+/g, ' ').trim();
+  if (own && isSubmitWord(norm(own))) return own;
+  for (const c of el.children || []) {
+    if (c.closest && c.closest('[data-pai-editor="1"]')) continue;
+    const ct = (c.innerText || c.textContent || '').replace(/\s+/g, ' ').trim();
+    if (ct && ct.length <= 16 && isSubmitWord(norm(ct))) return ct;
+  }
+  const inner = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+  if (inner.length <= 16) return inner;
+  return an || own || '';
+}
+function clickTarget(el) {
+  return el.closest('button, [role="button"], [type="submit"], a, [class*="btn" i], [class*="button" i]') || el;
+}
+function eachNode(root, cb) {
+  if (!root) return;
+  cb(root);
+  const walk = (node) => {
+    if (!node || !node.querySelectorAll) return;
+    node.querySelectorAll('*').forEach((el) => {
+      cb(el);
+      if (el.shadowRoot) walk(el.shadowRoot);
+    });
+  };
+  walk(root);
+}
+function subtreeHasSubmit(root, editor) {
+  if (!root) return false;
+  let hit = false;
+  eachNode(root, (el) => {
+    if (hit) return;
+    if (!el.matches) return;
+    if (!el.matches('button, [role="button"], [type="submit"], [class*="btn" i], [class*="button" i]')) return;
+    if (editor && editor.contains(el)) return;
+    if (!visible(el)) return;
+    if (isSubmitWord(norm(labelOf(el)))) hit = true;
+  });
+  return hit;
+}
+function editorCluster(editor) {
+  if (!editor) return null;
+  const dialog = editor.closest(
+    '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="overlay" i], [class*="sheet" i], [class*="composer" i], [class*="compose" i]'
+  );
+  if (dialog) return dialog;
+  const marked = document.querySelector('[data-pai-editor-root="1"]');
+  if (marked && marked.contains(editor) && subtreeHasSubmit(marked.parentElement || marked, editor)) {
+    return marked.parentElement && subtreeHasSubmit(marked.parentElement, editor) ? marked.parentElement : marked;
+  }
+  let n = editor.parentElement;
+  for (let i = 0; i < 10 && n && n !== document.body && n !== document.documentElement; i++) {
+    const box = n.getBoundingClientRect();
+    if (box.height > window.innerHeight * 0.9 && box.width > window.innerWidth * 0.9) break;
+    if (subtreeHasSubmit(n, editor)) return n;
+    n = n.parentElement;
+  }
+  return (marked && marked.contains(editor) ? marked : null) || editor.parentElement;
+}
+function inSiteChrome(el, cluster) {
+  const chrome = el.closest('header, nav, [class*="navbar" i], [class*="Navbar"], [class*="top-nav" i], [class*="side-nav" i], [class*="sidenav" i]');
+  if (!chrome) return false;
+  if (cluster && cluster.contains(el)) return false;
+  return true;
+}
+function nearScore(el, editor, cluster) {
+  if (!editor) return 0;
+  if (cluster && cluster.contains(el)) return 100;
+  if (editor.contains(el)) return 20;
+  const er = editor.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  const dist = Math.hypot(
+    (r.left + r.width/2) - (er.left + er.width/2),
+    (r.top + r.height/2) - (er.top + er.height/2)
+  );
+  if (dist < 520) return 70;
+  if (dist < 860) return 40;
+  return 0;
+}
+function wordBoost(n, editorFilled) {
+  const low = n.toLowerCase();
+  if (editorFilled && (n === '发文' || n === '发帖' || n === '发帖子' || n === '发动态')) return -200;
+  if (n === '发布' || n === '确认发布' || n === '立即发布' || low === 'post' || low === 'publish' || low === 'submit') return 50;
+  if (n.includes('发布') || low.includes('publish') || low === 'send') return 35;
+  if (n === '发文' || n === '发帖' || n === '发送') return 20;
+  return 10;
+}
+function scoreBtn(el, editor, cluster, editorFilled) {
+  if (inBadAnchor(el)) return 0;
+  if (inSiteChrome(el, cluster)) return 0;
+  if (el.getAttribute('role') === 'tab' || el.closest('[role="tablist"]')) return 0;
+  const raw = labelOf(el);
+  const n = norm(raw);
+  const iconHit = /post|publish|submit|send|发布|发送/.test(
+    String(el.getAttribute('aria-label') || el.getAttribute('title') || '')
+  );
+  if (!isSubmitWord(n) && !iconHit) return 0;
+  const near = nearScore(el, editor, cluster);
+  if (!near) return 0;
+  let sc = 30 + near + wordBoost(n || norm(el.getAttribute('aria-label') || ''), editorFilled);
+  const t = clickTarget(el);
+  if (t.tagName === 'BUTTON' || t.getAttribute('role') === 'button' || t.getAttribute('type') === 'submit') sc += 16;
+  const cls = String(t.className || '');
+  if (/primary|submit|confirm|bn-button|solid/i.test(cls)) sc += 18;
+  try {
+    const r = el.getBoundingClientRect();
+    const er = editor.getBoundingClientRect();
+    if (r.left > er.left + er.width * 0.35) sc += 12;
+    if (r.top <= er.top + 8) sc += 10;
+  } catch (_) {}
+  return sc;
+}
+const editor = document.querySelector('[data-pai-editor="1"]');
+const cluster = editorCluster(editor);
+const scopes = [];
+const seenScope = new Set();
+function pushScope(el) {
+  if (!el || seenScope.has(el)) return;
+  seenScope.add(el);
+  scopes.push(el);
+}
+pushScope(cluster);
+pushScope(document.querySelector('[data-pai-editor-root="1"]'));
+if (editor) {
+  pushScope(editor.parentElement);
+  if (editor.parentElement) pushScope(editor.parentElement.parentElement);
+}
+const sel = 'button, [role="button"], [type="submit"], a, [class*="btn" i], [class*="button" i], span, div';
+let best = null, bestSc = 0;
+const ranked = [];
+const nearby = [];
+for (const scope of (scopes.length ? scopes : [document.body])) {
+  eachNode(scope, (el) => {
+    if (!el.matches || !el.matches(sel)) return;
+    if (!visible(el)) return;
+    if (editor && editor.contains(el) && el !== editor) {
+      if (el.closest('[data-pai-editor="1"]') === editor && el !== clickTarget(el)) return;
+    }
+    const lab = labelOf(el);
+    if (el.matches('button, [role="button"], [type="submit"]')) {
+      nearby.push({
+        label: (lab || el.getAttribute('aria-label') || '(icon)').slice(0, 24),
+        tag: el.tagName,
+        disabled: hardDisabled(el),
+        inHeader: !!el.closest('header'),
+        inCluster: !!(cluster && cluster.contains(el))
+      });
+    }
+    if (!allowDisabled && hardDisabled(clickTarget(el))) return;
+    const sc = scoreBtn(el, editor, cluster, editorFilled);
+    if (sc <= 0) return;
+    ranked.push({ el, sc, label: (lab || '').slice(0, 24) });
+    if (sc > bestSc) { bestSc = sc; best = el; }
+  });
+}
+document.querySelectorAll('button, [role="button"], [type="submit"]').forEach((el) => {
+  if (!visible(el)) return;
+  if (editor && editor.contains(el)) return;
+  const lab = labelOf(el);
+  nearby.push({
+    label: (lab || el.getAttribute('aria-label') || '(icon)').slice(0, 24),
+    tag: el.tagName,
+    disabled: hardDisabled(el),
+    inHeader: !!el.closest('header'),
+    inCluster: !!(cluster && cluster.contains(el))
+  });
+  if (!allowDisabled && hardDisabled(el)) return;
+  const sc = scoreBtn(el, editor, cluster, editorFilled);
+  if (sc <= 0) return;
+  ranked.push({ el, sc, label: (lab || '').slice(0, 24) });
+  if (sc > bestSc) { bestSc = sc; best = el; }
+});
+ranked.sort((a, b) => b.sc - a.sc);
+const candidates = ranked.slice(0, 8).map((x) => ({ label: x.label, score: x.sc }));
+const nearbyOut = nearby.slice(0, 12);
+if (!best || bestSc < 50) {
+  return { ok: false, label: '', score: bestSc, candidates, nearby: nearbyOut };
+}
+const target = clickTarget(best);
+try {
+  target.scrollIntoView({block:'center', inline:'center'});
+  try { target.focus(); } catch (_) {}
+  target.click();
+  return { ok: true, label: (labelOf(best) || textOfSafe(best)).slice(0, 24), score: bestSc, candidates, nearby: nearbyOut };
+} catch (_) {
+  try {
+    target.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
+    return { ok: true, label: (labelOf(best) || '').slice(0, 24), score: bestSc, candidates, nearby: nearbyOut };
+  } catch (_) {
+    return { ok: false, label: '', score: bestSc, candidates, nearby: nearbyOut };
+  }
+}
+function textOfSafe(el) {
+  return (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+}
+"""
+
+_SUBMIT_STATE_JS = r"""
+const editor = document.querySelector('[data-pai-editor="1"]');
+function vis(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 4 || r.height < 4) return false;
+  const st = window.getComputedStyle(el);
+  if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.05) return false;
+  return true;
+}
+let modalOpen = false;
+if (editor) {
+  const modal = editor.closest('[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="overlay" i]');
+  modalOpen = !!(modal && vis(modal));
+}
+const toasts = [];
+for (const el of document.querySelectorAll('[role="alert"], [class*="toast" i], [class*="snackbar" i], [class*="notify" i]')) {
+  if (!vis(el)) continue;
+  const t = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+  if (t && t.length < 80) toasts.push(t);
+}
+const edText = editor ? String(editor.innerText || editor.value || '').replace(/\u200b/g, '').trim() : '';
+return {
+  href: String(location.href || ''),
+  editorPresent: !!(editor && vis(editor)),
+  editorLen: edText.length,
+  modalOpen,
+  toasts: toasts.slice(0, 6)
+};
+"""
+
+_CLICK_BITGET_SUBMIT_JS = r"""
+function visible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return false;
+  const st = window.getComputedStyle(el);
+  if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) < 0.05) return false;
+  if (st.pointerEvents === 'none') return false;
+  return true;
+}
+function norm(t) {
+  return (t || '').trim().replace(/\s+/g, '');
+}
+function textOf(el) {
+  if (!el || typeof el === 'string') return norm(el || '');
+  return norm(el.innerText || el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '');
+}
+function hardDisabled(el) {
+  if (!el) return true;
+  if (el.disabled) return true;
+  if (el.getAttribute('aria-disabled') === 'true') return true;
+  const st = window.getComputedStyle(el);
+  if (st.pointerEvents === 'none') return true;
+  return false;
+}
+function inTopSiteNav(el) {
+  const r = el.getBoundingClientRect();
+  if (r.top > window.innerHeight * 0.22) return false;
+  return !!el.closest('header, nav, [class*="navbar" i], [class*="Navbar"], [class*="top-nav" i], [class*="TopNav"]');
+}
+function rejectLabel(t) {
+  return !t || t.includes('发布文章') || t.includes('发文章') || t.includes('文章');
+}
+function publishLabel(t) {
+  return t === '发布' || t === 'Publish' || t === 'Post';
+}
+function modalScope() {
+  const editor = document.querySelector('[data-pai-editor="1"]');
+  const root = document.querySelector('[data-pai-editor-root="1"]');
+  const scopes = [];
+  const seen = new Set();
+  const push = (el) => {
+    if (!el || seen.has(el)) return;
+    seen.add(el);
+    scopes.push(el);
+  };
+  if (editor) {
+    push(editor.closest(
+      '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="overlay" i], [class*="sheet" i], [class*="editor" i], [class*="Editor"]'
+    ));
+  }
+  if (root) push(root);
+  document.querySelectorAll('[role="dialog"], [class*="modal" i], [class*="Modal"]').forEach(push);
+  if (!scopes.length) scopes.push(document.body);
+  return scopes;
+}
+function eachNode(root, cb) {
+  if (!root) return;
+  cb(root);
+  root.querySelectorAll('*').forEach(el => {
+    cb(el);
+    if (el.shadowRoot) eachNode(el.shadowRoot, cb);
+  });
+}
+function scorePublish(el, allowDisabled) {
+  const t = textOf(el);
+  if (!publishLabel(t) || rejectLabel(t)) return -1;
+  let sc = 200;
+  const r = el.getBoundingClientRect();
+  if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') sc += 40;
+  const cls = String(el.className || '');
+  if (/btn|button|submit|primary/i.test(cls)) sc += 25;
+  if (r.top > window.innerHeight * 0.45) sc += 60;
+  if (inTopSiteNav(el)) sc -= 200;
+  for (const scope of modalScope()) {
+    if (scope.contains(el)) sc += 100;
+  }
+  if (hardDisabled(el)) {
+    if (!allowDisabled) return -1;
+    sc -= 40;
+  }
+  return sc;
+}
+function clickTarget(el) {
+  return el.closest('button, [role="button"], a, [class*="btn" i], [class*="button" i]') || el;
+}
+function doClick(el) {
+  const clickEl = clickTarget(el);
+  clickEl.scrollIntoView({block:'center', inline:'center'});
+  try { clickEl.focus(); } catch (_) {}
+  try {
+    clickEl.click();
+    return true;
+  } catch (_) {}
+  try {
+    const r = clickEl.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    if (hit) {
+      hit.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, view:window, clientX:x, clientY:y}));
+      hit.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, view:window, clientX:x, clientY:y}));
+      hit.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window, clientX:x, clientY:y}));
+      return true;
+    }
+  } catch (_) {}
+  try {
+    clickEl.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+const sel = 'button, [role="button"], a, div, span, p';
+const allowDisabled = !!arguments[0];
+let best = null, bestSc = 0;
+for (const scope of modalScope()) {
+  eachNode(scope, (el) => {
+    if (!el.matches || !el.matches(sel)) return;
+    if (!visible(el)) return;
+    const sc = scorePublish(el, allowDisabled);
+    if (sc > bestSc) { bestSc = sc; best = el; }
+  });
+}
+if (!best || bestSc < 30) {
+  const xpath = document.evaluate(
+    "//*[normalize-space(.)='发布' and not(contains(normalize-space(.),'发布文章'))]",
+    document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
+  );
+  for (let i = 0; i < xpath.snapshotLength; i++) {
+    const el = xpath.snapshotItem(i);
+    if (!visible(el)) continue;
+    const sc = scorePublish(el, allowDisabled);
+    if (sc > bestSc) { bestSc = sc; best = el; }
+  }
+}
+if (!best || bestSc < 30) return false;
+return doClick(best);
+"""
+
+_SYNC_BITGET_FORM_JS = r"""
+function fire(el) {
+  if (!el) return;
+  try { el.dispatchEvent(new Event('input', {bubbles:true})); } catch (_) {}
+  try { el.dispatchEvent(new Event('change', {bubbles:true})); } catch (_) {}
+  try { el.dispatchEvent(new Event('blur', {bubbles:true})); } catch (_) {}
+}
+fire(document.querySelector('[data-pai-title="1"]'));
+fire(document.querySelector('[data-pai-editor="1"]'));
+return true;
+"""
+
+_DEBUG_BITGET_SUBMIT_JS = r"""
+function norm(t) { return (t || '').trim().replace(/\s+/g, ''); }
+const out = [];
+for (const el of document.querySelectorAll('button, [role="button"], a, span, div')) {
+  const t = norm(el.innerText || el.textContent || '');
+  if (!t || !t.includes('发')) continue;
+  const r = el.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) continue;
+  out.push({
+    tag: el.tagName,
+    text: t.slice(0, 12),
+    top: Math.round(r.top),
+    disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true'),
+    inModal: !!el.closest('[role="dialog"], [class*="modal" i], [class*="Modal"]'),
+  });
+}
+return out.slice(0, 20);
 """
 
 _CLICK_SUBMIT_JS = r"""
@@ -1079,6 +1490,7 @@ for (const el of document.querySelectorAll('button, [role="button"], a, span, di
 }
 return out.slice(0, 20);
 """
+
 
 
 class BinanceSquarePublisher:
@@ -1681,37 +2093,50 @@ class BinanceSquarePublisher:
             return ok, "发布" if ok else "", []
         labels = list(self.submit_labels)
         last_cands: list = []
+        allow_disabled = False
+
         for attempt in range(12):
-            try:
-                res = driver.execute_script(_CLICK_EXACT_PUBLISH_JS, False)
-                ok, label, cands = self._click_result_ok(res)
-                if cands:
-                    last_cands = cands
-                if isinstance(res, dict) and res.get("waiting"):
-                    logger.info(
-                        "%s 「%s」还是灰色，等图片/校验完成后再点（%s/12）",
-                        self.platform_name,
-                        res.get("label") or "发布",
-                        attempt + 1,
-                    )
-                    human_pause(0.9, 1.4)
-                    continue
-                if ok:
-                    return True, label or "发布", last_cands
-            except Exception as e:
-                logger.debug("精确点发布失败 attempt=%s: %s", attempt, e)
-            try:
-                res = driver.execute_script(_CLICK_SUBMIT_JS, labels, False)
-                ok, label, cands = self._click_result_ok(res)
-                if cands:
-                    last_cands = cands
-                if ok:
-                    return True, label or "发布", last_cands
-            except Exception as e:
-                logger.debug("JS 点击发布失败 attempt=%s: %s", attempt, e)
-            if self._click_submit_selenium(driver, allow_disabled=False):
+            # 尝试 4 次仍失败 → 允许点 disabled 按钮
+            if attempt >= 4 and not allow_disabled:
+                logger.info("%s 切换到 allowDisabled=True（强制点击）", self.platform_name)
+                allow_disabled = True
+
+            # 策略 1：精确查找
+            for strategy in (1, 2):
+                try:
+                    if strategy == 1:
+                        res = driver.execute_script(_CLICK_EXACT_PUBLISH_JS, allow_disabled)
+                    else:
+                        res = driver.execute_script(_CLICK_SUBMIT_JS, labels, allow_disabled)
+                    ok, label, cands = self._click_result_ok(res)
+                    if cands:
+                        last_cands = cands
+                    if isinstance(res, dict) and res.get("waiting"):
+                        logger.info(
+                            "%s 「%s」还是灰色（%s/12）",
+                            self.platform_name,
+                            res.get("label") or "发布",
+                            attempt + 1,
+                        )
+                        human_pause(0.9, 1.4)
+                        break  # break strategy, retry from top
+                    if ok:
+                        return True, label or "发布", last_cands
+                except Exception as e:
+                    logger.debug("点击策略 %s 失败 attempt=%s: %s", strategy, attempt, e)
+                    break  # try next strategy
+
+            # 策略 2：Selenium 原生点击
+            ok, lbl = self._click_submit_selenium(driver, allow_disabled=allow_disabled), "发布"
+            if ok:
+                return True, lbl, last_cands
+
+            # 策略 3：坐标点击（备用）
+            if self._click_submit_by_coords(driver):
                 return True, "发布", last_cands
-            human_pause(0.7, 1.2)
+
+            human_pause(0.8, 1.3)
+
         return False, "", last_cands
 
     def _submit_state(self, driver) -> dict:
@@ -2057,6 +2482,62 @@ class BinanceSquarePublisher:
                 except Exception:
                     continue
         return False
+
+    def _click_submit_by_coords(self, driver) -> bool:
+        """备用：找到「发布」类按钮位置，用坐标点击（绕过遮挡/JS 问题）。"""
+        try:
+            hit = driver.execute_script("""
+                const words = ['发布','发送','Post','Publish','Submit','立即发布','确认发布'];
+                function vis(el) {
+                  if (!el || !el.getBoundingClientRect) return null;
+                  const r = el.getBoundingClientRect();
+                  if (r.width < 8 || r.height < 8) return null;
+                  const st = window.getComputedStyle(el);
+                  if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.05) return null;
+                  return r;
+                }
+                function ownText(el) {
+                  return ((el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || el.textContent || '').replace(/\\s+/g,'').trim()).slice(0,12);
+                }
+                function clickable(el) {
+                  return el.closest('button,[role="button"],[type="submit"],[class*="btn"],[class*="button"]') || el;
+                }
+                const editor = document.querySelector('[data-pai-editor="1"]');
+                const cluster = editor && editor.closest('[role="dialog"],[class*="modal"],[class*="drawer"],[class*="popup"],[class*="sheet"],[class*="composer"]');
+                const roots = cluster ? [cluster, document.body] : [document.body];
+                let best = null, bestSc = 0;
+                for (const root of roots) {
+                  for (const el of root.querySelectorAll('button,[role="button"],[class*="btn"]')) {
+                    const r = vis(el);
+                    if (!r) continue;
+                    if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+                    const t = ownText(el);
+                    const cls = String(el.className || '');
+                    let sc = 0;
+                    if (words.some(w => t.includes(w) && !['发文','发帖','发动态'].includes(t))) sc = 100;
+                    else if (words.some(w => t.includes(w))) sc = 40;
+                    else continue;
+                    if (/primary|solid|bn-button|submit/i.test(cls)) sc += 20;
+                    if (r.top < window.innerHeight * 0.45 && r.top > window.innerHeight * 0.05) sc += 30;
+                    if (sc > bestSc) { bestSc = sc; best = el; }
+                  }
+                }
+                if (!best || bestSc < 80) return null;
+                const r = best.getBoundingClientRect();
+                return { x: r.left + r.width/2, y: r.top + r.height/2 };
+                """)
+            if not hit:
+                return False
+            x, y = float(hit["x"]), float(hit["y"])
+            from selenium.webdriver.common.action_chains import ActionChains
+
+            ActionChains(driver).move_to_element_with_offset(
+                driver.find_element("tag name", "body"), x, y
+            ).click().perform()
+            return True
+        except Exception as e:
+            logger.debug("坐标点击失败: %s", e)
+            return False
 
     def _click_marked(self, driver, attr: str) -> bool:
         sel = f'[data-pai-{attr}="1"]'
