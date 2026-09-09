@@ -1964,18 +1964,18 @@ for (const xp of targets) {
 return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="PublishBox" i]') };
 """
 
-def _click_compose_xpath(self, driver) -> bool:
-    """用 XPath 直接点侧栏「发文」按钮（兜底）。"""
-    try:
-        res = driver.execute_script(_CLICK_COMPOSE_XPATH_JS)
-        if isinstance(res, dict):
-            ok = bool(res.get("clicked"))
-            if ok:
-                logger.info("%s XPath 直点击侧栏「%s」", self.platform_name, res.get("clicked"))
-            return ok
-    except Exception as e:
-        logger.debug("点击侧栏失败: %s", e)
-    return False
+    def _click_compose_xpath(self, driver) -> bool:
+        """用 XPath 直接点侧栏「发文」按钮（兜底）。"""
+        try:
+            res = driver.execute_script(_CLICK_COMPOSE_XPATH_JS)
+            if isinstance(res, dict):
+                ok = bool(res.get("clicked"))
+                if ok:
+                    logger.info("%s XPath 直点击侧栏「%s」", self.platform_name, res.get("clicked"))
+                return ok
+        except Exception as e:
+            logger.debug("点击侧栏失败: %s", e)
+        return False
 
 
     def _click_compose(self, driver, steps: List[str]) -> bool:
