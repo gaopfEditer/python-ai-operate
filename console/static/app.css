@@ -3343,6 +3343,28 @@ label.publish-media-add {
   color: var(--ink);
   font-family: var(--body);
 }
+.rt-platform-multi {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 5px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.rt-pm-btn {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.rt-pm-btn:hover { border-color: var(--primary); color: var(--primary); }
+.rt-pm-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .rt-event-list {
   flex: 1;
   overflow-y: auto;
@@ -3533,10 +3555,29 @@ label.publish-media-add {
 }
 .rt-preview-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
-  flex-wrap: wrap;
   margin-top: 4px;
+  flex-wrap: wrap;
+}
+.rt-preview-actions .btn { flex-shrink: 0; }
+.rt-preview-img-wrap {
+  width: 100%;
+  margin-top: 6px;
+}
+.rt-preview-img { width: 100%; max-width: 360px; border-radius: 8px; }
+.rt-preview-img-loading {
+  width: 100%;
+  max-width: 360px;
+  height: 80px;
+  background: var(--paper);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .78rem;
+  color: var(--muted);
 }
 .rt-preview-title {
   font-size: 1rem;
@@ -3563,6 +3604,7 @@ label.publish-media-add {
 .rt-preview-img {
   margin-top: 10px;
   max-height: 120px;
+  width: 200px;
   aspect-ratio: 16/9;
   object-fit: cover;
   border-radius: 8px;
@@ -3657,9 +3699,29 @@ label.publish-media-add {
 .rt-queue-item .qi-status.sent     { color: var(--ok); }
 .rt-queue-item .qi-status.failed  { color: var(--danger); }
 .rt-queue-item .qi-status.skipped { color: var(--muted); }
+.rt-queue-item .qi-thumb-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.rt-queue-item .qi-noimg {
+  font-size: .7rem;
+  color: var(--muted);
+}
+.rt-queue-item .qi-send-btn {
+  font-size: .7rem;
+  padding: 2px 8px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.rt-queue-item .qi-send-btn:hover { opacity: .8; }
 .rt-queue-item .qi-img-thumb {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   object-fit: cover;
   border-radius: 4px;
   flex-shrink: 0;

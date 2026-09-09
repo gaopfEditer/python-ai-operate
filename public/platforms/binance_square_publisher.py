@@ -93,6 +93,9 @@ _DISMISS_COOKIE_JS = r"""
 """
 
 _FIND_COMPOSE_JS = r"""
+// 找「打开发文框」的按钮：节点本身不能是 contenteditable。
+// 之前在 base 里 mix 了 placeholder 兜底，结果把广场上的"分享你的想法"输入框当作 compose，
+// 点击它不会真的开弹框。因此严格限定：button/[role=button]/a + 文本命中。
 const labels = arguments[0];
 function visible(el) {
   if (!el || !el.getBoundingClientRect) return false;
@@ -109,6 +112,14 @@ function badLink(el) {
   const bad = ['ventures', '/trade', '/learn', '/support', '/about', '/download', '/campaign'];
   return bad.some(b => h.includes(b));
 }
+function insideEditable(el) {
+  let n = el;
+  while (n) {
+    if (n.isContentEditable || n.getAttribute && n.getAttribute('contenteditable') === 'true') return true;
+    n = n.parentElement;
+  }
+  return false;
+}
 function score(el) {
   const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim();
   if (!t || t.length > 20) return 0;
@@ -119,25 +130,15 @@ function score(el) {
   }
   return 0;
 }
-const nodes = Array.from(document.querySelectorAll('button, a, [role="button"], div[role="button"]'));
+const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], div[role="button"]'));
 let best = null, bestSc = 0;
-for (const el of nodes) {
+for (const el of candidates) {
   if (!visible(el) || badLink(el)) continue;
+  if (insideEditable(el)) continue;  // 排除 contenteditable 内部的同名文本
   let sc = score(el);
   if (!sc) continue;
   if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') sc += 15;
   if (sc > bestSc) { bestSc = sc; best = el; }
-}
-if (!best) {
-  const placeholders = ['分享', 'Share', '说点什么', '想法'];
-  const inputs = Array.from(document.querySelectorAll(
-    'textarea, input[type="text"], [contenteditable="true"], [role="textbox"]'
-  ));
-  for (const el of inputs) {
-    if (!visible(el)) continue;
-    const ph = (el.getAttribute('placeholder') || el.getAttribute('aria-label') || '').trim();
-    if (placeholders.some(p => ph.includes(p))) { best = el; break; }
-  }
 }
 if (!best) return null;
 best.setAttribute('data-pai-compose', '1');
@@ -225,38 +226,22 @@ function pickEditable(root) {
     '[contenteditable="true"], [role="textbox"], textarea, .ProseMirror, .ql-editor'
   );
 }
-const shortRoots = [];
-for (const sel of [
-  '.short-editor-editor',
-  '[class*="short-editor-editor"]',
-  '[class*="shortEditor-editor"]',
-  '[class*="short-editor"]',
-]) {
-  document.querySelectorAll(sel).forEach(el => shortRoots.push(el));
-}
-for (const root of shortRoots) {
-  const ed = pickEditable(root);
-  if (ed && visible(ed)) return markEditor(ed, root);
-}
-for (const sel of [
-  'div[contenteditable="true"][role="textbox"]',
-  'div[contenteditable="true"]',
-  'textarea[placeholder*="分享" i]',
-  'textarea[placeholder*="Share" i]',
-  'textarea[placeholder*="说点什么" i]',
-  'textarea[placeholder*="想法" i]',
-  'textarea[placeholder*="Post" i]',
-  'textarea',
-  '[role="textbox"]',
-]) {
-  for (const el of document.querySelectorAll(sel)) {
-    if (!visible(el)) continue;
-    if (el.closest('[contenteditable="false"]')) continue;
-    const root = el.closest('[class*="short-editor"]') || el.closest('.short-editor-editor')
-      || el.closest('[class*="editor"]') || el.closest('[class*="Editor"]');
-    return markEditor(el, root);
+// 真正在 modal/dialog 里的编辑器（弹出的发文框）。币安新版广场上方也有一个静态输入框，
+// 但那个只是入口。真正的发文编辑器必须在弹框里。如果检测到弹框就直接走到这里。
+const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="overlay" i], [class*="PublishBox" i]';
+function pickInModal() {
+  const modals = document.querySelectorAll(MODAL_SEL);
+  for (const m of modals) {
+    if (!visible(m)) continue;
+    const ed = pickEditable(m);
+    if (ed) return { ed, root: m };
   }
+  return null;
 }
+// 1) 优先 modal 内编辑框（弹框场景）
+const inModal = pickInModal();
+if (inModal) return markEditor(inModal.ed, inModal.root);
+// 2) 否则标记为没找到（宁可返回 false 让上层去点左侧"发文"开弹框）
 return false;
 """
 
@@ -380,17 +365,22 @@ function visible(el) {
   if (st.visibility === 'hidden' || st.display === 'none') return false;
   return true;
 }
-const roots = document.querySelectorAll(
-  '.short-editor-editor, [class*="short-editor-editor"], [class*="short-editor"]'
-);
-for (const root of roots) {
-  if (!visible(root)) continue;
-  try { root.click(); } catch (_) {}
-  const ed = root.querySelector('[contenteditable="true"], [role="textbox"], textarea')
-    || (root.isContentEditable ? root : null);
-  if (ed && visible(ed)) {
-    try { ed.click(); ed.focus(); return true; } catch (_) {}
-  }
+const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="overlay" i], [class*="PublishBox" i]';
+function pickEditable(root) {
+  if (!root || !visible(root)) return null;
+  if (root.isContentEditable || root.getAttribute('contenteditable') === 'true') return root;
+  return root.querySelector('[contenteditable="true"], [role="textbox"], textarea');
+}
+// 仅在弹框里找编辑器（不要碰广场页面上方的静态入口）
+const modals = document.querySelectorAll(MODAL_SEL);
+for (const m of modals) {
+  if (!visible(m)) continue;
+  const ed = pickEditable(m);
+  if (!ed) continue;
+  try { ed.click(); ed.focus(); } catch (_) {}
+  ed.setAttribute('data-pai-editor', '1');
+  m.setAttribute('data-pai-editor-root', '1');
+  return true;
 }
 return false;
 """
@@ -447,8 +437,11 @@ if (prefer === 'video') {
 for (const img of root.querySelectorAll('img')) {
   if (!visible(img) || isUiIcon(img)) continue;
   const src = (img.getAttribute('src') || img.src || '').toLowerCase();
+  // 匹配所有动态加载的图片（blob、data URI、CDN 上传图）
   if (src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
-      || src.includes('cdn') || src.includes('bitget') || src.includes('okex')) {
+      || src.includes('cdn') || src.includes('media') || src.includes('/api/file')
+      || src.includes('bitget') || src.includes('okex') || src.includes('binance')
+      || src.includes('s3.') || src.includes('cloudfront')) {
     n++;
   }
 }
@@ -528,45 +521,51 @@ function clickable(el) {
 function ownShort(el) {
   // 优先读 aria-label/title（OKX/币安发布按钮的文本常在这里）
   const aria = (el.getAttribute('aria-label') || el.getAttribute('title') || '').replace(/\s+/g, '').trim();
-  if (aria && aria.length <= 14) return aria;
+  if (aria && aria.length <= 20) return aria;
   // 再读 innerText
   let t = '';
   for (const n of el.childNodes) {
     if (n.nodeType === 3) t += n.textContent || '';
   }
   t = (t || '').replace(/\s+/g, '').trim();
-  if (t && t.length <= 8) return t;
+  if (t && t.length <= 20) return t;
   if (el.childElementCount === 1) {
     const c = el.firstElementChild;
     const ct = (c.innerText || c.textContent || '').replace(/\s+/g, '').trim();
-    if (ct && ct.length <= 8) return ct;
+    if (ct && ct.length <= 20) return ct;
   }
   const inner = (el.innerText || '').replace(/\s+/g, '').trim();
-  if (inner && inner.length <= 8) return inner;
+  if (inner && inner.length <= 20) return inner;
   return '';
 }
 function isPublishWord(t) {
   const n = (t || '').toLowerCase();
+  // 编辑器外的「发文/发帖/发帖子/发动态」是开帖按钮，但币安广场新版编辑器内它就是提交按钮
+  if (insideEditor && (t === '发文' || t === '发帖' || t === '发帖子' || t === '发动态')) return true;
   return n === '发布' || n === '发送' || n === '确认发布' || n === '立即发布'
-    || n === 'post' || n === 'publish' || n === 'submit'
-    || t === '发布' || t === '发送'
-    // 编辑器内的提交按钮
-    || (insideEditor && (t === '发文' || t === '发帖' || t === '发帖子' || t === '发动态'));
+    || n === 'post' || n === 'publish' || n === 'submit' || n === 'send' || n === 'postnow' || n === 'share'
+    || t === '发布' || t === '发送' || t === 'Post' || t === 'Publish' || t === 'Send' || t === 'Share';
 }
 const _COMPOSE_WORDS = new Set(['发文','发帖','发帖子','发动态','写动态']);
 const editor = document.querySelector('[data-pai-editor="1"]');
 const cluster = editor && editor.closest(
-  '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="short-editor"], [class*="editor" i], [data-pai-editor-root="1"]'
+  '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="short-editor"], [class*="editor" i], [data-pai-editor-root="1"], [class*="PublishBox" i], [class*="post-editor" i], [class*="draftEditor" i]'
 );
 // 判断是否已进入编辑器：①有 data-pai-editor 或 ②有常见编辑器类名
-const insideEditor = !!editor || !!(
-  document.querySelector('[class*="editor" i][class*="content" i]') ||
-  document.querySelector('[contenteditable="true"]') ||
-  document.querySelector('[role="textbox"]') ||
-  document.querySelector('[class*="short-editor" i]') ||
-  document.querySelector('[class*="composer" i]') ||
-  document.querySelector('[class*="ProseMirror" i]')
-);
+                const insideEditor = !!editor || !!(
+                  document.querySelector('[class*="editor" i][class*="content" i]') ||
+                  document.querySelector('[contenteditable="true"]') ||
+                  document.querySelector('[role="textbox"]') ||
+                  document.querySelector('[class*="short-editor" i]') ||
+                  document.querySelector('[class*="composer" i]') ||
+                  document.querySelector('[class*="ProseMirror" i]') ||
+                  document.querySelector('[class*="PublishBox" i]') ||
+                  document.querySelector('[class*="post-editor" i]') ||
+                  document.querySelector('[class*="draftEditor" i]') ||
+                  document.querySelector('[class*="editor-toolbar" i]') ||
+                  document.querySelector('#shortPostEditorImageUploaderBox') ||
+                  document.querySelector('#post-editor-more-icon')
+                );
 const roots = [];
 if (cluster) roots.push(cluster);
 if (editor && editor.parentElement) roots.push(editor.parentElement);
@@ -580,15 +579,18 @@ function consider(el) {
   if (!el || seen.has(el) || !vis(el) || isTab(el)) return;
   seen.add(el);
   const t = ownShort(el);
-  // 排除开帖按钮（打开编辑器用的，不是提交），但如果已进入编辑器则不排除
-  if (!t || (!insideEditor && _COMPOSE_WORDS.has(t))) return;
+  if (!t) return;
+  // 编辑器外的「发文/发帖/发帖子/发动态」是开帖按钮；编辑器内一律当作提交按钮（币安新版如此）
+  if (!insideEditor && _COMPOSE_WORDS.has(t)) return;
   if (!isPublishWord(t)) return;
   const btn = clickable(el);
   if (isTab(btn)) return;
   let sc = 80;
   if (cluster && cluster.contains(el)) sc += 80;
-  if (btn.tagName === 'BUTTON' || btn.getAttribute('role') === 'button') sc += 20;
+  if (btn.tagName === 'BUTTON' || btn.getAttribute('role') === 'button' || btn.getAttribute('data-bn-type') === 'button') sc += 20;
   if (/primary|solid|bn-button/i.test(String(btn.className || ''))) sc += 20;
+  // 编辑器内的"发文"按钮加分，避免被顶部工具栏里其它按钮干扰
+  if (insideEditor && (t === '发文' || t === '发帖' || t === '发帖子' || t === '发动态')) sc += 60;
   try {
     const r = btn.getBoundingClientRect();
     const er = editor ? editor.getBoundingClientRect() : r;
@@ -600,11 +602,16 @@ function consider(el) {
 }
 for (const root of roots) {
   const xp = document.evaluate(
-    ".//*[self::button or self::span or self::div or @role='button'][normalize-space(.)='发布' or normalize-space(.)='Post' or normalize-space(.)='Publish' or normalize-space(.)='发送']",
+    ".//*[self::button or self::span or self::div or @role='button'][normalize-space(.)='发布' or normalize-space(.)='Post' or normalize-space(.)='Publish' or normalize-space(.)='发送' or normalize-space(.)='立即发布' or normalize-space(.)='确认发布' or normalize-space(.)='Submit' or normalize-space(.)='Send' or normalize-space(.)='Post now' or normalize-space(.)='Share' or normalize-space(.)='发文' or normalize-space(.)='发帖' or normalize-space(.)='发帖子' or normalize-space(.)='发动态']",
     root, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
   );
   for (let i = 0; i < xp.snapshotLength; i++) consider(xp.snapshotItem(i));
-  root.querySelectorAll('button, [role="button"], [type="submit"], [class*="btn" i]').forEach(consider);
+  // 编辑器内：扫描所有 button（含 className 是 css-xxx 的样式化按钮）
+  if (insideEditor) {
+    root.querySelectorAll('button, [role="button"], [type="submit"], [data-bn-type="button"]').forEach(consider);
+  } else {
+    root.querySelectorAll('button, [role="button"], [type="submit"], [class*="btn" i]').forEach(consider);
+  }
 }
 hits.sort((a, b) => b.sc - a.sc);
 const nearby = hits.slice(0, 8).map(h => ({ label: h.label, score: h.sc, disabled: h.disabled }));
@@ -1609,7 +1616,7 @@ class BinanceSquarePublisher:
 
             if self.platform_id == "okx":
                 self._ensure_okx_orbit(driver, steps)
-            elif self.platform_id == "bitget":
+            elif self.platform_id in ("bitget", "binance_square"):
                 self._click_compose(driver, steps)
 
             if not self._wait_for_editor(driver, self.wait_sec):
@@ -1832,8 +1839,11 @@ class BinanceSquarePublisher:
     def _clear_compose_marks(self, driver) -> None:
         try:
             driver.execute_script(
-                'document.querySelectorAll("[data-pai-compose]").forEach('
-                "el => el.removeAttribute('data-pai-compose'));"
+                r"""
+                ['data-pai-compose','data-pai-editor','data-pai-editor-root','data-pai-title'].forEach(attr => {
+                    document.querySelectorAll('[' + attr + ']').forEach(el => el.removeAttribute(attr));
+                });
+                """
             )
         except Exception:
             pass
@@ -1931,15 +1941,72 @@ class BinanceSquarePublisher:
         except Exception:
             return False
 
-    def _click_compose(self, driver, steps: List[str]) -> bool:
+    _CLICK_COMPOSE_XPATH_JS = r"""
+// 兜底点击：找「发文」/「发帖」/「发动态」按钮并点击，等待直到弹框出现。
+const targets = [
+  '//button[normalize-space(.)="发文"]',
+  '//button[normalize-space(.)="发帖"]',
+  '//button[normalize-space(.)="发动态"]',
+  '//*[self::div or self::button or self::a][normalize-space(.)="发文" and (@role="button" or contains(@class,"btn") or contains(@class,"button") or contains(@class,"css-"))]',
+];
+let clicked = null;
+for (const xp of targets) {
+  const r = document.evaluate(xp, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+  for (let i = 0; i < r.snapshotLength; i++) {
+    const el = r.snapshotItem(i);
+    if (!el || !el.getBoundingClientRect) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) continue;
+    try { el.click(); clicked = el.textContent.trim(); break; } catch (_) {}
+  }
+  if (clicked) break;
+}
+return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="PublishBox" i]') };
+"""
+
+def _click_compose_xpath(self, driver) -> bool:
+    """用 XPath 直接点侧栏「发文」按钮（兜底）。"""
+    try:
+        res = driver.execute_script(_CLICK_COMPOSE_XPATH_JS)
+        if isinstance(res, dict):
+            ok = bool(res.get("clicked"))
+            if ok:
+                logger.info("%s XPath 直点击侧栏「%s」", self.platform_name, res.get("clicked"))
+            return ok
+    except Exception as e:
+        logger.debug("点击侧栏失败: %s", e)
+    return False
+
+
         """点击打开发布框（非 OKX）。"""
         if self.platform_id == "okx":
             return self._click_okx_compose(driver, steps)
-        if not self._find_compose(driver):
+        # 先用基线 _find_compose；未命中或标记不可点 → XPath 兜底
+        compose_done = False
+        if self._find_compose(driver) and self._click_marked(driver, "compose"):
+            compose_done = True
+        elif self._click_compose_xpath(driver):
+            compose_done = True
+        if not compose_done:
+            logger.warning("%s 既未定位 compose 按钮，XPath 兜底也未命中", self.platform_name)
             return False
-        if not self._click_marked(driver, "compose"):
-            return False
-        human_pause(0.9, 1.5)
+        # 等弹框出现
+        deadline = time.time() + 4.0
+        modal_seen = False
+        modal_js = "return !!document.querySelector('[role=\\'dialog\\'], [class*=\\'modal\\' i], [class*=\\'Modal\\']');"
+        while time.time() < deadline:
+            try:
+                if driver.execute_script(modal_js):
+                    modal_seen = True
+                    break
+            except Exception:
+                pass
+            human_pause(0.18, 0.32)
+        if modal_seen:
+            logger.info("%s 已点击侧栏「发文」，弹框已出现", self.platform_name)
+        else:
+            logger.warning("%s 已点「发文」但 4s 内未见弹框", self.platform_name)
+        human_pause(0.4, 0.8)
         if "compose" not in steps:
             steps.append("compose")
         return True
@@ -2010,7 +2077,7 @@ class BinanceSquarePublisher:
         try:
             st = driver.execute_script(
                 """
-                const words = ['发布','Post','Publish','Submit','发送','确认发布','立即发布'];
+                const words = ['发布','Post','Publish','Submit','发送','确认发布','立即发布','Send','Share','Post now','发文','发帖','发帖子','发动态'];
                 function vis(el) {
                   if (!el || !el.getBoundingClientRect) return false;
                   const r = el.getBoundingClientRect();
@@ -2027,7 +2094,13 @@ class BinanceSquarePublisher:
                   document.querySelector('[role="textbox"]') ||
                   document.querySelector('[class*="short-editor" i]') ||
                   document.querySelector('[class*="composer" i]') ||
-                  document.querySelector('[class*="ProseMirror" i]')
+                  document.querySelector('[class*="ProseMirror" i]') ||
+                  document.querySelector('[class*="PublishBox" i]') ||
+                  document.querySelector('[class*="post-editor" i]') ||
+                  document.querySelector('[class*="draftEditor" i]') ||
+                  document.querySelector('[class*="editor-toolbar" i]') ||
+                  document.querySelector('#shortPostEditorImageUploaderBox') ||
+                  document.querySelector('#post-editor-more-icon')
                 );
                 const cluster = editor && editor.closest(
                   '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="editor" i]'
@@ -2107,6 +2180,111 @@ class BinanceSquarePublisher:
             return ok, label, cands
         return bool(res), "", []
 
+    def _force_click_binance_publish_button(self, driver) -> str:
+        """
+        兜底：在编辑器场景，按钮就在 [data-pai-editor] 周围。
+        解决币安新版广场 DOM 没有 modal/dialog 容器的问题——按钮可能散落在编辑器上下文之外的相邻 DOM。
+        三道兜底：①data-pai-editor 祖父链；②document.body 全文；③编辑器同级父元素。
+        """
+        try:
+            res = driver.execute_script(
+                r"""
+                const editor = document.querySelector('[data-pai-editor="1"]');
+                if (!editor) return { ok: false, reason: 'no_editor' };
+                const SUBMIT_TEXTS = new Set([
+                  '发文','发帖','发帖子','发动态','发布','发送','立即发布','确认发布',
+                  'Post','Publish','Submit','Send','Share','Post now'
+                ]);
+                const norm = (s) => (s || '').replace(/\s+/g, '').trim();
+                function labelOf(el) {
+                    return norm(el.getAttribute('aria-label') || el.innerText || el.textContent);
+                }
+                function clickableAncestor(el) {
+                    let n = el;
+                    for (let i = 0; i < 5 && n; i++) {
+                        if (!n) break;
+                        if (n.tagName === 'BUTTON' || n.getAttribute('role') === 'button'
+                            || n.getAttribute('data-bn-type') === 'button') return n;
+                        n = n.parentElement;
+                    }
+                    return el;
+                }
+                function tryClick(el) {
+                    try { el.removeAttribute('disabled'); el.classList.remove('disabled'); } catch(_) {}
+                    try { el.style.removeProperty('pointer-events'); el.style.pointerEvents = 'auto'; } catch(_) {}
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 4 || r.height < 4) return false;
+                    try { el.scrollIntoView({block:'center', inline:'center'}); } catch(_) {}
+                    try { el.focus(); } catch(_) {}
+                    try { el.click(); return true; } catch(_) {}
+                    try {
+                      el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, view:window}));
+                      el.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, view:window}));
+                      el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
+                      return true;
+                    } catch(_) { return false; }
+                }
+                function scanScope(scope, where) {
+                    const btns = scope.querySelectorAll('button, [role="button"], [type="submit"], [data-bn-type="button"]');
+                    for (const el of btns) {
+                        const t = labelOf(el);
+                        if (t && SUBMIT_TEXTS.has(t)) {
+                            if (tryClick(el)) return { ok: true, label: t, where };
+                        }
+                    }
+                    // 文本节点不在 button 内时（如直接 <span>发文</span>），向上找 clickable ancestor
+                    const candidates = scope.querySelectorAll('*');
+                    for (const el of candidates) {
+                        if (!el || !el.firstElementCount) {
+                          const t = labelOf(el);
+                          if (t && SUBMIT_TEXTS.has(t) && el.children.length === 0) {
+                              const anc = clickableAncestor(el);
+                              if (anc && anc !== el) {
+                                  if (tryClick(anc)) return { ok: true, label: t, where: where+'+span' };
+                              }
+                          }
+                        }
+                    }
+                    return null;
+                }
+                // 1) editor 父级向上 8 层的容器
+                let scope = editor.parentElement;
+                for (let i = 0; i < 8 && scope && scope !== document.body; i++) {
+                    const r = scanScope(scope, 'lvl' + i);
+                    if (r) return r;
+                    scope = scope.parentElement;
+                }
+                // 2) document.body 全文
+                const r2 = scanScope(document.body, 'body');
+                if (r2) return r2;
+                // 3) editor 父级的相邻兄弟父元素（币安新版"发文"div 平级于编辑器容器）
+                try {
+                    const ep = editor.parentElement;
+                    if (ep && ep.parentElement) {
+                        const sibs = ep.parentElement.children;
+                        for (const sib of sibs) {
+                            const r3 = scanScope(sib, 'sibling');
+                            if (r3) return r3;
+                        }
+                    }
+                } catch (_) {}
+                return { ok: false, reason: 'no_match' };
+                """
+            )
+            if isinstance(res, dict) and res.get("ok"):
+                logger.info(
+                    "%s 兜底点击：%s [%s]",
+                    self.platform_name,
+                    res.get("label") or "发文",
+                    res.get("where"),
+                )
+                return str(res.get("label") or "发文")
+            else:
+                logger.debug("兜底点击未命中: %s", res.get("reason") if isinstance(res, dict) else res)
+        except Exception as e:
+            logger.warning("force_click_binance_publish_button 异常: %s", e)
+        return ""
+
     def _click_submit(self, driver) -> tuple:
         if self.platform_id == "bitget":
             ok = self._click_bitget_submit(driver)
@@ -2115,7 +2293,14 @@ class BinanceSquarePublisher:
         last_cands: list = []
         allow_disabled = False
 
+        # 编辑器场景快速兜底：直接根据 [data-pai-editor] 在其祖父链里找「发文/发帖/发布」按钮
+        # 解决币安新版广场 DOM 没有 modal/dialog 容器的问题
         for attempt in range(12):
+            if attempt == 0:
+                fb = self._force_click_binance_publish_button(driver)
+                if fb:
+                    return True, fb, last_cands
+
             # 尝试 4 次仍失败 → 允许点 disabled 按钮
             if attempt >= 4 and not allow_disabled:
                 logger.info("%s 切换到 allowDisabled=True（强制点击）", self.platform_name)
@@ -2154,6 +2339,34 @@ class BinanceSquarePublisher:
             # 策略 3：坐标点击（备用）
             if self._click_submit_by_coords(driver):
                 return True, "发布", last_cands
+
+            # 策略 4：强制点击编辑器内所有「发布」类按钮（即便 disabled / pointer-events:none）
+            if allow_disabled and attempt >= 8:
+                try:
+                    res = driver.execute_script(r"""
+                        const editor = document.querySelector('[data-pai-editor="1"]');
+                        const root = editor ? editor.closest(
+                          '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="short-editor"], [class*="editor" i], [data-pai-editor-root="1"], [class*="PublishBox" i], [class*="post-editor" i], [class*="draftEditor" i]'
+                        ) || editor.parentElement || document.body : document.body;
+                        const all = root.querySelectorAll('button, [role="button"], [type="submit"]');
+                        const out = [];
+                        for (const el of all) {
+                          const txt = ((el.getAttribute('aria-label') || el.innerText || el.textContent || '') + '').replace(/\s+/g, '').trim();
+                          if (!txt) continue;
+                          if (/^(发文|发帖|发帖子|发动态|发布|发送|确认发布|立即发布|Post|Publish|Submit|Send|Post now|Share)$/i.test(txt)) {
+                            try { el.removeAttribute('disabled'); el.style.removeProperty('pointer-events'); } catch(_) {}
+                            try { el.click(); return { ok: true, label: txt }; } catch(_) {}
+                            try { el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window})); return { ok: true, label: txt }; } catch(_) {}
+                            out.push(txt);
+                          }
+                        }
+                        return { ok: false, label: out.join('|') };
+                    """)
+                    if isinstance(res, dict) and res.get("ok"):
+                        logger.info("%s 强制点击编辑器内按钮「%s」成功", self.platform_name, res.get("label") or "发布")
+                        return True, res.get("label") or "发布", last_cands
+                except Exception as e:
+                    logger.debug("强制点击编辑器内按钮失败 attempt=%s: %s", attempt, e)
 
             human_pause(0.8, 1.3)
 
@@ -2642,11 +2855,7 @@ class BinanceSquarePublisher:
             return 0
 
         existing = self._count_editor_media(driver, prefer=prefer)
-        if existing >= len(paths):
-            logger.info("编辑器已有 %s 个媒体，跳过重复上传", existing)
-            return len(paths)
-
-        to_upload = paths[existing:]
+        to_upload = paths[existing:] if existing > 0 else paths
         uploaded = 0
         inputs = find_file_inputs(driver, prefer=prefer)
 

@@ -44,6 +44,45 @@ del _spec, _cdp_mod, _util
 STATE_PATH = PROJECT_ROOT / "output" / "trendradar_posts_state.json"
 ARTICLES_DIR = PROJECT_ROOT / "output" / "articles"
 
+# 全局发布锁：CDP 浏览器只能串行使用，避免并发抢占同一 tab 反复输入
+_PUBLISH_LOCK = threading.RLock()
+_PUBLISH_LOCK_KEY = None
+_PUBLISH_LOCK_TIMEOUT = 0.05  # 50ms 抢占尝试
+_LAST_PUBLISH_FINGERPRINT = {}
+_LAST_PUBLISH_FINGERPRINT_TS = 0.0
+_PUBLISH_DEDUP_WINDOW = 6.0  # 同一 (platform,text,image) 6s 内拒收
+
+
+def _publish_lock_acquire(key: str) -> bool:
+    global _PUBLISH_LOCK_KEY
+    if _PUBLISH_LOCK.acquire(blocking=True, timeout=_PUBLISH_LOCK_TIMEOUT + 30):
+        _PUBLISH_LOCK_KEY = key
+        return True
+    return False
+
+
+def _publish_lock_release():
+    global _PUBLISH_LOCK_KEY
+    _PUBLISH_LOCK_KEY = None
+    try:
+        _PUBLISH_LOCK.release()
+    except RuntimeError:
+        pass
+
+
+def _publish_dedup_check(platform: str, text: str, image_path):
+    """6 秒内同一平台/正文/图片的发布只允许一次。"""
+    global _LAST_PUBLISH_FINGERPRINT, _LAST_PUBLISH_FINGERPRINT_TS
+    import time as _t
+    fp = (platform, (text or "")[:120], str(image_path or ""))
+    now = _t.time()
+    if now - _LAST_PUBLISH_FINGERPRINT_TS < _PUBLISH_DEDUP_WINDOW \
+            and _LAST_PUBLISH_FINGERPRINT == fp:
+        return False
+    _LAST_PUBLISH_FINGERPRINT = fp
+    _LAST_PUBLISH_FINGERPRINT_TS = now
+    return True
+
 PLATFORM_DISPLAY = {
     "x-cdp": "X",
     "x": "X",
@@ -2584,9 +2623,16 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 {"success": False, "error": "请填写正文或上传图片"}, 400
             )
 
-        if str(PROJECT_ROOT) not in sys.path:
-            sys.path.insert(0, str(PROJECT_ROOT))
+        # 串行发布：并发请求拿到锁直接拒，避免反复输入同一页面
+        lock_key = f"publish|{','.join(platforms or [])}|{(content or '')[:64]}|{','.join(map(str, media_paths))}"
+        if not _publish_lock_acquire(lock_key):
+            return _json_bytes(
+                {"success": False, "error": "另一个发布任务正在进行，请稍候再试"},
+                429,
+            )
         try:
+            if str(PROJECT_ROOT) not in sys.path:
+                sys.path.insert(0, str(PROJECT_ROOT))
             from public.index import publish_content_with_retry
 
             result = publish_content_with_retry(
@@ -2602,6 +2648,8 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return _json_bytes(result)
         except Exception as e:
             return _json_bytes({"success": False, "error": str(e)}, 500)
+        finally:
+            _publish_lock_release()
 
     # —— 定时发布队列 ——
     if path == "/api/publish/queue" and method == "GET":
@@ -2828,7 +2876,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 return _json_bytes({"success": False, "error": "标题和描述都为空，无法摘要"})
             description = f"标题：{title}（暂无详细内容，请根据标题和类目自行生成摘要）"
 
-        prompt = f"""你是一个加密货币内容编辑。请根据以下事件的标题和内容，撰写一条面向币圈人士的社交平台短文（约300字）：
+        prompt = f"""你是一个加密货币内容编辑。请根据以下事件的标题和内容，撰写一条面向币圈人士的社交平台短文（约300字），发布到币安广场和OKX星球：
 
 标题：{title}
 事件：{description}
@@ -2838,12 +2886,14 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 来源：{source}
 
 要求：
-  - 开头结合标题制造吸引力（疑问句或数据开场），不重复标题原话
+  - 纯正文输出，**禁止使用任何 Markdown 格式**（不要加 ## 标题、**加粗**、- 列表、> 引用等）
+  - 开头用疑问句或惊人数据开场，吸引眼球，引发讨论
+  - 加入一点情绪化表达（如"不容错过"、"值得关注"、"令人振奋"、"要小心了"等），但不要过度夸张
   - 围绕"这对币圈/相关赛道/相关币种有什么影响"展开分析
   - 明确指出利多还是利空，以及影响程度
-  - 简洁专业，有观点有判断，不只是描述事件
-  - 可加1-2个相关话题标签
-  - 中文输出"""
+  - 有观点有判断，不只是描述事件
+  - 可在末尾加1-2个话题标签（用 # 符号，如 #BTC #以太坊），不要太多
+  - 中文输出，直接给正文内容"""
         try:
             result = generate_text(prompt, max_tokens=400, temperature=0.7)
             if not result.get("success"):
@@ -3062,6 +3112,21 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             "results": results,
         })
 
+    # ——— CDP 辅助：失败后强制导航到目标平台页面 ———
+    if path == "/api/cdp/goto" and method == "POST":
+        url = str(body.get("url") or "").strip()
+        debugger_url = str(body.get("debugger_url") or "127.0.0.1:9222").strip()
+        if not url:
+            return _json_bytes({"success": False, "error": "缺少 url"})
+        try:
+            sys.path.insert(0, str(PROJECT_ROOT))
+            from public.platforms.cdp_common import connect_cdp, open_url_new_tab
+            driver = connect_cdp(debugger_url)
+            open_url_new_tab(driver, url)
+            return _json_bytes({"success": True})
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)})
+
     if path == "/api/realtime/publish-one" and method == "POST":
         platform = str(body.get("platform") or "").strip()
         text = str(body.get("text") or "").strip()
@@ -3072,6 +3137,21 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             return _json_bytes({"success": False, "error": "需要 platform"})
         if not text:
             return _json_bytes({"success": False, "error": "正文不能为空"})
+
+        # 6 秒内同一 (platform,text,image) 直接拒，避免重复输入
+        if not _publish_dedup_check(platform, text, image_path):
+            return _json_bytes(
+                {"success": False, "error": "刚刚已发过相同内容（6s 内去重）", "dedup": True},
+                429,
+            )
+
+        # 串行发布，避免并发抢占 tab 反复输入
+        lock_key = f"rt-publish|{platform}|{text[:64]}"
+        if not _publish_lock_acquire(lock_key):
+            return _json_bytes(
+                {"success": False, "error": "另一个发布任务正在进行，请稍候再试"},
+                429,
+            )
 
         try:
             sys.path.insert(0, str(PROJECT_ROOT))
@@ -3117,6 +3197,8 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 return _json_bytes({"success": False, "error": f"未知平台: {platform}"})
         except Exception as e:
             return _json_bytes({"success": False, "error": str(e)})
+        finally:
+            _publish_lock_release()
 
     # ——— 实时资讯 realtime_info（本地审阅，默认不外发）———
     if path == "/api/realtime/events" and method == "GET":

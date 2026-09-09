@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260907a" />
+  <link rel="stylesheet" href="/app.css?v=20260908d" />
 </head>
 <body>
   <div class="shell">
@@ -875,26 +875,20 @@
           <!-- 左侧：事件列表 -->
           <aside class="rt-col rt-events-col">
             <div class="rt-toolbar">
-              <select id="rtPlatformFilter">
-                <option value="all">全部平台</option>
-                <option value="binance">币安广场</option>
-                <option value="okx">OKX 星球</option>
-                <option value="foresight">Foresight</option>
-                <option value="coindesk">CoinDesk</option>
-                <option value="blockbeats">BlockBeats</option>
-                <option value="macro">宏观日历</option>
-              </select>
+              <div id="rtPlatformFilterMulti" class="rt-platform-multi">
+                <button type="button" class="rt-pm-btn active" data-val="all">全部</button>
+                <button type="button" class="rt-pm-btn" data-val="binance">币安</button>
+                <button type="button" class="rt-pm-btn" data-val="okx">OKX</button>
+                <button type="button" class="rt-pm-btn" data-val="foresight">Foresight</button>
+                <button type="button" class="rt-pm-btn" data-val="coindesk">CoinDesk</button>
+                <button type="button" class="rt-pm-btn" data-val="blockbeats">BlockBeats</button>
+                <button type="button" class="rt-pm-btn" data-val="macro">宏观</button>
+              </div>
               <select id="rtChannel">
                 <option value="all">全部通道</option>
                 <option value="economy">宏观日历</option>
                 <option value="crypto">币圈事件</option>
                 <option value="hot">热榜</option>
-              </select>
-              <select id="rtMinStar">
-                <option value="0" selected>全部星级</option>
-                <option value="3">≥3星</option>
-                <option value="4">≥4星</option>
-                <option value="5">仅5星</option>
               </select>
               <input id="rtKeyword" type="search" placeholder="搜索标题…" />
             </div>
@@ -929,6 +923,6 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260907d"></script>
+  <script src="/app.js?v=20260908a"></script>
 </body>
 </html>

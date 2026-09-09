@@ -8264,8 +8264,10 @@ const RT_STATE = {
   selectedId: null,
   scheduleRunning: false,
   scheduleTimer: null,
+  selectedPlatforms: ["all"],  // 平台多选
   autoRefreshTimer: null,
 };
+let rtPublishing = false;
 
 function rtLoadState() {
   try {
@@ -8310,20 +8312,31 @@ const RT_PLATFORM_BADGE = {
 
 async function rtFetchEvents() {
   const channel = $("#rtChannel")?.value || "all";
-  const minStar = parseInt($("#rtMinStar")?.value || "0", 10);
   const kw = ($("#rtKeyword")?.value || "").trim().toLowerCase();
-  const platformFilter = $("#rtPlatformFilter")?.value || "all";
+  const selPlatforms = RT_STATE.selectedPlatforms || ["all"];
   rtSetFetchStatus("loading");
   try {
-    const data = await api(`/api/realtime/events?channel=${channel}&min_star=${minStar}&limit=100`);
+    // channel 参数传给后端，后端按 channel 过滤；前端不再按 platform 过滤（由 selPlatforms 决定）
+    const data = await api(`/api/realtime/events?channel=${channel}&min_star=0&limit=200`);
     let items = Array.isArray(data.items) ? data.items : [];
-    if (platformFilter !== "all") {
-      if (platformFilter === "macro") {
-        items = items.filter(it => !it.platform || it.platform === "");
-      } else {
-        items = items.filter(it => it.platform === platformFilter);
-      }
+
+    // 8h 过滤
+    const cutoff = Date.now() - 8 * 60 * 60 * 1000;
+    items = items.filter(it => {
+      if (!it.published_at) return true;
+      return new Date(it.published_at).getTime() >= cutoff;
+    });
+
+    // 平台多选过滤
+    if (!selPlatforms.includes("all")) {
+      items = items.filter(it => {
+        if (selPlatforms.includes("macro")) {
+          if (!it.platform || it.platform === "") return true;
+        }
+        return selPlatforms.includes(it.platform);
+      });
     }
+
     if (kw) items = items.filter(
       (it) => (it.title || "").toLowerCase().includes(kw) ||
                (it.description || "").toLowerCase().includes(kw)
@@ -8630,9 +8643,11 @@ function rtRenderPreview() {
       ${imgSrcFull
         ? `<button class="btn ghost btn-sm" id="btnRtDelImg" type="button">删除图片</button>`
         : ""}
-      ${imgSrcFull
-        ? `<img class="rt-preview-img" src="${imgSrcFull}" alt="配图" style="width:222px" />`
-        : `<div class="rt-preview-img-loading" id="rtImgLoading">暂无配图（可点击「生成配图」）</div>`}
+      <div class="rt-preview-img-wrap">
+        ${imgSrcFull
+          ? `<img class="rt-preview-img" src="${imgSrcFull}" alt="配图" />`
+          : `<div class="rt-preview-img-loading" id="rtImgLoading">暂无配图（可点击「生成配图」）</div>`}
+      </div>
     </div>
   `;
 
@@ -8782,21 +8797,20 @@ function rtRenderQueueList() {
     el.className = `rt-queue-item ${q.status}`;
     el.setAttribute("data-id", q.id);
     el.style.cursor = "pointer";
+    const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
+    const thumbHtml = q.image_path
+      ? `<img class="qi-img-thumb" src="/api/file/${escAttr(q.image_path.replace(PROJECT_ROOT_RE, ''))}" alt="" />`
+      : '<span class="qi-noimg">无图</span>';
     el.innerHTML = `
       <span class="qi-rank">${idx + 1}</span>
       <div class="qi-body">
         <div class="qi-title">${escHtml(q.title || "")}</div>
         <div class="qi-meta">
           ${q.category_name ? `<span class="evt-cat">${escHtml(q.category_name)}</span>` : ""}
-          ${q.image_path ? '<span style="font-size:.7rem;color:var(--teal)">🖼 已配图</span>' : '<span style="font-size:.7rem;color:var(--muted)">无配图</span>'}
+          <span class="qi-thumb-wrap">${thumbHtml}</span>
+          <button class="qi-send-btn" data-qid="${q.id}" data-action="publish-now">📤 发送</button>
         </div>
       </div>
-      <button class="btn-sm btn-ghost" data-qid="${q.id}" data-action="publish-now" style="flex-shrink:0;margin-left:4px">📤 立即发</button>
-      ${q.image_path ? (() => {
-        const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
-        const p = q.image_path.replace(PROJECT_ROOT_RE, "");
-        return `<img class="qi-img-thumb" src="/api/file/${escAttr(p)}" alt="" />`;
-      })() : ""}
     `;
     el.addEventListener("click", () => {
       RT_STATE.selectedId = q.id;
@@ -8944,6 +8958,8 @@ async function rtPublishNow(id) {
   if (!q) { toast("未找到内容", "error"); return; }
   const text = q.summary || q.description || "";
   if (!text) { toast("正文为空", "error"); return; }
+  if (rtPublishing) { toast("发布中…请勿重复点击", "warn"); return; }
+  rtPublishing = true;
 
   const plats = [];
   if ($("#rtPlatBinance")?.checked) plats.push({ pid: "binance_square", name: "币安广场" });
@@ -8966,8 +8982,9 @@ async function rtPublishNow(id) {
   try {
     for (const { pid, name } of plats) {
       showPlatStatus(pid, "running", "发布中…");
+      let r;
       try {
-        const r = await api("/api/publish", {
+        r = await api("/api/publish", {
           method: "POST",
           body: JSON.stringify({
             title: "",
@@ -8980,22 +8997,30 @@ async function rtPublishNow(id) {
             submit: true,
           }),
         });
-        if (r.success) {
-          showPlatStatus(pid, "ok", "✓");
-          toast(`${name} 发布成功`, "ok");
-        } else {
-          showPlatStatus(pid, "err", "✗");
-          toast(`${name} 发布失败: ${r.error || r.results?.[0]?.error || "未知错误"}`, "error");
-        }
       } catch (e) {
         showPlatStatus(pid, "err", "✗");
         toast(`${name} 发布异常: ${e}`, "error");
+        r = { success: false, error: String(e) };
+      }
+      if (r.success) {
+        showPlatStatus(pid, "ok", "✓");
+        toast(`${name} 发布成功`, "ok");
+      } else {
+        showPlatStatus(pid, "err", "✗");
+        toast(`${name} 发布失败: ${r.error || r.results?.[0]?.error || "未知错误"}`, "error");
+        // 失败后强制切到正确标签，避免后续平台抢占
+        try {
+          await api("/api/cdp/goto", {
+            method: "POST",
+            body: JSON.stringify({ url: pid === "binance_square" ? "https://www.binance.com/zh-CN/square" : pid === "okx" ? "https://www.okx.com/cn/orbit" : "", debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222" }),
+          });
+        } catch (_) {}
       }
     }
-    const qi = RT_STATE.queue.find(q => q.id === id);
     if (qi) { qi.status = "done"; rtPersistQueue(); rtRenderQueueList(); }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "立即发布"; }
+    rtPublishing = false;
   }
 }
 
@@ -9095,6 +9120,17 @@ async function rtStartSchedule() {
           addLog(`✓ ${cfg.label} 发送成功`);
         } else {
           addLog(`✗ ${cfg.label}: ${r.error || "失败"}`);
+          // 失败后强制切回正确页面
+          const gotoUrl = platKey === "binance_square" ? "https://www.binance.com/zh-CN/square"
+            : platKey === "okx" ? "https://www.okx.com/cn/orbit" : "";
+          if (gotoUrl) {
+            try {
+              await api("/api/cdp/goto", {
+                method: "POST",
+                body: JSON.stringify({ url: gotoUrl, debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222" }),
+              });
+            } catch (_) {}
+          }
         }
       } catch (e) {
         addLog(`✗ ${cfg.label} 异常: ${e}`);
@@ -9169,6 +9205,19 @@ async function rtPublishQueueItem(qid) {
         body: JSON.stringify({ platform: cfg.plat, text, image_path: item.image_path || null }),
       });
       results.push({ label: cfg.label, ok: r.success, error: r.error });
+      if (!r.success) {
+        // 失败后强制切回正确页面，防止后续平台抢占
+        const gotoUrl = platKey === "binance_square" ? "https://www.binance.com/zh-CN/square"
+          : platKey === "okx" ? "https://www.okx.com/cn/orbit" : "";
+        if (gotoUrl) {
+          try {
+            await api("/api/cdp/goto", {
+              method: "POST",
+              body: JSON.stringify({ url: gotoUrl, debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222" }),
+            });
+          } catch (_) {}
+        }
+      }
     } catch (e) {
       results.push({ label: cfg.label, ok: false, error: String(e) });
     }
@@ -9194,8 +9243,40 @@ function rtBindEvents() {
   $("#btnRtClearQueue")?.addEventListener("click", rtClearQueue);
   $("#btnRtStartSchedule")?.addEventListener("click", rtStartSchedule);
   $("#rtChannel")?.addEventListener("change", rtFetchEvents);
-  $("#rtMinStar")?.addEventListener("change", rtFetchEvents);
-  $("#rtPlatformFilter")?.addEventListener("change", rtFetchEvents);
+  // 平台多选按钮
+  document.querySelectorAll("#rtPlatformFilterMulti .rt-pm-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const val = btn.dataset.val;
+      const container = document.getElementById("rtPlatformFilterMulti");
+      if (val === "all") {
+        RT_STATE.selectedPlatforms = ["all"];
+        container?.querySelectorAll(".rt-pm-btn").forEach(b => {
+          b.classList.toggle("active", b.dataset.val === "all");
+        });
+      } else {
+        // 取消全选，选中当前
+        const cur = RT_STATE.selectedPlatforms.filter(p => p !== "all");
+        if (cur.includes(val)) {
+          RT_STATE.selectedPlatforms = cur.filter(p => p !== val);
+        } else {
+          RT_STATE.selectedPlatforms = [...cur, val];
+        }
+        if (RT_STATE.selectedPlatforms.length === 0) {
+          // 取消全部 → 默认选第一个
+          RT_STATE.selectedPlatforms = ["binance"];
+        }
+        container?.querySelectorAll(".rt-pm-btn").forEach(b => {
+          const bv = b.dataset.val;
+          if (bv === "all") {
+            b.classList.toggle("active", RT_STATE.selectedPlatforms.includes("all"));
+          } else {
+            b.classList.toggle("active", RT_STATE.selectedPlatforms.includes(bv));
+          }
+        });
+      }
+      rtFetchEvents();
+    });
+  });
   let kwTimer;
   $("#rtKeyword")?.addEventListener("input", () => {
     clearTimeout(kwTimer);
