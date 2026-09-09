@@ -37,6 +37,8 @@ _COMPOSE_LABELS = (
     "Create post",
     "Post",
     "New post",
+    "发推",
+    "发动态",
 )
 
 _SUBMIT_LABELS = (
@@ -122,7 +124,7 @@ function insideEditable(el) {
 }
 function score(el) {
   const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim();
-  if (!t || t.length > 20) return 0;
+  if (!t || t.length > 30) return 0;
   for (let i = 0; i < labels.length; i++) {
     const lab = labels[i];
     if (t === lab || t.replace(/\s+/g, '') === lab) return 150 - i;
@@ -226,22 +228,69 @@ function pickEditable(root) {
     '[contenteditable="true"], [role="textbox"], textarea, .ProseMirror, .ql-editor'
   );
 }
-// 真正在 modal/dialog 里的编辑器（弹出的发文框）。币安新版广场上方也有一个静态输入框，
-// 但那个只是入口。真正的发文编辑器必须在弹框里。如果检测到弹框就直接走到这里。
-const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="overlay" i], [class*="PublishBox" i]';
-function pickInModal() {
-  const modals = document.querySelectorAll(MODAL_SEL);
-  for (const m of modals) {
-    if (!visible(m)) continue;
-    const ed = pickEditable(m);
-    if (ed) return { ed, root: m };
-  }
-  return null;
+// 币安新版发文弹框（short-editor）：
+// 真实 DOM: <div class="short-editor-editor-wrapper focus css-15owl46">
+//                           <div class="short-editor-content focus css-1ggi3f3">
+//                             <div class="short-editor-editor ...">
+//                               <div class="css-gdk4go">
+//                                 <div class="json-article-editor ...">
+//                                   <div data-pai-editor-root="1">
+//                                     <div contenteditable="true" class="tiptap ProseMirror" data-pai-editor="1">...</div>
+//                                   </div>
+//                                 </div>
+//                               </div>
+//                             </div>
+//                           </div>
+//                         </div>
+// .focus 在 .short-editor-editor-wrapper 和 .short-editor-content 上（弹框已开时有 focus class）
+const BINANCE_MODAL_EDITOR = '.short-editor-editor-wrapper.focus .short-editor-inner [contenteditable="true"], .short-editor-editor-wrapper.focus .short-editor-inner .ProseMirror, .short-editor-content.focus [contenteditable="true"], .short-editor-content.focus .ProseMirror';
+// OKX 入口（.composerEntry-vGyBD 里的入口编辑框）
+const OKX_ENTRY_EDITOR = '.composerEntry-vGyBD [contenteditable="true"], .composerEntry-vGyBD .ProseMirror';
+// 通用弹框内编辑器
+const MODAL_EDITORS = '[role="dialog"] [contenteditable="true"], [role="dialog"] .ProseMirror, [class*="modal" i] [contenteditable="true"], [class*="PublishBox" i] [contenteditable="true"]';
+
+// 1) 优先找币安弹框编辑器（有 .focus class = 弹框已开）
+const binanceModalEd = document.querySelector(BINANCE_MODAL_EDITOR);
+if (binanceModalEd) {
+  const root = binanceModalEd.closest('.short-editor-inner, [class*="short-editor" i]') || binanceModalEd.parentElement;
+  return markEditor(binanceModalEd, root);
 }
-// 1) 优先 modal 内编辑框（弹框场景）
+// 2) OKX 入口编辑器
+const okxEd = document.querySelector(OKX_ENTRY_EDITOR);
+if (okxEd) {
+  return markEditor(okxEd, okxEd.closest('.composerEntry-vGyBD') || okxEd.parentElement);
+}
+// 3) 通用 modal/dialog 内的编辑器
+const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="PublishBox" i], [class*="dialog" i]';
 const inModal = pickInModal();
 if (inModal) return markEditor(inModal.ed, inModal.root);
-// 2) 否则标记为没找到（宁可返回 false 让上层去点左侧"发文"开弹框）
+// 4) fallback: 没有真正的 modal/dialog，但页面有明显的编辑器（视口中部、宽度≥480）
+//    → 说明弹框已开、只是没用 modal 容器包装
+const vw = window.innerWidth || 1024;
+const vh = window.innerHeight || 768;
+const candidates = Array.from(document.querySelectorAll('[contenteditable="true"], .ProseMirror, .ql-editor, [role="textbox"]'));
+let best = null;
+let bestScore = 0;
+for (const ed of candidates) {
+  if (!visible(ed)) continue;
+  const r = ed.getBoundingClientRect();
+  // 排除：页面顶部 fixed/sticky 区域（外边的小编辑器）
+  const fix = window.getComputedStyle(ed).position;
+  if (fix === 'fixed' && r.top < 100) continue;
+  // 排除：宽度太小（侧栏小框）
+  if (r.width < 280) continue;
+  // 排除：在视口边缘外
+  if (r.right < 200 || r.left > vw - 200) continue;
+  // 排除：在顶部导航栏/侧栏（y < 80）
+  if (r.top < 80) continue;
+  // 排除：位置在屏幕上方 1/3 的 small 区域
+  if (r.width < 400 && r.height < 80 && r.top < vh * 0.3) continue;
+  // 评分：宽度大、靠中间、靠下（弹框一般在中部）
+  const score = r.width * (r.top > vh * 0.2 ? 1.2 : 1) * (r.left > 100 && r.right < vw - 100 ? 1.5 : 1);
+  if (score > bestScore) { best = ed; bestScore = score; }
+}
+if (best) return markEditor(best, best.closest('[role="dialog"],[class*="PublishBox" i]') || best.parentElement || best);
+// 3) 否则标记为没找到（宁可返回 false 让上层去点左侧"发文"开弹框）
 return false;
 """
 
@@ -365,13 +414,29 @@ function visible(el) {
   if (st.visibility === 'hidden' || st.display === 'none') return false;
   return true;
 }
-const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="overlay" i], [class*="PublishBox" i]';
+// 币安弹框编辑器（.focus 在 .short-editor-editor-wrapper 或 .short-editor-content 上）
+const binanceEd = document.querySelector('.short-editor-editor-wrapper.focus .short-editor-inner [contenteditable="true"], .short-editor-editor-wrapper.focus .short-editor-inner .ProseMirror, .short-editor-content.focus [contenteditable="true"], .short-editor-content.focus .ProseMirror');
+if (binanceEd) {
+  try { binanceEd.click(); binanceEd.focus(); } catch (_) {}
+  binanceEd.setAttribute('data-pai-editor', '1');
+  (binanceEd.closest('.short-editor-inner') || binanceEd.parentElement).setAttribute('data-pai-editor-root', '1');
+  return true;
+}
+// OKX 入口编辑器
+const okxEd = document.querySelector('.composerEntry-vGyBD [contenteditable="true"], .composerEntry-vGyBD .ProseMirror');
+if (okxEd) {
+  try { okxEd.click(); okxEd.focus(); } catch (_) {}
+  okxEd.setAttribute('data-pai-editor', '1');
+  (okxEd.closest('.composerEntry-vGyBD') || okxEd.parentElement).setAttribute('data-pai-editor-root', '1');
+  return true;
+}
+// 通用 modal
+const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="PublishBox" i]';
 function pickEditable(root) {
   if (!root || !visible(root)) return null;
   if (root.isContentEditable || root.getAttribute('contenteditable') === 'true') return root;
   return root.querySelector('[contenteditable="true"], [role="textbox"], textarea');
 }
-// 仅在弹框里找编辑器（不要碰广场页面上方的静态入口）
 const modals = document.querySelectorAll(MODAL_SEL);
 for (const m of modals) {
   if (!visible(m)) continue;
@@ -850,9 +915,16 @@ function vis(el) {
   return true;
 }
 let modalOpen = false;
-if (editor) {
-  const modal = editor.closest('[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="overlay" i]');
-  modalOpen = !!(modal && vis(modal));
+if (editor && vis(editor)) {
+  // 只看有明确 modal/dialog/drawer 包裹的：去掉 overlay（容易被全屏滤镜误判）
+  // 必须 editor 在 modal 内（避免 overlay 全屏陷阱）
+  const modal = editor.closest('[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="PublishBox" i]');
+  if (modal && modal.contains(editor)) {
+    modalOpen = vis(modal);
+  } else {
+    // 找不到 modal 包裹 → 用 editor 自身可见性判定（币安新版没有 modal 容器）
+    modalOpen = vis(editor);
+  }
 }
 const toasts = [];
 for (const el of document.querySelectorAll('[role="alert"], [class*="toast" i], [class*="snackbar" i], [class*="notify" i]')) {
@@ -860,7 +932,8 @@ for (const el of document.querySelectorAll('[role="alert"], [class*="toast" i], 
   const t = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
   if (t && t.length < 80) toasts.push(t);
 }
-const edText = editor ? String(editor.innerText || editor.value || '').replace(/\u200b/g, '').trim() : '';
+// textContent 兼容 contenteditable（币安新版编辑器 innerText 取不到）
+const edText = editor ? String(editor.textContent || editor.innerText || editor.value || '').replace(/\u200b/g, '').trim() : '';
 return {
   href: String(location.href || ''),
   editorPresent: !!(editor && vis(editor)),
@@ -1318,9 +1391,16 @@ function vis(el) {
   return true;
 }
 let modalOpen = false;
-if (editor) {
-  const modal = editor.closest('[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="overlay" i]');
-  modalOpen = !!(modal && vis(modal));
+if (editor && vis(editor)) {
+  // 只看有明确 modal/dialog/drawer 包裹的：去掉 overlay（容易被全屏滤镜误判）
+  // 必须 editor 在 modal 内（避免 overlay 全屏陷阱）
+  const modal = editor.closest('[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="PublishBox" i]');
+  if (modal && modal.contains(editor)) {
+    modalOpen = vis(modal);
+  } else {
+    // 找不到 modal 包裹 → 用 editor 自身可见性判定（币安新版没有 modal 容器）
+    modalOpen = vis(editor);
+  }
 }
 const toasts = [];
 for (const el of document.querySelectorAll('[role="alert"], [class*="toast" i], [class*="snackbar" i], [class*="notify" i]')) {
@@ -1328,7 +1408,8 @@ for (const el of document.querySelectorAll('[role="alert"], [class*="toast" i], 
   const t = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
   if (t && t.length < 80) toasts.push(t);
 }
-const edText = editor ? String(editor.innerText || editor.value || '').replace(/\u200b/g, '').trim() : '';
+// textContent 兼容 contenteditable（币安新版编辑器 innerText 取不到）
+const edText = editor ? String(editor.textContent || editor.innerText || editor.value || '').replace(/\u200b/g, '').trim() : '';
 return {
   href: String(location.href || ''),
   editorPresent: !!(editor && vis(editor)),
@@ -1638,6 +1719,12 @@ class BinanceSquarePublisher:
                     self._wait_for_editor(driver, self.wait_sec)
 
             href = current_href(driver) or href
+            # 防止 CDP 短暂断开导致"未知页面"误报——重试 3 次
+            for _retry_href in range(3):
+                if href and href != "未知页面" and "unknown" not in href.lower():
+                    break
+                time.sleep(0.5)
+                href = current_href(driver) or ""
             if not self._href_on_site(href):
                 return {
                     "success": False,
@@ -1673,6 +1760,25 @@ class BinanceSquarePublisher:
                     human_pause(0.4, 0.9)
                     self._sync_editor_state(driver)
                 if images:
+                    # dump 弹框内的 file input（调试用）
+                    try:
+                        inp_dump = driver.execute_script(r"""
+const ed = document.querySelector('[data-pai-editor="1"]');
+const root = ed ? ed.closest('[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="PublishBox" i]') || ed.parentElement : document.body;
+const ins = [];
+for (const inp of root.querySelectorAll('input[type="file"]')) {
+  try {
+    const r = inp.getBoundingClientRect();
+    ins.push({tag:inp.tagName, type:inp.type, accept:inp.accept||'', disabled:inp.disabled||'',
+      hidden: inp.className.includes('hidden')||'', x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height)});
+  } catch(_) {}
+}
+const editorInModal = ed ? !!ed.closest('[role="dialog"], [class*="modal" i], [class*="PublishBox" i]') : false;
+return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.className.slice(0,80) : ''};
+                        """)
+                        logger.info("%s 上传前 file input dump: %s", self.platform_name, inp_dump)
+                    except Exception as e:
+                        logger.debug("%s file input dump 失败: %s", self.platform_name, e)
                     n = self._upload_media(driver, images, prefer="image")
                     steps.append(f"images:{n}")
                     human_pause(1.0, 2.0)
@@ -1723,6 +1829,11 @@ class BinanceSquarePublisher:
             urls_before = self._collect_post_urls(driver)
             logger.info("%s 准备点击发布（点击≠发出）", self.platform_name)
             clicked, click_label, cands = self._click_submit(driver)
+            logger.info(
+                "%s _click_submit 结果: clicked=%s label=%s candidates=%s",
+                self.platform_name, clicked, click_label,
+                len(cands) if cands else 0,
+            )
             if not clicked:
                 hint = ""
                 if cands:
@@ -1942,26 +2053,45 @@ class BinanceSquarePublisher:
             return False
 
     _CLICK_COMPOSE_XPATH_JS = r"""
-// 兜底点击：找「发文」/「发帖」/「发动态」按钮并点击，等待直到弹框出现。
-const targets = [
-  '//button[normalize-space(.)="发文"]',
-  '//button[normalize-space(.)="发帖"]',
-  '//button[normalize-space(.)="发动态"]',
-  '//*[self::div or self::button or self::a][normalize-space(.)="发文" and (@role="button" or contains(@class,"btn") or contains(@class,"button") or contains(@class,"css-"))]',
+// 兜底点击：找「发文」/「发帖」/「发动态」/「发推」按钮并点击，等待直到弹框出现。
+// 策略 1：精确文本按钮
+const exact = [
+  '发文','发帖','发动态','发推','发布','Post','Share'
 ];
-let clicked = null;
-for (const xp of targets) {
-  const r = document.evaluate(xp, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-  for (let i = 0; i < r.snapshotLength; i++) {
-    const el = r.snapshotItem(i);
-    if (!el || !el.getBoundingClientRect) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 8 || rect.height < 8) continue;
-    try { el.click(); clicked = el.textContent.trim(); break; } catch (_) {}
-  }
-  if (clicked) break;
+// 策略 2：包含文本的按钮（兼容带图标的混合文本）
+const contains = [
+  '发文','发帖','发动态','发推','写点什么'
+];
+function norm(t) { return (t || '').replace(/\\s+/g, ''); }
+function score(el) {
+  if (el.tagName !== 'BUTTON' && el.getAttribute('role') !== 'button') return 0;
+  const t = norm(el.innerText || el.textContent || '');
+  if (!t || t.length > 25) return 0;
+  for (const s of exact) { if (t === norm(s)) return 100; }
+  for (const s of contains) { if (t.includes(norm(s))) return 80; }
+  return 0;
 }
-return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="PublishBox" i]') };
+function clickEl(el) {
+  try { el.click(); return true; } catch(_) {}
+  try {
+    el.removeAttribute('disabled');
+    el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true}));
+    return true;
+  } catch(_) {}
+  return false;
+}
+const cands = Array.from(document.querySelectorAll('button,[role="button"]'));
+cands.sort((a,b) => score(b) - score(a));
+for (const el of cands) {
+  if (score(el) <= 0) continue;
+  if (!el.getBoundingClientRect || el.getBoundingClientRect().width < 8) continue;
+  const st = window.getComputedStyle(el);
+  if (st.display === 'none' || st.visibility === 'hidden') continue;
+  if (clickEl(el)) {
+    return { clicked: (el.innerText||'').trim().slice(0,20), score: score(el) };
+  }
+}
+return { clicked: null, score: 0 };
 """
 
     def _click_compose_xpath(self, driver) -> bool:
@@ -1982,14 +2112,61 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
         """点击打开发布框（非 OKX）。"""
         if self.platform_id == "okx":
             return self._click_okx_compose(driver, steps)
-        # 先用基线 _find_compose；未命中或标记不可点 → XPath 兜底
+        # 币安：优先 XPath（按钮文本可能有差异），失败再用 JS 匹配
         compose_done = False
-        if self._find_compose(driver) and self._click_marked(driver, "compose"):
-            compose_done = True
-        elif self._click_compose_xpath(driver):
-            compose_done = True
+        if self.platform_id == "binance_square":
+            if self._click_compose_xpath(driver):
+                compose_done = True
+            elif self._find_compose(driver) and self._click_marked(driver, "compose"):
+                compose_done = True
+        else:
+            # 先用基线 _find_compose；未命中或标记不可点 → XPath 兜底
+            if self._find_compose(driver) and self._click_marked(driver, "compose"):
+                compose_done = True
+            elif self._click_compose_xpath(driver):
+                compose_done = True
         if not compose_done:
-            logger.warning("%s 既未定位 compose 按钮，XPath 兜底也未命中", self.platform_name)
+            # 终极兜底：遍历所有按钮，检测是否包含目标文本
+            try:
+                res = driver.execute_script(r"""
+                    const targets = ['发文','发帖','发动态','发推','Post','Share','发布'];
+                    function norm(t) { return (t||'').replace(/\s+/g,''); }
+                    function text(el) {
+                        // 优先 innerText，再 fallback 到 textContent
+                        let t = '';
+                        try { t = el.innerText || ''; } catch(_) {}
+                        if (!t.trim()) {
+                            try { t = el.textContent || ''; } catch(_) {}
+                        }
+                        return t.trim();
+                    }
+                    const buttons = Array.from(document.querySelectorAll('button,[role="button"]'));
+                    for (const el of buttons) {
+                        if (!el.getBoundingClientRect) continue;
+                        const r = el.getBoundingClientRect();
+                        if (r.width < 8 || r.height < 8) continue;
+                        const st = window.getComputedStyle(el);
+                        if (st.display === 'none' || st.visibility === 'hidden') continue;
+                        const t = norm(text(el));
+                        if (!t) continue;
+                        for (const target of targets) {
+                            if (t === norm(target) || t.includes(norm(target))) {
+                                try { el.click(); } catch(_) {}
+                                try {
+                                    el.removeAttribute('disabled');
+                                    el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+                                } catch(_) {}
+                                return { clicked: t, score: 100 };
+                            }
+                        }
+                    }
+                    return { clicked: null };
+                """)
+                if isinstance(res, dict) and res.get('clicked'):
+                    logger.info("%s 终极兜底点击「%s」", self.platform_name, res.get('clicked'))
+                    compose_done = True
+            except Exception as e:
+                logger.debug("%s 终极兜底失败: %s", self.platform_name, e)
             return False
         # 等弹框出现
         deadline = time.time() + 4.0
@@ -2183,92 +2360,88 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
 
     def _force_click_binance_publish_button(self, driver) -> str:
         """
-        兜底：在编辑器场景，按钮就在 [data-pai-editor] 周围。
-        解决币安新版广场 DOM 没有 modal/dialog 容器的问题——按钮可能散落在编辑器上下文之外的相邻 DOM。
-        三道兜底：①data-pai-editor 祖父链；②document.body 全文；③编辑器同级父元素。
+        兜底：币安弹框的「发文」提交按钮。
+        真实 DOM：<div class="css-1f466lo"><button data-bn-type="button"><span data-bn-type="text">发文</span></button></div>
+        OKX：<button class="publishBtn-qrlWy"><span>发文</span></button>
         """
         try:
             res = driver.execute_script(
                 r"""
-                const editor = document.querySelector('[data-pai-editor="1"]');
-                if (!editor) return { ok: false, reason: 'no_editor' };
                 const SUBMIT_TEXTS = new Set([
                   '发文','发帖','发帖子','发动态','发布','发送','立即发布','确认发布',
                   'Post','Publish','Submit','Send','Share','Post now'
                 ]);
+                const NAV_TEXTS = new Set(['发文','发帖','发帖子','发动态']);
                 const norm = (s) => (s || '').replace(/\s+/g, '').trim();
                 function labelOf(el) {
-                    return norm(el.getAttribute('aria-label') || el.innerText || el.textContent);
-                }
-                function clickableAncestor(el) {
-                    let n = el;
-                    for (let i = 0; i < 5 && n; i++) {
-                        if (!n) break;
-                        if (n.tagName === 'BUTTON' || n.getAttribute('role') === 'button'
-                            || n.getAttribute('data-bn-type') === 'button') return n;
-                        n = n.parentElement;
-                    }
-                    return el;
+                    return norm(el.getAttribute('aria-label') || el.innerText || el.textContent || '');
                 }
                 function tryClick(el) {
                     try { el.removeAttribute('disabled'); el.classList.remove('disabled'); } catch(_) {}
-                    try { el.style.removeProperty('pointer-events'); el.style.pointerEvents = 'auto'; } catch(_) {}
+                    try { el.style.pointerEvents = 'auto'; } catch(_) {}
                     const r = el.getBoundingClientRect();
                     if (r.width < 4 || r.height < 4) return false;
-                    try { el.scrollIntoView({block:'center', inline:'center'}); } catch(_) {}
+                    const st = window.getComputedStyle(el);
+                    if (st.display === 'none' || st.visibility === 'hidden') return false;
+                    try { el.scrollIntoView({block:'center'}); } catch(_) {}
                     try { el.focus(); } catch(_) {}
                     try { el.click(); return true; } catch(_) {}
                     try {
-                      el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, view:window}));
-                      el.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, view:window}));
-                      el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
+                      el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, view:window}));
+                      el.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, view:window}));
+                      el.dispatchEvent(new MouseEvent('click', {bubbles:true, view:window}));
                       return true;
                     } catch(_) { return false; }
                 }
-                function scanScope(scope, where) {
-                    const btns = scope.querySelectorAll('button, [role="button"], [type="submit"], [data-bn-type="button"]');
-                    for (const el of btns) {
-                        const t = labelOf(el);
-                        if (t && SUBMIT_TEXTS.has(t)) {
-                            if (tryClick(el)) return { ok: true, label: t, where };
+                // 策略 1：币安新版弹框提交按钮
+                // button[data-bn-type="button"] 在 .css-1f466lo 里（弹框底部工具栏）
+                for (const el of document.querySelectorAll('.css-1f466lo button[data-bn-type="button"], [class*="shortPostEditor" i] button[data-bn-type="button"], [class*="short-editor" i] button[data-bn-type="button"]')) {
+                    const t = labelOf(el);
+                    if (t && SUBMIT_TEXTS.has(t)) {
+                        if (tryClick(el)) return { ok: true, label: t, where: 'bn_submit_btn' };
+                    }
+                    // span[data-bn-type="text"] 承载文本
+                    const span = el.querySelector('span[data-bn-type="text"]');
+                    if (span) {
+                        const st = labelOf(span);
+                        if (st && SUBMIT_TEXTS.has(st)) {
+                            if (tryClick(el)) return { ok: true, label: st, where: 'bn_span_submit' };
                         }
                     }
-                    // 文本节点不在 button 内时（如直接 <span>发文</span>），向上找 clickable ancestor
-                    const candidates = scope.querySelectorAll('*');
-                    for (const el of candidates) {
-                        if (!el || !el.firstElementCount) {
-                          const t = labelOf(el);
-                          if (t && SUBMIT_TEXTS.has(t) && el.children.length === 0) {
-                              const anc = clickableAncestor(el);
-                              if (anc && anc !== el) {
-                                  if (tryClick(anc)) return { ok: true, label: t, where: where+'+span' };
-                              }
-                          }
-                        }
-                    }
-                    return null;
                 }
-                // 1) editor 父级向上 8 层的容器
-                let scope = editor.parentElement;
-                for (let i = 0; i < 8 && scope && scope !== document.body; i++) {
-                    const r = scanScope(scope, 'lvl' + i);
-                    if (r) return r;
-                    scope = scope.parentElement;
+                // 策略 2：OKX 发布按钮
+                const okxBtn = document.querySelector('.publishBtn-qrlWy, [class*="publishBtn" i]');
+                if (okxBtn) {
+                    const t = labelOf(okxBtn);
+                    if (t && SUBMIT_TEXTS.has(t) && tryClick(okxBtn)) {
+                        return { ok: true, label: t, where: 'okx_publish' };
+                    }
                 }
-                // 2) document.body 全文
-                const r2 = scanScope(document.body, 'body');
-                if (r2) return r2;
-                // 3) editor 父级的相邻兄弟父元素（币安新版"发文"div 平级于编辑器容器）
-                try {
-                    const ep = editor.parentElement;
-                    if (ep && ep.parentElement) {
-                        const sibs = ep.parentElement.children;
-                        for (const sib of sibs) {
-                            const r3 = scanScope(sib, 'sibling');
-                            if (r3) return r3;
+                // 策略 3：在弹框容器内找「发文」按钮
+                const editor = document.querySelector('[data-pai-editor="1"]');
+                if (editor) {
+                    const scope = editor.closest('.short-editor-inner, .short-editor-content.focus, [class*="short-editor" i], [class*="shortPostEditor" i], .css-1f466lo, [class*="editor-toolbar" i]');
+                    if (scope) {
+                        for (const el of scope.querySelectorAll('button, [role="button"]')) {
+                            const t = labelOf(el);
+                            if (t && SUBMIT_TEXTS.has(t)) {
+                                if (tryClick(el)) return { ok: true, label: t, where: 'editor_scope' };
+                            }
                         }
                     }
-                } catch (_) {}
+                }
+                // 策略 4：document.body（只接受 primary/form footer 类）
+                for (const el of document.body.querySelectorAll('button, [role="button"]')) {
+                    const t = labelOf(el);
+                    if (!t || !SUBMIT_TEXTS.has(t)) continue;
+                    // 跳过导航入口
+                    if (NAV_TEXTS.has(t)) {
+                        // 只接受在弹框/编辑器范围内的
+                        const inEditor = el.closest('[class*="short-editor" i], [class*="editor" i], [class*="toolbar" i], [class*="footer" i], [class*="submit" i]');
+                        if (!inEditor) continue;
+                    }
+                    if (tryClick(el)) return { ok: true, label: t, where: 'body_primary' };
+                }
                 return { ok: false, reason: 'no_match' };
                 """
             )
@@ -2281,7 +2454,7 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
                 )
                 return str(res.get("label") or "发文")
             else:
-                logger.debug("兜底点击未命中: %s", res.get("reason") if isinstance(res, dict) else res)
+                logger.debug("force_click_binance_publish_button 未命中: %s", res.get("reason") if isinstance(res, dict) else res)
         except Exception as e:
             logger.warning("force_click_binance_publish_button 异常: %s", e)
         return ""
@@ -2399,8 +2572,43 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
         urls_before: set,
         timeout: float = 14.0,
     ) -> tuple:
-        """点完发布后必须看到新帖链接 / 成功提示 / 编辑区关掉，否则算失败。"""
+        """点完发布后必须看到新帖链接 / 成功提示，否则算失败。"""
         had_body = len((body or "").strip()) >= 16
+        logger.info("%s _wait_submit_confirmed 开始，had_body=%s", self.platform_name, had_body)
+        # 一次性 dump：列出 BODY 全部按钮和 editor（调试用，打破 modal 限制）
+        try:
+            dump = driver.execute_script(r"""
+const editor = document.querySelector('[data-pai-editor="1"]');
+const inModal = editor ? !!editor.closest('[role="dialog"], [class*="PublishBox" i]') : false;
+const allBtns = Array.from(document.body.querySelectorAll('button, [role="button"], [type="submit"], [data-bn-type="button"]'));
+const visible = allBtns.map((el, i) => {
+  try {
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return null;
+    const st = window.getComputedStyle(el);
+    if (st.display === 'none') return null;
+    return {
+      i, text: (el.innerText || el.textContent || '').replace(/\s+/g,' ').trim().slice(0,30),
+      cls: String(el.className||'').replace(/\s+/g,' ').trim().slice(0,60),
+      role: el.getAttribute('role')||'',
+      bntype: el.getAttribute('data-bn-type')||'',
+      disabled: !!el.disabled,
+      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height)
+    };
+  } catch(_) { return null; }
+}).filter(Boolean);
+return {
+  hasEditor: !!editor,
+  editorInModal: inModal,
+  editorText: editor ? (editor.textContent||'').slice(0,30) : '',
+  buttonCount: visible.length,
+  buttons: visible.slice(0, 50),
+  modalContainer: editor ? (() => { const m = editor.closest('[role="dialog"],[class*="PublishBox" i],[class*="editor" i]'); return m ? m.tagName + '.' + String(m.className||'').slice(0,40) : null; })() : null
+};
+            """)
+            logger.info("%s 弹框按钮 dump: %s", self.platform_name, dump)
+        except Exception as e:
+            logger.info("%s 弹框 dump 失败: %s", self.platform_name, e)
         deadline = time.time() + max(6.0, timeout)
         last: dict = {}
         closed_since = None
@@ -2430,6 +2638,17 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
                 w in toast_l
                 for w in ("published successfully", "post successful", "posted successfully")
             ):
+                logger.info("%s 检测到成功 toast: %s", self.platform_name, toasts[:80])
+                # OKX：检测到成功 toast 后必须确认正文确实消失（防止假 toast）
+                if self.platform_id == "okx" and had_body:
+                    cur_state = self._submit_state(driver)
+                    cur_len = int(cur_state.get("editorLen") or 0)
+                    if cur_len >= 16:
+                        logger.warning(
+                            "%s 检测到成功 toast 但编辑器仍有 %s 字，内容未发出",
+                            self.platform_name, cur_len,
+                        )
+                        return False, "", f"检测到成功 toast 但编辑器仍有内容（{cur_len} 字），疑似假成功"
                 return True, last.get("href") or "", f"成功提示「{toasts[:40]}」"
             if any(
                 w in toasts
@@ -2447,7 +2666,9 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
             composing = editor_on or modal_on
             if composing:
                 closed_since = None
-            else:
+            elif self.platform_id != "okx":
+                # OKX 编辑区关闭不能当成功（OKX 有时会静默失败）
+                # binance_square/bitget：编辑区关闭+1.5s+无新帖链接 = 成功
                 if closed_since is None:
                     closed_since = time.time()
                 elif time.time() - closed_since >= 1.5:
@@ -2456,7 +2677,7 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
                         return True, post_url, "出现新帖链接"
                     return True, last.get("href") or "", "编辑区已关闭"
 
-            if had_body and editor_on and editor_len < 8 and not modal_on:
+            if had_body and editor_on and editor_len < 8 and not modal_on and self.platform_id != "okx":
                 post_url = self._pick_new_post_url(driver, urls_before)
                 if post_url:
                     return True, post_url, "出现新帖链接"
@@ -2473,7 +2694,7 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
             return False, "", f"编辑区还在（{editor_len} 字），点击没有发出去"
         if editor_on or modal_on:
             return False, "", "编辑弹窗还开着，帖子未发出"
-        if closed_since is not None:
+        if closed_since is not None and self.platform_id != "okx":
             return True, last.get("href") or "", "编辑区已关闭"
         return False, "", "点击后未出现新帖链接或成功提示"
 
@@ -2851,8 +3072,38 @@ return { clicked, modal: !!document.querySelector('[role="dialog"], [class*="mod
         except Exception:
             return 0
 
+    def _has_modal_editor(self, driver) -> bool:
+        """检查弹框内是否有编辑器（防误上传到静态页面的 input）。"""
+        try:
+            return bool(driver.execute_script(r"""
+                // 币安弹框内 editor（.focus 在 .short-editor-editor-wrapper 或 .short-editor-content 上）
+                const binanceModalEd = document.querySelector('.short-editor-editor-wrapper.focus .short-editor-inner [contenteditable="true"], .short-editor-editor-wrapper.focus .short-editor-inner .ProseMirror, .short-editor-content.focus [contenteditable="true"], .short-editor-content.focus .ProseMirror');
+                if (binanceModalEd) return true;
+                // OKX 入口 editor
+                const okxEd = document.querySelector('.composerEntry-vGyBD [contenteditable="true"], .composerEntry-vGyBD .ProseMirror');
+                if (okxEd) return true;
+                // 通用 modal
+                const ed = document.querySelector('[data-pai-editor="1"]');
+                if (!ed) return false;
+                const root = document.querySelector('[data-pai-editor-root="1"]')
+                    || ed.closest('[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="PublishBox" i]');
+                if (!root) return false;
+                const inputs = root.querySelectorAll('input[type="file"]');
+                return inputs.length > 0;
+            """))
+        except Exception:
+            return False
+
     def _upload_media(self, driver, paths: List[str], prefer: str = "image") -> int:
         if not paths:
+            return 0
+
+        # 必须在弹框内的编辑器才能上传，否则会误传到静态页面的 input
+        if not self._has_modal_editor(driver):
+            logger.warning(
+                "%s 没有弹框内编辑器，跳过上传 %s 张媒体（防止误传静态页面）",
+                self.platform_name, len(paths),
+            )
             return 0
 
         existing = self._count_editor_media(driver, prefer=prefer)
