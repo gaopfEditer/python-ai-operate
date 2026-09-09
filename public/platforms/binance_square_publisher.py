@@ -1978,6 +1978,7 @@ def _click_compose_xpath(self, driver) -> bool:
     return False
 
 
+    def _click_compose(self, driver, steps: List[str]) -> bool:
         """点击打开发布框（非 OKX）。"""
         if self.platform_id == "okx":
             return self._click_okx_compose(driver, steps)
