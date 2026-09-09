@@ -9306,4 +9306,62 @@ function escAttr(s) {
   return String(s||"").replace(/"/g,"&quot;");
 }
 
+/* ── 实时发送面板：左侧事件列表宽度拖拽 ── */
+(function () {
+  const col = document.querySelector(".rt-events-col");
+  if (!col) return;
+  let dragging = false, startX = 0, startW = 0;
+
+  col.addEventListener("mousedown", (e) => {
+    if (e.offsetX < col.offsetWidth - 6) return; // 只在分隔线区域响应
+    dragging = true;
+    startX = e.clientX;
+    startW = col.offsetWidth;
+    col.classList.add("dragging");
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const w = Math.min(Math.max(startW + dx, 220), 520);
+    col.style.width = w + "px";
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    col.classList.remove("dragging");
+    document.body.style.userSelect = "";
+  });
+})();
+
+/* ── 实时发送面板：队列面板宽度拖拽 ── */
+(function () {
+  const panel = document.querySelector(".rt-queue-panel");
+  if (!panel) return;
+  let dragging = false, startX = 0, startW = 0;
+
+  panel.addEventListener("mousedown", (e) => {
+    // 只在 ::before 分隔线区域响应（left: -4px, width: 8px，范围 0-4px）
+    const rect = panel.getBoundingClientRect();
+    if (e.clientX > rect.left + 6) return;
+    dragging = true;
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = startX - e.clientX; // 往左拉 = 变宽
+    const w = Math.min(Math.max(startW + dx, 180), 480);
+    panel.style.width = w + "px";
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = "";
+  });
+})();
+
 boot();

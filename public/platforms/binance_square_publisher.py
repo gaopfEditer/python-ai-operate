@@ -249,14 +249,14 @@ const OKX_ENTRY_EDITOR = '.composerEntry-vGyBD [contenteditable="true"], .compos
 // 通用弹框内编辑器
 const MODAL_EDITORS = '[role="dialog"] [contenteditable="true"], [role="dialog"] .ProseMirror, [class*="modal" i] [contenteditable="true"], [class*="PublishBox" i] [contenteditable="true"]';
 
-// 1) 优先找币安弹框编辑器（有 .focus class = 弹框已开）
-const binanceModalEd = document.querySelector(BINANCE_MODAL_EDITOR);
+// 1) 优先找币安编辑器（弹框 .focus class = 已开弹窗；否则是广场上方静态入口编辑器）
+const binanceModalEd = document.querySelector('.short-editor-editor-wrapper [contenteditable="true"], .short-editor-editor-wrapper .ProseMirror, .short-editor-content [contenteditable="true"], .short-editor-content .ProseMirror');
 if (binanceModalEd) {
   const root = binanceModalEd.closest('.short-editor-inner, [class*="short-editor" i]') || binanceModalEd.parentElement;
   return markEditor(binanceModalEd, root);
 }
 // 2) OKX 入口编辑器
-const okxEd = document.querySelector(OKX_ENTRY_EDITOR);
+const okxEd = document.querySelector('.composerEntry-vGyBD [contenteditable="true"], .composerEntry-vGyBD .ProseMirror');
 if (okxEd) {
   return markEditor(okxEd, okxEd.closest('.composerEntry-vGyBD') || okxEd.parentElement);
 }
@@ -414,8 +414,8 @@ function visible(el) {
   if (st.visibility === 'hidden' || st.display === 'none') return false;
   return true;
 }
-// 币安弹框编辑器（.focus 在 .short-editor-editor-wrapper 或 .short-editor-content 上）
-const binanceEd = document.querySelector('.short-editor-editor-wrapper.focus .short-editor-inner [contenteditable="true"], .short-editor-editor-wrapper.focus .short-editor-inner .ProseMirror, .short-editor-content.focus [contenteditable="true"], .short-editor-content.focus .ProseMirror');
+// 币安编辑器（弹框 .focus class = 已开弹窗；否则是广场上方静态入口编辑器）
+const binanceEd = document.querySelector('.short-editor-editor-wrapper [contenteditable="true"], .short-editor-editor-wrapper .ProseMirror, .short-editor-content [contenteditable="true"], .short-editor-content .ProseMirror');
 if (binanceEd) {
   try { binanceEd.click(); binanceEd.focus(); } catch (_) {}
   binanceEd.setAttribute('data-pai-editor', '1');
@@ -1696,8 +1696,12 @@ class BinanceSquarePublisher:
                 pass
 
             if self.platform_id == "okx":
-                self._ensure_okx_orbit(driver, steps)
-            elif self.platform_id in ("bitget", "binance_square"):
+                # OKX：入口编辑器 .composerEntry-vGyBD 就是发布位置，无需点「发文」开弹窗
+                steps.append("okx_entry")
+            elif self.platform_id == "binance_square":
+                # 币安：广场页上方短文编辑器已是真实发布位置，无需点「发文」开弹窗
+                steps.append("binance_entry")
+            elif self.platform_id == "bitget":
                 self._click_compose(driver, steps)
 
             if not self._wait_for_editor(driver, self.wait_sec):
@@ -3073,15 +3077,22 @@ return {
             return 0
 
     def _has_modal_editor(self, driver) -> bool:
-        """检查弹框内是否有编辑器（防误上传到静态页面的 input）。"""
+        """检查弹框或入口编辑器内是否有 file input（防误传到无关页面）。"""
         try:
             return bool(driver.execute_script(r"""
-                // 币安弹框内 editor（.focus 在 .short-editor-editor-wrapper 或 .short-editor-content 上）
-                const binanceModalEd = document.querySelector('.short-editor-editor-wrapper.focus .short-editor-inner [contenteditable="true"], .short-editor-editor-wrapper.focus .short-editor-inner .ProseMirror, .short-editor-content.focus [contenteditable="true"], .short-editor-content.focus .ProseMirror');
-                if (binanceModalEd) return true;
+                // 币安弹框/入口 editor（.focus 区分弹框；无 .focus 时是广场上方入口编辑器）
+                const binanceEd = document.querySelector('.short-editor-editor-wrapper [contenteditable="true"], .short-editor-editor-wrapper .ProseMirror, .short-editor-content [contenteditable="true"], .short-editor-content .ProseMirror, [data-pai-editor="1"]');
+                if (binanceEd) {
+                    // 找最近的 .short-editor-inner，看里面是否有 file input
+                    const root = binanceEd.closest('.short-editor-inner') || binanceEd.parentElement;
+                    if (root && root.querySelector('input[type="file"]')) return true;
+                }
                 // OKX 入口 editor
                 const okxEd = document.querySelector('.composerEntry-vGyBD [contenteditable="true"], .composerEntry-vGyBD .ProseMirror');
-                if (okxEd) return true;
+                if (okxEd) {
+                    const root = okxEd.closest('.composerEntry-vGyBD') || okxEd.parentElement;
+                    if (root && root.querySelector('input[type="file"]')) return true;
+                }
                 // 通用 modal
                 const ed = document.querySelector('[data-pai-editor="1"]');
                 if (!ed) return false;

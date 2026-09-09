@@ -3309,31 +3309,55 @@ label.publish-media-add {
   color: var(--muted);
 }
 
+/* 实时发送面板 layout: 左事件列表 | 右(预览+队列) */
 .rt-layout {
-  display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 0;
+  display: flex;
+  flex-direction: row;
   flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
-/* 左侧事件列表 */
+  /* 左侧事件列表 */
 .rt-events-col {
-  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-shrink: 0;
+  width: 360px;
+  min-width: 220px;
+  max-width: 520px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  position: relative;
+}
+
+/* 拖拽调整左侧宽度 */
+.rt-events-col::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; right: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background 0.15s;
+}
+.rt-events-col:hover::after {
+  background: var(--signal);
+  opacity: 0.4;
 }
 .rt-toolbar {
   display: flex;
   gap: 6px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
-  align-items: end;
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--panel);
 }
 .rt-toolbar select, .rt-toolbar input {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 0.82rem;
   padding: 5px 8px;
@@ -3342,6 +3366,8 @@ label.publish-media-add {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--body);
+  appearance: none;
+  -webkit-appearance: none;
 }
 .rt-platform-multi {
   display: flex;
@@ -3625,8 +3651,10 @@ label.publish-media-add {
 
 /* 发送队列面板 */
 .rt-queue-panel {
-  width: 340px;
   flex-shrink: 0;
+  width: 300px;
+  min-width: 180px;
+  max-width: 480px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -3637,6 +3665,22 @@ label.publish-media-add {
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  position: relative;
+}
+
+/* 拖拽调整队列面板宽度 */
+.rt-queue-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background 0.15s;
+}
+.rt-queue-panel:hover::before {
+  background: var(--signal);
+  opacity: 0.35;
 }
 .rt-queue-title {
   margin: 0 0 10px;
