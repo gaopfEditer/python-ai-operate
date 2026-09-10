@@ -4226,6 +4226,25 @@ function renderPublishProgress({
   const box = $("#publishProgress");
   if (!box) return;
   box.hidden = false;
+
+  // 重试等待中显示终止按钮
+  const cancelBtn =
+    phase === "retry_wait"
+      ? `<button id="btnPublishRetryCancel" class="btn danger btn-sm" type="button">⏹ 终止重试</button>`
+      : "";
+  // 保证终止按钮只绑定一次
+  if (phase === "retry_wait") {
+    setTimeout(() => {
+      const btn = $("#btnPublishRetryCancel");
+      if (btn && !btn._bound) {
+        btn._bound = true;
+        btn.addEventListener("click", () => {
+          cancelPublishRetry();
+        });
+      }
+    }, 0);
+  }
+
   const done = (results || []).length;
   const pct = total ? Math.round((Math.max(0, index - (phase === "running" ? 1 : 0)) / total) * 100) : 0;
   const barPct =
@@ -4256,9 +4275,13 @@ function renderPublishProgress({
   if (phase === "retry_wait") {
     head = `${retryNames || "失败平台"} · ${retry}/${retryMax} 次重试倒计时 ${formatPublishCountdown(waitLeft)}`;
   }
+  if (phase === "retry_abort") {
+    head = `${retryNames || "发布"} 已终止`;
+  }
   box.innerHTML = `
     <div class="publish-progress-head">
       <span>${escapeHtml(head)}</span>
+      ${cancelBtn}
       <span class="muted">${phase === "retry_wait" ? "等待重试" : `${pct}%`}</span>
     </div>
     <div class="publish-progress-bar"><i style="width:${Math.min(100, barPct)}%"></i></div>
@@ -4283,9 +4306,18 @@ function publishRetryDelayMs() {
   );
 }
 
+// ── 发布重试可终止 ──────────────────────────────────────────────
+let _cancelPublishRetry = false;
+function cancelPublishRetry() { _cancelPublishRetry = true; }
+function resetPublishRetry() { _cancelPublishRetry = false; }
+
+class RetryAbort extends Error {}
+RetryAbort.prototype.name = "RetryAbort";
+
 async function sleepPublishRetry(ms, onTick) {
   const end = Date.now() + Math.max(0, ms);
   while (Date.now() < end) {
+    if (_cancelPublishRetry) throw new RetryAbort();
     const left = end - Date.now();
     onTick?.(Math.ceil(left / 1000));
     await new Promise((r) => setTimeout(r, Math.min(1000, Math.max(0, left))));
@@ -4401,22 +4433,38 @@ async function publishNowViaCdp(onProgress) {
       if (!failed.length) break;
       const names = failed.map((r) => r.name).join("、");
       const waitMs = publishRetryDelayMs();
-      await sleepPublishRetry(waitMs, (leftSec) => {
-        setStatus(
-          $("#publishStatus"),
-          `${names} 失败，${retry}/${PUBLISH_RETRY_MAX} 次重试将在 ${formatPublishCountdown(leftSec)} 后开始…`
-        );
-        onProgress?.({
-          phase: "retry_wait",
-          index: platforms.length,
-          total: platforms.length,
-          retry,
-          retryMax: PUBLISH_RETRY_MAX,
-          waitLeft: leftSec,
-          retryNames: names,
-          results: stepResults,
+      try {
+        await sleepPublishRetry(waitMs, (leftSec) => {
+          setStatus(
+            $("#publishStatus"),
+            `${names} 失败，${retry}/${PUBLISH_RETRY_MAX} 次重试将在 ${formatPublishCountdown(leftSec)} 后开始…`
+          );
+          onProgress?.({
+            phase: "retry_wait",
+            index: platforms.length,
+            total: platforms.length,
+            retry,
+            retryMax: PUBLISH_RETRY_MAX,
+            waitLeft: leftSec,
+            retryNames: names,
+            results: stepResults,
+          });
         });
-      });
+      } catch (e) {
+        if (e instanceof RetryAbort) {
+          resetPublishRetry();
+          setStatus($("#publishStatus"), `${names} 已终止重试`);
+          onProgress?.({
+            phase: "retry_abort",
+            index: platforms.length,
+            total: platforms.length,
+            retryNames: names,
+            results: stepResults,
+          });
+          break;
+        }
+        throw e;
+      }
       for (const row of failed) {
         if (stepResults.find((r) => r.platform === row.platform)?.success) continue;
         await runOne(row.platform, retry + 1);
@@ -8265,9 +8313,12 @@ const RT_STATE = {
   scheduleRunning: false,
   scheduleTimer: null,
   selectedPlatforms: ["all"],  // 平台多选
+  selectedTime: "12h",          // 时间筛选：12h | 1d | 2d | 3d | 1w
   autoRefreshTimer: null,
 };
 let rtPublishing = false;
+
+const RT_TIME_HOURS = { "12h": 12, "1d": 24, "2d": 48, "3d": 72, "1w": 168 };
 
 function rtLoadState() {
   try {
@@ -8311,17 +8362,18 @@ const RT_PLATFORM_BADGE = {
 };
 
 async function rtFetchEvents() {
-  const channel = $("#rtChannel")?.value || "all";
   const kw = ($("#rtKeyword")?.value || "").trim().toLowerCase();
   const selPlatforms = RT_STATE.selectedPlatforms || ["all"];
+  const timeKey = RT_STATE.selectedTime || "12h";
+  const hours = RT_TIME_HOURS[timeKey] ?? 12;
   rtSetFetchStatus("loading");
   try {
-    // channel 参数传给后端，后端按 channel 过滤；前端不再按 platform 过滤（由 selPlatforms 决定）
-    const data = await api(`/api/realtime/events?channel=${channel}&min_star=0&limit=200`);
+    // 不再传 channel 过滤；前端按 selectedTime + 平台多选过滤
+    const data = await api(`/api/realtime/events?min_star=0&limit=200`);
     let items = Array.isArray(data.items) ? data.items : [];
 
-    // 8h 过滤
-    const cutoff = Date.now() - 8 * 60 * 60 * 1000;
+    // 时间窗口过滤（默认 12h）
+    const cutoff = Date.now() - hours * 60 * 60 * 1000;
     items = items.filter(it => {
       if (!it.published_at) return true;
       return new Date(it.published_at).getTime() >= cutoff;
@@ -9242,7 +9294,12 @@ function rtBindEvents() {
   $("#btnRtRemoveFromQueue")?.addEventListener("click", rtRemoveFromQueue);
   $("#btnRtClearQueue")?.addEventListener("click", rtClearQueue);
   $("#btnRtStartSchedule")?.addEventListener("click", rtStartSchedule);
-  $("#rtChannel")?.addEventListener("change", rtFetchEvents);
+  // 时间筛选下拉
+  $("#rtTimeSelect")?.addEventListener("change", (e) => {
+    const val = e.target.value;
+    RT_STATE.selectedTime = val;
+    rtFetchEvents();
+  });
   // 平台多选按钮
   document.querySelectorAll("#rtPlatformFilterMulti .rt-pm-btn").forEach(btn => {
     btn.addEventListener("click", () => {

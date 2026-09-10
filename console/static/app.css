@@ -2089,6 +2089,14 @@ input:focus, textarea:focus, select:focus {
   font-size: 0.88rem;
   margin-bottom: 8px;
 }
+.publish-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
 .publish-progress-bar {
   height: 4px;
   border-radius: 999px;
@@ -2943,6 +2951,10 @@ label.publish-media-add {
 .btn.danger:hover:not(:disabled) {
   background: rgba(254, 202, 202, 0.85);
 }
+.btn-sm {
+  padding: 3px 10px;
+  font-size: 0.78rem;
+}
 
 /* 推文卡片 */
 .tc-compose {
@@ -3372,12 +3384,11 @@ label.publish-media-add {
 .rt-platform-multi {
   display: flex;
   flex-direction: row;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 5px;
   align-items: center;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow-x: auto;
 }
 .rt-pm-btn {
   padding: 4px 10px;
@@ -3388,9 +3399,33 @@ label.publish-media-add {
   color: var(--ink);
   cursor: pointer;
   transition: all 0.15s;
+  flex: 0 0 auto;
 }
 .rt-pm-btn:hover { border-color: var(--primary); color: var(--primary); }
 .rt-pm-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* 工具栏内的下拉选择器（时间筛选等） */
+.rt-select {
+  flex: 0 0 auto;
+  min-width: 72px;
+  font-size: 0.82rem;
+  padding: 5px 8px;
+  border: 1px solid var(--signal);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--signal);
+  font-family: var(--body);
+  font-weight: 600;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23d97706' d='M0 0l5 6 5-6z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+.rt-select:hover { border-color: var(--signal); }
+.rt-select:focus { outline: 2px solid rgba(217,119,6,0.25); outline-offset: 0; }
 .rt-event-list {
   flex: 1;
   overflow-y: auto;
@@ -3658,14 +3693,15 @@ label.publish-media-add {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 14px 16px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
-  height: 100%;
   overflow: hidden;
   position: relative;
+  /* 高度跟随内容，不强行拉满，避免把外层高度顶下去 */
+  align-self: flex-start;
+  max-height: 100%;
 }
 
 /* 拖拽调整队列面板宽度 */
@@ -3682,19 +3718,25 @@ label.publish-media-add {
   background: var(--signal);
   opacity: 0.35;
 }
-.rt-queue-title {
-  margin: 0 0 10px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--ink);
+
+/* 队列按钮组置顶 */
+.rt-queue-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
+.rt-queue-actions .btn { flex: 1 1 auto; }
+
+/* 队列列表：跟随内容，超过 max-height 时内部滚动 */
 .rt-queue-list {
   overflow-y: auto;
-  flex: 1;
+  flex: 0 1 auto;
+  min-height: 60px;
+  max-height: min(45vh, 460px);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 200px;
 }
 .rt-queue-item {
   display: flex;

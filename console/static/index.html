@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260908d" />
+  <link rel="stylesheet" href="/app.css?v=20260910e" />
 </head>
 <body>
   <div class="shell">
@@ -419,8 +419,8 @@
           <button id="btnSeriesRefresh" class="btn ghost" type="button">刷新卡片</button>
           <button id="btnSeriesClearDrafts" class="btn ghost" type="button">清理已发完</button>
         </div>
-        <p id="publishStatus" class="status"></p>
-        <div id="publishProgress" class="publish-progress" hidden></div>
+          <p id="publishStatus" class="status"></p>
+          <div id="publishProgress" class="publish-progress" hidden></div>
 
         <div class="publish-only-section">
           <div class="queue-head">
@@ -884,11 +884,12 @@
                 <button type="button" class="rt-pm-btn" data-val="blockbeats">BlockBeats</button>
                 <button type="button" class="rt-pm-btn" data-val="macro">宏观</button>
               </div>
-              <select id="rtChannel">
-                <option value="all">全部通道</option>
-                <option value="economy">宏观日历</option>
-                <option value="crypto">币圈事件</option>
-                <option value="hot">热榜</option>
+              <select id="rtTimeSelect" class="rt-select rt-select-time" aria-label="时间筛选">
+                <option value="12h" selected>12h</option>
+                <option value="1d">1d</option>
+                <option value="2d">2d</option>
+                <option value="3d">3d</option>
+                <option value="1w">1w</option>
               </select>
               <input id="rtKeyword" type="search" placeholder="搜索标题…" />
             </div>
@@ -908,12 +909,11 @@
 
             <!-- 右侧：发送队列 -->
             <div class="rt-queue-panel" id="rtQueuePanel">
-              <h3 class="rt-queue-title">发送队列</h3>
-              <div id="rtQueueList" class="rt-queue-list"></div>
               <div class="rt-queue-actions">
                 <button id="btnRtStartSchedule" class="btn primary btn-sm" type="button" disabled>开始定时发送</button>
                 <button id="btnRtClearQueue" class="btn ghost btn-sm" type="button">清空队列</button>
               </div>
+              <div id="rtQueueList" class="rt-queue-list"></div>
               <div id="rtScheduleLog" class="rt-schedule-log"></div>
             </div>
           </section>
@@ -923,6 +923,6 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260909a"></script>
+  <script src="/app.js?v=20260910c"></script>
 </body>
 </html>

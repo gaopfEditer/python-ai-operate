@@ -9,4 +9,4 @@
 3. 改 API/Job → `console-backend.mdc`
 4. 找文件归属 → `console-domain-map.mdc`
 
-入口：`python console.py`（默认端口 8787）。改 `app.js`/`app.css` 必须 bump `index.html` 中的 `?v=`；改 Python 后重启 console，并避免多进程占用同端口。
+入口：`python console.py`（默认端口 8787）。改 `app.js`/`app.css` 都必须 bump `index.html` 中的 `?v=`（JS 和 CSS 各有自己的版本号，缺一不可，只改其中一个会导致浏览器用旧缓存）。改 Python 后重启 console，并避免多进程占用同端口。
