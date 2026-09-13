@@ -1,5 +1,9 @@
 # 发布模块使用说明
 
+外部 HTTP 接口（文本 + 多图）见 **[docs/cdp-publish-api.md](docs/cdp-publish-api.md)**。
+
+---
+
 ## 功能说明
 
 发布模块支持使用Selenium自动化浏览器操作，将文章发布到各个平台。目前已支持Typecho平台。

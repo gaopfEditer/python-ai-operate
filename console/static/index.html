@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260910e" />
+  <link rel="stylesheet" href="/app.css?v=20260913a" />
 </head>
 <body>
   <div class="shell">
@@ -862,12 +862,8 @@
           <div class="rt-bar-right">
             <span id="rtFetchStatus" class="rt-fetch-status" title="获取状态">●</span>
             <span id="rtLastFetch" class="muted" style="font-size:.75rem"></span>
-            <label class="field check" style="margin:0">
-              <input id="rtAutoRefresh" type="checkbox" checked />
-              <span>自动刷新</span>
-            </label>
-            <button id="btnRtRefresh" class="btn ghost btn-sm" type="button">刷新数据</button>
-            <button id="btnRtGenImages" class="btn ghost btn-sm" type="button">生成配图</button>
+            <button id="btnRtRefresh" class="btn ghost btn-sm" type="button">立即获取</button>
+            <button id="btnRtAutoToggle" class="btn ghost btn-sm" type="button">开始</button>
           </div>
         </header>
 
@@ -910,8 +906,10 @@
             <!-- 右侧：发送队列 -->
             <div class="rt-queue-panel" id="rtQueuePanel">
               <div class="rt-queue-actions">
-                <button id="btnRtStartSchedule" class="btn primary btn-sm" type="button" disabled>开始定时发送</button>
-                <button id="btnRtClearQueue" class="btn ghost btn-sm" type="button">清空队列</button>
+                <button id="btnRtQueueSelectAll" class="btn ghost btn-sm" type="button">全选</button>
+                <button id="btnRtClearQueue" class="btn ghost btn-sm" type="button">清空</button>
+                <button id="btnRtQueueGenImages" class="btn primary btn-sm" type="button">生图</button>
+                <button id="btnRtStartSchedule" class="btn ghost btn-sm" type="button" disabled>开始定时发送</button>
               </div>
               <div id="rtQueueList" class="rt-queue-list"></div>
               <div id="rtScheduleLog" class="rt-schedule-log"></div>
@@ -923,6 +921,6 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260910c"></script>
+  <script src="/app.js?v=20260913a"></script>
 </body>
 </html>

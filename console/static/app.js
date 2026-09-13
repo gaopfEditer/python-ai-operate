@@ -252,6 +252,7 @@ const PUBLISH_PLATFORM_ORDER = [
   { id: "binance_square", name: "币安广场" },
   { id: "okx", name: "OKX" },
   { id: "bitget", name: "Bitget" },
+  { id: "gate", name: "Gate 广场" },
   { id: "reddit", name: "Reddit" },
   { id: "x", name: "X / Twitter" },
 ];
@@ -2309,6 +2310,7 @@ function labPlatformHintFromStyle(style) {
   if (s.includes("reddit")) return ["reddit"];
   if (s.includes("okx")) return ["okx"];
   if (s.includes("bitget")) return ["bitget"];
+  if (s.includes("gate")) return ["gate"];
   return ["x"];
 }
 
@@ -4048,10 +4050,46 @@ function normalizePastedMediaFile(file, index = 0) {
 async function appendPublishMediaFiles(newFiles) {
   if (!newFiles?.length) return 0;
   const next = [...publishMediaItems];
+  let nextPaths = [...(publishServerMediaPaths || [])];
+  let nextRels = [...(publishServerMediaRels || [])];
   let added = 0;
   for (let i = 0; i < newFiles.length; i++) {
     const f = normalizePastedMediaFile(newFiles[i], i + 1);
     if (!f) continue;
+    const isVideo = (f.type || "").startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(f.name || "");
+    if (isVideo) {
+      // 视频走服务器上传，绕开 4MB base64 缓存上限
+      const sz = f.size || 0;
+      if (sz > 200 * 1024 * 1024) {
+        toast(`视频过大（>200MB）: ${f.name}`, "error");
+        continue;
+      }
+      try {
+        const b64 = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
+          r.onerror = () => reject(r.error || new Error("读取失败"));
+          r.readAsDataURL(f);
+        });
+        const resp = await api("/api/publish/cache/media-upload", {
+          filename: f.name || "video.mp4",
+          base64: b64,
+        });
+        if (!resp || !resp.success) {
+          toast(`视频上传失败: ${resp?.error || "未知错误"}`, "error");
+          continue;
+        }
+        nextPaths.push(resp.rel);
+        nextRels.push(resp.rel);
+        added += 1;
+      } catch (e) {
+        toast(`视频上传失败: ${e?.message || e}`, "error");
+        continue;
+      }
+      continue;
+    }
+
+    // 图片保持原 base64 缓存逻辑
     if (f.size > 12 * 1024 * 1024) {
       toast(`文件过大（>12MB）: ${f.name}`, "error");
       continue;
@@ -4067,6 +4105,8 @@ async function appendPublishMediaFiles(newFiles) {
   }
   if (!added) return 0;
   publishMediaItems = next;
+  publishServerMediaPaths = nextPaths;
+  publishServerMediaRels = nextRels;
   persistPublishMediaItems();
   renderMediaPreview();
   snapshotPublishPrefs();
@@ -8315,10 +8355,44 @@ const RT_STATE = {
   selectedPlatforms: ["all"],  // 平台多选
   selectedTime: "12h",          // 时间筛选：12h | 1d | 2d | 3d | 1w
   autoRefreshTimer: null,
+  selectedQueueIds: new Set(),  // 队列中勾选、待生图的条目
 };
 let rtPublishing = false;
 
 const RT_TIME_HOURS = { "12h": 12, "1d": 24, "2d": 48, "3d": 72, "1w": 168 };
+
+function rtEventPublishAt(it) {
+  if (!it) return "";
+  return String(it.publish_at || it.published_at || it.pub_time || it.event_time || "");
+}
+
+function rtPublishAtMs(it) {
+  const raw = rtEventPublishAt(it);
+  if (!raw) return NaN;
+  const t = new Date(raw).getTime();
+  return t;
+}
+
+function rtFormatPublishAt(it) {
+  const t = rtPublishAtMs(it);
+  if (!Number.isFinite(t)) return "";
+  return new Date(t).toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function rtInSelectedTimeWindow(it) {
+  const t = rtPublishAtMs(it);
+  if (!Number.isFinite(t)) return false;
+  const hours = RT_TIME_HOURS[RT_STATE.selectedTime || "12h"] ?? 12;
+  const span = hours * 60 * 60 * 1000;
+  const now = Date.now();
+  return t >= now - span && t <= now + span;
+}
 
 function rtLoadState() {
   try {
@@ -8364,20 +8438,17 @@ const RT_PLATFORM_BADGE = {
 async function rtFetchEvents() {
   const kw = ($("#rtKeyword")?.value || "").trim().toLowerCase();
   const selPlatforms = RT_STATE.selectedPlatforms || ["all"];
-  const timeKey = RT_STATE.selectedTime || "12h";
-  const hours = RT_TIME_HOURS[timeKey] ?? 12;
   rtSetFetchStatus("loading");
   try {
     // 不再传 channel 过滤；前端按 selectedTime + 平台多选过滤
     const data = await api(`/api/realtime/events?min_star=0&limit=200`);
-    let items = Array.isArray(data.items) ? data.items : [];
+    let items = (Array.isArray(data.items) ? data.items : []).map((it) => ({
+      ...it,
+      publish_at: rtEventPublishAt(it),
+    }));
 
-    // 时间窗口过滤（默认 12h）
-    const cutoff = Date.now() - hours * 60 * 60 * 1000;
-    items = items.filter(it => {
-      if (!it.published_at) return true;
-      return new Date(it.published_at).getTime() >= cutoff;
-    });
+    // 时间窗口过滤：12h = 过去/未来 12 小时内，以此类推
+    items = items.filter(rtInSelectedTimeWindow);
 
     // 平台多选过滤
     if (!selPlatforms.includes("all")) {
@@ -8393,19 +8464,17 @@ async function rtFetchEvents() {
       (it) => (it.title || "").toLowerCase().includes(kw) ||
                (it.description || "").toLowerCase().includes(kw)
     );
-    // 按 published_at 降序（最新在前），无时间则排末尾
     items.sort((a, b) => {
-      const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
-      const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
+      const ta = rtPublishAtMs(a) || 0;
+      const tb = rtPublishAtMs(b) || 0;
       return tb - ta;
     });
     RT_STATE.events = items;
     rtRenderEventList();
+    rtRenderQueueList();
     updateRtEventCount(items.length);
     rtSetFetchStatus("ok");
     rtUpdateLastFetch();
-    // TOP 类目自动配图（加锁防重复）
-    rtAutoGenImagesForTopCategories(items);
   } catch (e) {
     console.error("rtFetchEvents", e);
     rtSetFetchStatus("error");
@@ -8425,68 +8494,22 @@ function rtUpdateLastFetch() {
   el.textContent = now.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-/** 全局锁，防止刷新时重复触发 */
+/** 全局锁，防止重复触发生图 */
 let _rtGenLock = false;
 
-async function rtAutoGenImagesForTopCategories(items) {
-  if (_rtGenLock) return;
-  _rtGenLock = true;
+function rtIsQueued(id) {
+  return RT_STATE.queue.some((q) => q.id === id && q.status === "pending");
+}
 
-  try {
-    // 每次进入从 localStorage 同步最新队列状态（含 image_path）
-    try { RT_STATE.queue = JSON.parse(localStorage.getItem("pai_rt_queue") || "[]"); } catch (_) {}
-
-    const topItems = items.filter(it => RT_TOP_CATEGORIES.includes(it.category_id));
-    for (const it of topItems) {
-      // 已有配图或在生成中 → 跳过（queue 同步后 image_path 已含）
-      const q = RT_STATE.queue.find(q => q.id === it.id);
-      if (q) {
-        if (q.image_path || q._genning) continue;
-      }
-      // 也检查文件是否真实存在（防止 queue 数据残留但文件被删）
-      if (q && q.image_path) {
-        try {
-          const r = await fetch(`/api/file/exists?path=${encodeURIComponent(q.image_path)}`);
-          const data = await r.json();
-          if (!data.exists) { q.image_path = null; rtPersistQueue(); rtRenderEventList(); }
-          else continue;
-        } catch (_) {}
-      }
-      // 还没在队列里 → 入队
-      const entry = {
-      id: it.id,
-      title: it.title,
-      category_id: it.category_id,
-      category_name: it.category?.name || "",
-      star: it.star || 0,
-      bias: it.bias || "",
-      bias_label: it.bias_label || "",
-      source: it.source || "",
-      url: it.url || "",
-      publish_at: it.publish_at,
-      summary: it.description || "",
-      image_path: null,
-      _genning: true,
-      _retry: 0,
-      status: "pending",
-      priority: 999 + (it.star || 0) * 10,
-      created_at: Date.now(),
-      sent_at: null,
-      error: null,
-    };
-    RT_STATE.queue = RT_STATE.queue.filter(q => q.id !== it.id);
-    RT_STATE.queue.push(entry);
-    RT_STATE.queue.sort((a, b) => b.priority - a.priority);
-    rtPersistQueue();
-    rtRenderEventList();
-    // 串行生成，成功或重试耗尽才继续下一个
-    await _genImageWithRetry(entry.id, entry.title, entry.summary);
-  }
-  } catch(e) {
-    console.error("[RT] rtAutoGenImagesForTopCategories error:", e);
-  } finally {
-    _rtGenLock = false;
-  }
+function rtVisiblePendingQueue() {
+  return RT_STATE.queue.filter((q) => {
+    if (q.status !== "pending") return false;
+    if (!rtEventPublishAt(q)) {
+      const ev = RT_STATE.events.find((e) => e.id === q.id);
+      if (ev) q.publish_at = rtEventPublishAt(ev);
+    }
+    return rtInSelectedTimeWindow(q);
+  });
 }
 
 async function _genImageWithRetry(id, title, content, attempt) {
@@ -8580,7 +8603,6 @@ function rtRenderEventList() {
                     : biasLabel === "利空" ? "evt-bias-bear"
                     : "evt-bias-neu";
     const catName = it.category?.name || it.category_id || "";
-    const timeStr = it.publish_at ? new Date(it.publish_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
     const platform = it.platform || "";
     const platCfg = RT_PLATFORM_BADGE[platform] || { cls: "plat-unknown", label: platform || "其他" };
     const q = RT_STATE.queue.find(q => q.id === it.id);
@@ -8590,6 +8612,7 @@ function rtRenderEventList() {
     const retry = q?._retry || 0;
     const retryMsg = q?._retryMsg || "";
     const errMsg = q?.error || "";
+    const timeStr = rtFormatPublishAt({ publish_at: q?.publish_at || it.publish_at });
 
     // 兼容老绝对路径：/Users/.../python-ai-operate/output/xxx → output/xxx
     const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
@@ -8608,9 +8631,7 @@ function rtRenderEventList() {
       ? `<div class="evt-img-genning error">${escHtml(retryMsg)}</div>`
       : errMsg
       ? `<div class="evt-img-genning error">✗ ${escHtml(errMsg)}</div>`
-      : isTopCat
-      ? `<div class="evt-img-gen">⭐ 自动配图中</div>`
-      : `<div class="evt-img-placeholder"></div>`;
+      : "";
 
     el.innerHTML = `
       <div class="evt-meta">
@@ -8619,15 +8640,22 @@ function rtRenderEventList() {
         ${starStr ? `<span class="evt-star">${starStr}</span>` : ""}
         ${catName ? `<span class="evt-cat">${catName}</span>` : ""}
         ${biasLabel ? `<span class="${biasClass}">${biasLabel}</span>` : ""}
-        ${timeStr ? `<span class="evt-time">${timeStr}</span>` : ""}
+        ${timeStr ? `<span class="evt-publish-at" title="发布时间">${timeStr}</span>` : ""}
       </div>
       <p class="evt-title">${escHtml(it.title || "")}</p>
       ${it.description ? `<p class="evt-desc">${escHtml(it.description || "")}</p>` : ""}
       ${imgHtml}
     `;
-    el.addEventListener("click", () => rtSelectEvent(it.id));
+    el.addEventListener("click", () => rtToggleQueueFromEvent(it.id));
     container.appendChild(el);
   }
+}
+
+function rtToggleQueueFromEvent(id) {
+  RT_STATE.selectedId = id;
+  if (rtIsQueued(id)) rtRemoveFromQueue(id);
+  else rtAddToQueue(id);
+  rtRenderPreview();
 }
 
 function rtSelectEvent(id) {
@@ -8654,7 +8682,7 @@ function rtRenderPreview() {
   const biasLabel = it.bias_label || "";
   const catName = it.category?.name || "";
   const starStr = "★".repeat(it.star || 0);
-  const timeStr = it.publish_at ? new Date(it.publish_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai", month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+  const timeStr = rtFormatPublishAt(it);
   const inQueue = RT_STATE.queue.some(q => q.id === it.id && q.status === "pending");
 
   const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
@@ -8792,14 +8820,17 @@ function updateRtQueueBadge() {
   if (el) el.textContent = n;
 }
 
-function rtAddToQueue() {
-  const it = RT_STATE.events.find(e => e.id === RT_STATE.selectedId);
+function rtAddToQueue(id, opts) {
+  const silent = !!(opts && opts.silent);
+  const targetId = id || RT_STATE.selectedId;
+  const it = RT_STATE.events.find((e) => e.id === targetId);
   if (!it) return;
-  const summary = $("#rtSummaryEdit")?.value || it.description || "";
-  const imgPath = RT_STATE.queue.find(q => q.id === it.id)?.image_path || "";
-  // 计算优先级
-  const priority = (it.star || 0) * 100 + (it.category?.star || 0) * 10 + (it.publish_at ? -new Date(it.publish_at).getTime() / 1000 : 0);
-  RT_STATE.queue = RT_STATE.queue.filter(q => q.id !== it.id);
+  const existing = RT_STATE.queue.find((q) => q.id === it.id);
+  const summary = (targetId === RT_STATE.selectedId ? $("#rtSummaryEdit")?.value : "") || existing?.summary || it.description || "";
+  const imgPath = existing?.image_path || "";
+  const pubAt = rtEventPublishAt(it);
+  const priority = (it.star || 0) * 100 + (it.category?.star || 0) * 10 + (pubAt ? -new Date(pubAt).getTime() / 1000 : 0);
+  RT_STATE.queue = RT_STATE.queue.filter((q) => q.id !== it.id);
   RT_STATE.queue.push({
     id: it.id,
     title: it.title,
@@ -8810,83 +8841,141 @@ function rtAddToQueue() {
     bias_label: it.bias_label || "",
     source: it.source || "",
     url: it.url || "",
-    publish_at: it.publish_at,
+    publish_at: pubAt,
     summary,
     image_path: imgPath,
     status: "pending",
     priority,
-    created_at: Date.now(),
+    created_at: existing?.created_at || Date.now(),
     sent_at: null,
-    error: null,
+    error: existing?.error || null,
+    _genning: existing?._genning || false,
+    _retry: existing?._retry || 0,
   });
   RT_STATE.queue.sort((a, b) => b.priority - a.priority);
+  RT_STATE.selectedQueueIds.add(it.id);
+  if (silent) return;
   rtPersistQueue();
   rtRenderEventList();
   rtRenderQueueList();
   updateRtAddBtn();
+  updateRtQueueActionBtns();
 }
 
-function rtRemoveFromQueue() {
-  const id = RT_STATE.selectedId;
-  RT_STATE.queue = RT_STATE.queue.filter(q => q.id !== id);
+function rtRemoveFromQueue(id) {
+  const targetId = id || RT_STATE.selectedId;
+  RT_STATE.queue = RT_STATE.queue.filter((q) => q.id !== targetId);
+  RT_STATE.selectedQueueIds.delete(targetId);
   rtPersistQueue();
   rtRenderEventList();
   rtRenderQueueList();
   updateRtAddBtn();
+  updateRtQueueActionBtns();
+}
+
+function rtQueueSelectAll() {
+  const events = RT_STATE.events || [];
+  if (!events.length) {
+    toast("当前列表为空", "warn");
+    return;
+  }
+  const allQueued = events.every((it) => rtIsQueued(it.id));
+  if (allQueued) {
+    const ids = new Set(events.map((it) => it.id));
+    RT_STATE.queue = RT_STATE.queue.filter((q) => !ids.has(q.id) || q.status !== "pending");
+    ids.forEach((qid) => RT_STATE.selectedQueueIds.delete(qid));
+  } else {
+    for (const it of events) {
+      if (!rtIsQueued(it.id)) rtAddToQueue(it.id, { silent: true });
+      RT_STATE.selectedQueueIds.add(it.id);
+    }
+  }
+  rtPersistQueue();
+  rtRenderEventList();
+  rtRenderQueueList();
+  rtRenderPreview();
+  updateRtAddBtn();
+  updateRtQueueActionBtns();
+}
+
+function updateRtQueueActionBtns() {
+  const selAll = $("#btnRtQueueSelectAll");
+  const events = RT_STATE.events || [];
+  const allQueued = events.length > 0 && events.every((it) => rtIsQueued(it.id));
+  if (selAll) selAll.textContent = allQueued ? "取消全选" : "全选";
 }
 
 function rtRenderQueueList() {
   const container = $("#rtQueueList");
   if (!container) return;
   container.innerHTML = "";
-  const pending = RT_STATE.queue.filter(q => q.status === "pending");
+  const pending = rtVisiblePendingQueue();
+  updateRtQueueActionBtns();
   if (!pending.length) {
-    container.innerHTML = '<p class="muted" style="font-size:.8rem;padding:8px">队列为空</p>';
+    container.innerHTML = '<p class="muted" style="font-size:.8rem;padding:8px">队列为空，点击左侧事件添加</p>';
     return;
   }
   pending.forEach((q, idx) => {
     const el = document.createElement("div");
-    el.className = `rt-queue-item ${q.status}`;
+    const checked = RT_STATE.selectedQueueIds.has(q.id);
+    el.className = `rt-queue-item ${q.status}${checked ? " checked" : ""}`;
     el.setAttribute("data-id", q.id);
     el.style.cursor = "pointer";
     const PROJECT_ROOT_RE = /^\/Users\/maotouying\/frontend\/code\/1\.operations\/python-ai-operate\//;
     const thumbHtml = q.image_path
       ? `<img class="qi-img-thumb" src="/api/file/${escAttr(q.image_path.replace(PROJECT_ROOT_RE, ''))}" alt="" />`
+      : q._genning
+      ? '<span class="qi-noimg">配图中…</span>'
       : '<span class="qi-noimg">无图</span>';
+    const timeStr = rtFormatPublishAt(q);
     el.innerHTML = `
+      <label class="qi-check">
+        <input type="checkbox" data-qid="${escAttr(q.id)}" ${checked ? "checked" : ""} />
+      </label>
       <span class="qi-rank">${idx + 1}</span>
       <div class="qi-body">
         <div class="qi-title">${escHtml(q.title || "")}</div>
         <div class="qi-meta">
           ${q.category_name ? `<span class="evt-cat">${escHtml(q.category_name)}</span>` : ""}
+          ${timeStr ? `<span class="evt-publish-at" title="发布时间">${timeStr}</span>` : ""}
           <span class="qi-thumb-wrap">${thumbHtml}</span>
-          <button class="qi-send-btn" data-qid="${q.id}" data-action="publish-now">📤 发送</button>
+          <button class="qi-send-btn" data-qid="${escAttr(q.id)}" data-action="publish-now">📤 发送</button>
         </div>
       </div>
     `;
-    el.addEventListener("click", () => {
-      RT_STATE.selectedId = q.id;
-      rtRenderEventList();
-      rtRenderPreview();
-      updateRtAddBtn();
-    });
     container.appendChild(el);
-  });
-  // 事件委托：队列项的立即发送按钮
-  container.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-action='publish-now']");
-    if (!btn) return;
-    const qid = btn.getAttribute("data-qid");
-    if (qid) rtPublishQueueItem(qid);
   });
 }
 
+function rtOnQueueListClick(e) {
+  const sendBtn = e.target.closest("[data-action='publish-now']");
+  if (sendBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    const qid = sendBtn.getAttribute("data-qid");
+    if (qid) rtPublishQueueItem(qid);
+    return;
+  }
+  if (e.target.closest(".qi-check")) {
+    e.stopPropagation();
+    return;
+  }
+  const item = e.target.closest(".rt-queue-item");
+  if (!item) return;
+  RT_STATE.selectedId = item.getAttribute("data-id");
+  rtRenderEventList();
+  rtRenderPreview();
+  updateRtAddBtn();
+}
+
 function rtClearQueue() {
-  RT_STATE.queue = RT_STATE.queue.filter(q => q.status !== "pending");
+  RT_STATE.queue = RT_STATE.queue.filter((q) => q.status !== "pending");
+  RT_STATE.selectedQueueIds.clear();
   rtPersistQueue();
   rtRenderQueueList();
   rtRenderEventList();
   updateRtAddBtn();
+  updateRtQueueActionBtns();
 }
 
 async function rtGenSummary(id) {
@@ -8934,30 +9023,37 @@ async function rtGenSummary(id) {
 }
 
 async function rtGenImages() {
-  const id = RT_STATE.selectedId;
-  const q = RT_STATE.queue.find(q => q.id === id);
-  if (!q) return;
-  if (!q.summary && !q.title) { toast("请先生成摘要", "warn"); return; }
-  const btn = $("#btnRtGenImages");
+  return rtGenImagesForSelected();
+}
+
+async function rtGenImagesForSelected() {
+  const pending = rtVisiblePendingQueue();
+  let targets = pending.filter((q) => RT_STATE.selectedQueueIds.has(q.id));
+  if (!targets.length) {
+    toast("请先勾选要生图的条目", "warn");
+    return;
+  }
+  const need = targets.filter((q) => !q.image_path && !q._genning);
+  if (!need.length) {
+    toast("所选条目已有配图或正在生成", "warn");
+    return;
+  }
+  if (_rtGenLock) {
+    toast("正在生图…", "warn");
+    return;
+  }
+  _rtGenLock = true;
+  const btn = $("#btnRtQueueGenImages");
   if (btn) btn.disabled = true;
   try {
-    const r = await api("/api/realtime/gen-image", {
-      method: "POST",
-      body: JSON.stringify({ id: q.id, title: q.title, content: q.summary || q.title }),
-    });
-    if (r.success && r.path) {
-      q.image_path = r.path;
-      rtPersistQueue();
-      rtRenderEventList();
-      rtRenderPreview();
-      rtRenderQueueList();
-      toast("配图生成完成", "ok");
-    } else {
-      toast(r.error || "配图生成失败", "error");
+    for (const q of need) {
+      await _genImageWithRetry(q.id, q.title, q.summary || q.title);
     }
+    toast(`已完成 ${need.length} 条配图`, "ok");
   } catch (e) {
     toast("配图生成失败: " + e, "error");
   } finally {
+    _rtGenLock = false;
     if (btn) btn.disabled = false;
   }
 }
@@ -9286,18 +9382,33 @@ async function rtPublishQueueItem(qid) {
   if (failList.length) toast(`发送失败: ${failList.join("; ")}`, "error");
 }
 
+let _rtEventsBound = false;
 function rtBindEvents() {
+  if (_rtEventsBound) return;
+  _rtEventsBound = true;
   $("#btnRtRefresh")?.addEventListener("click", rtFetchEvents);
-  $("#btnRtGenImages")?.addEventListener("click", rtGenImages);
+  $("#btnRtQueueSelectAll")?.addEventListener("click", rtQueueSelectAll);
+  $("#btnRtQueueGenImages")?.addEventListener("click", rtGenImagesForSelected);
+  $("#btnRtGenImages")?.addEventListener("click", rtGenImagesForSelected);
   $("#btnRtGenImagesBatch")?.addEventListener("click", rtGenImagesBatch);
-  $("#btnRtAddToQueue")?.addEventListener("click", rtAddToQueue);
-  $("#btnRtRemoveFromQueue")?.addEventListener("click", rtRemoveFromQueue);
+  $("#btnRtAddToQueue")?.addEventListener("click", () => rtAddToQueue());
+  $("#btnRtRemoveFromQueue")?.addEventListener("click", () => rtRemoveFromQueue());
   $("#btnRtClearQueue")?.addEventListener("click", rtClearQueue);
   $("#btnRtStartSchedule")?.addEventListener("click", rtStartSchedule);
+  $("#rtQueueList")?.addEventListener("click", rtOnQueueListClick);
+  $("#rtQueueList")?.addEventListener("change", (e) => {
+    const input = e.target.closest("input[type=checkbox][data-qid]");
+    if (!input) return;
+    const qid = input.getAttribute("data-qid");
+    if (input.checked) RT_STATE.selectedQueueIds.add(qid);
+    else RT_STATE.selectedQueueIds.delete(qid);
+    input.closest(".rt-queue-item")?.classList.toggle("checked", input.checked);
+  });
   // 时间筛选下拉
   $("#rtTimeSelect")?.addEventListener("change", (e) => {
     const val = e.target.value;
     RT_STATE.selectedTime = val;
+    rtRenderQueueList();
     rtFetchEvents();
   });
   // 平台多选按钮
@@ -9340,20 +9451,34 @@ function rtBindEvents() {
     kwTimer = setTimeout(rtFetchEvents, 400);
   });
 
-  // Auto-refresh
-  let autoTimer;
-  $("#rtAutoRefresh")?.addEventListener("change", () => {
-    clearInterval(autoTimer);
-    const enabled = !!$("#rtAutoRefresh")?.checked;
-    if (enabled) {
-      autoTimer = setInterval(rtFetchEvents, 60000);
-    }
-    const el = $("#rtFetchStatus");
-    if (el) el.style.visibility = enabled ? "visible" : "hidden";
-  });
-  if ($("#rtAutoRefresh")?.checked) {
-    autoTimer = setInterval(rtFetchEvents, 3600000);
+  // 立即获取
+  $("#btnRtRefresh")?.addEventListener("click", rtFetchEvents);
+
+  // 开始 / 终止 自动获取
+  let rtAutoTimer = null;
+  function rtStartAuto() {
+    clearInterval(rtAutoTimer);
+    rtAutoTimer = setInterval(rtFetchEvents, 60000);
+    rtUpdateAutoBtn(true);
   }
+  function rtStopAuto() {
+    clearInterval(rtAutoTimer);
+    rtAutoTimer = null;
+    rtUpdateAutoBtn(false);
+  }
+  function rtUpdateAutoBtn(running) {
+    const btn = $("#btnRtAutoToggle");
+    if (!btn) return;
+    btn.textContent = running ? "终止" : "开始";
+    btn.classList.toggle("active", running);
+    const el = $("#rtFetchStatus");
+    if (el) el.style.visibility = running ? "visible" : "hidden";
+  }
+  $("#btnRtAutoToggle")?.addEventListener("click", () => {
+    if (rtAutoTimer) rtStopAuto(); else rtStartAuto();
+  });
+  // 默认不自动获取
+  rtUpdateAutoBtn(false);
 }
 
 function escHtml(s) {

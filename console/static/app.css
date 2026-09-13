@@ -3486,6 +3486,16 @@ label.publish-media-add {
   color: var(--muted);
   font-family: var(--mono);
 }
+.evt-publish-at {
+  font-size: 0.72rem;
+  color: #b45309;
+  background: rgba(180, 119, 6, 0.1);
+  border: 1px solid rgba(180, 119, 6, 0.3);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
 .evt-title {
   font-size: 0.85rem;
   font-weight: 500;
@@ -3551,6 +3561,8 @@ label.publish-media-add {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
 }
 .rt-preview {
@@ -3684,7 +3696,7 @@ label.publish-media-add {
   color: var(--teal);
 }
 
-/* 发送队列面板 */
+/* 发送队列面板：跟着父级高度，内容内部滚，不把外层顶高 */
 .rt-queue-panel {
   flex-shrink: 0;
   width: 300px;
@@ -3699,9 +3711,10 @@ label.publish-media-add {
   gap: 10px;
   overflow: hidden;
   position: relative;
-  /* 高度跟随内容，不强行拉满，避免把外层高度顶下去 */
-  align-self: flex-start;
+  align-self: stretch;
+  height: 100%;
   max-height: 100%;
+  min-height: 0;
 }
 
 /* 拖拽调整队列面板宽度 */
@@ -3728,12 +3741,11 @@ label.publish-media-add {
 }
 .rt-queue-actions .btn { flex: 1 1 auto; }
 
-/* 队列列表：跟随内容，超过 max-height 时内部滚动 */
+/* 队列列表：占满面板剩余高度，超出只在内部滚 */
 .rt-queue-list {
   overflow-y: auto;
-  flex: 0 1 auto;
-  min-height: 60px;
-  max-height: min(45vh, 460px);
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3747,6 +3759,24 @@ label.publish-media-add {
   border-radius: 7px;
   border: 1px solid var(--line);
   font-size: 0.8rem;
+}
+.rt-queue-item.checked {
+  border-color: var(--signal);
+  background: #fff;
+}
+.rt-queue-item .qi-check {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-top: 3px;
+  cursor: pointer;
+}
+.rt-queue-item .qi-check input {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--signal);
+  cursor: pointer;
 }
 .rt-queue-item.pending { border-left: 3px solid var(--signal); }
 .rt-queue-item.sent    { border-left: 3px solid var(--ok); }

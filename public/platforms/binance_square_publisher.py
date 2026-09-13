@@ -15,6 +15,7 @@ from public.platforms.cdp_common import (
     current_href,
     find_file_inputs,
     human_pause,
+    navigate_or_activate,
     normalize_media_paths,
     open_url_new_tab,
     sanitize_typed_text,
@@ -61,22 +62,26 @@ _PLATFORM_SITE = {
     "binance_square": (("binance.com",), ("/square",)),
     "okx": (("okx.com",), ("/orbit",)),
     "bitget": (("bitget.com",), ("/insights",)),
+    "gate": (("gate.com",), ("/post",)),
 }
 
 _PLATFORM_COMPOSE_EXTRA = {
     "okx": ("发文", "发动态", "写动态"),
     "bitget": ("洞察", "Insights", "写洞察", "分享观点", "发帖"),
+    "gate": ("分享您的看法", "发帖", "发布"),
 }
 
 _PLATFORM_SUBMIT_EXTRA = {
     "okx": ("确认发布", "确认", "发送动态", "Post now", "Submit"),
     "bitget": ("确认发布", "确认", "Post", "Submit", "发送", "发表"),
+    "gate": ("发布", "Post", "Publish"),
 }
 
 _PLATFORM_POST_MARKERS = {
     "binance_square": ("/square/post/",),
     "okx": ("/orbit/post/", "/orbit/insight/"),
     "bitget": ("/insights/", "/post/", "/article/"),
+    "gate": ("/post/", "/square/", "/feed/"),
 }
 
 _DISMISS_COOKIE_JS = r"""
@@ -260,15 +265,37 @@ const okxEd = document.querySelector('.composerEntry-vGyBD [contenteditable="tru
 if (okxEd) {
   return markEditor(okxEd, okxEd.closest('.composerEntry-vGyBD') || okxEd.parentElement);
 }
+// Gate 广场：入口即编辑器（和币安 short-editor / OKX composerEntry 同一套路）
+// 真实 DOM: .editor-container.editor-container--page > .editor-compose > .editor-input-row
+//            > .editor-container-wrapper > .editor-container-div[contenteditable=true]
+//            旁路 span.editor-placeholder「分享您的看法」
+const gateEd = document.querySelector(
+  '.editor-container-div[contenteditable="true"], .editor-compose [contenteditable="true"], .editor-container--page [contenteditable="true"]'
+);
+if (gateEd && visible(gateEd)) {
+  return markEditor(
+    gateEd,
+    gateEd.closest('.editor-container, .editor-container--page, .editor-compose') || gateEd.parentElement
+  );
+}
 // 3) 通用 modal/dialog 内的编辑器
 const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="Modal"], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="PublishBox" i], [class*="dialog" i]';
+function pickInModal() {
+  const roots = document.querySelectorAll(MODAL_SEL);
+  for (const root of roots) {
+    if (!visible(root)) continue;
+    const ed = pickEditable(root);
+    if (ed && visible(ed)) return { ed, root };
+  }
+  return null;
+}
 const inModal = pickInModal();
 if (inModal) return markEditor(inModal.ed, inModal.root);
 // 4) fallback: 没有真正的 modal/dialog，但页面有明显的编辑器（视口中部、宽度≥480）
 //    → 说明弹框已开、只是没用 modal 容器包装
 const vw = window.innerWidth || 1024;
 const vh = window.innerHeight || 768;
-const candidates = Array.from(document.querySelectorAll('[contenteditable="true"], .ProseMirror, .ql-editor, [role="textbox"]'));
+const candidates = Array.from(document.querySelectorAll('[contenteditable="true"], .ProseMirror, .ql-editor, [role="textbox"], textarea'));
 let best = null;
 let bestScore = 0;
 for (const ed of candidates) {
@@ -291,6 +318,40 @@ for (const ed of candidates) {
 }
 if (best) return markEditor(best, best.closest('[role="dialog"],[class*="PublishBox" i]') || best.parentElement || best);
 // 3) 否则标记为没找到（宁可返回 false 让上层去点左侧"发文"开弹框）
+return false;
+"""
+
+_FIND_GATE_EDITOR_JS = r"""
+function visible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 24 || r.height < 8) return false;
+  const st = window.getComputedStyle(el);
+  if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) < 0.05) return false;
+  return true;
+}
+function markEditor(ed, root) {
+  ed.setAttribute('data-pai-editor', '1');
+  if (root) root.setAttribute('data-pai-editor-root', '1');
+  return true;
+}
+document.querySelectorAll('[data-pai-editor]').forEach(el => el.removeAttribute('data-pai-editor'));
+document.querySelectorAll('[data-pai-editor-root]').forEach(el => el.removeAttribute('data-pai-editor-root'));
+const sels = [
+  '.editor-container-div[contenteditable="true"]',
+  '.editor-compose [contenteditable="true"]',
+  '.editor-container--page [contenteditable="true"]',
+  '.editor-container-wrapper [contenteditable="true"]',
+];
+for (const sel of sels) {
+  const ed = document.querySelector(sel);
+  if (!ed || !visible(ed)) continue;
+  const root = document.querySelector('.editor-container--page')
+    || ed.closest('.editor-container--page')
+    || ed.closest('.editor-compose')?.parentElement
+    || ed.parentElement;
+  return markEditor(ed, root);
+}
 return false;
 """
 
@@ -430,6 +491,26 @@ if (okxEd) {
   (okxEd.closest('.composerEntry-vGyBD') || okxEd.parentElement).setAttribute('data-pai-editor-root', '1');
   return true;
 }
+const gateEd = document.querySelector(
+  '.editor-container-div[contenteditable="true"], .editor-compose [contenteditable="true"], .editor-container--page [contenteditable="true"]'
+);
+if (gateEd && visible(gateEd)) {
+  try { gateEd.click(); gateEd.focus(); } catch (_) {}
+  gateEd.setAttribute('data-pai-editor', '1');
+  (document.querySelector('.editor-container--page') || gateEd.closest('.editor-container--page') || gateEd.parentElement).setAttribute('data-pai-editor-root', '1');
+  return true;
+}
+const gateEntry = document.querySelector('.editor-compose, .editor-input-row, .editor-placeholder');
+if (gateEntry && visible(gateEntry)) {
+  try { gateEntry.click(); } catch (_) {}
+  const after = document.querySelector('.editor-container-div[contenteditable="true"], .editor-compose [contenteditable="true"]');
+  if (after && visible(after)) {
+    try { after.focus(); } catch (_) {}
+    after.setAttribute('data-pai-editor', '1');
+    (document.querySelector('.editor-container--page') || after.closest('.editor-container--page') || after.parentElement).setAttribute('data-pai-editor-root', '1');
+    return true;
+  }
+}
 // 通用 modal
 const MODAL_SEL = '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="PublishBox" i]';
 function pickEditable(root) {
@@ -474,10 +555,14 @@ return true;
 _COUNT_EDITOR_MEDIA_JS = r"""
 const prefer = arguments[0] || 'image';
 const editor = document.querySelector('[data-pai-editor="1"]');
-const root = document.querySelector('[data-pai-editor-root="1"]')
-  || (editor ? editor.closest('[role="dialog"], [class*="modal" i], [class*="editor" i], [class*="Editor"]') : null)
-  || editor?.parentElement
-  || document.body;
+const host = (location.hostname || '').toLowerCase();
+const gateRoot = document.querySelector('.editor-container--page');
+const root = (host.includes('gate.com') && gateRoot)
+  ? gateRoot
+  : (document.querySelector('[data-pai-editor-root="1"]')
+    || (editor ? editor.closest('[role="dialog"], [class*="modal" i], [class*="editor" i], [class*="Editor"]') : null)
+    || editor?.parentElement
+    || document.body);
 function visible(el) {
   if (!el || !el.getBoundingClientRect) return false;
   const r = el.getBoundingClientRect();
@@ -499,6 +584,7 @@ if (prefer === 'video') {
   }
   return n;
 }
+const seen = new Set();
 for (const img of root.querySelectorAll('img')) {
   if (!visible(img) || isUiIcon(img)) continue;
   const src = (img.getAttribute('src') || img.src || '').toLowerCase();
@@ -506,8 +592,27 @@ for (const img of root.querySelectorAll('img')) {
   if (src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
       || src.includes('cdn') || src.includes('media') || src.includes('/api/file')
       || src.includes('bitget') || src.includes('okex') || src.includes('binance')
-      || src.includes('s3.') || src.includes('cloudfront')) {
+      || src.includes('gate.com') || src.includes('s3.') || src.includes('cloudfront')) {
     n++;
+    seen.add(img);
+  }
+}
+// Bitget：缩略图常在编辑区旁边的预览条，不在 editor root 里。
+// 只认 blob/data/upload，避免把广场信息流大图算成已上传。
+for (const el of root.querySelectorAll('[style*="blob:"], [style*="data:image"]')) {
+  const r = el.getBoundingClientRect();
+  if (r.width > 48 && r.height > 48) n++;
+}
+if (!host.includes('gate.com')) {
+  const edBox = editor ? editor.getBoundingClientRect() : null;
+  for (const img of document.querySelectorAll('img')) {
+    if (seen.has(img) || !visible(img) || isUiIcon(img)) continue;
+    const src = (img.getAttribute('src') || img.src || '').toLowerCase();
+    if (!(src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
+        || src.includes('/api/file') || src.includes('bitget') || src.includes('okex'))) continue;
+    const r = img.getBoundingClientRect();
+    if (r.width < 72 || r.height < 72) continue;
+    if (!edBox || (r.top >= edBox.top - 40 && r.top <= edBox.bottom + 420)) n++;
   }
 }
 return n;
@@ -515,7 +620,7 @@ return n;
 
 _CLICK_MEDIA_BUTTON_JS = r"""
 const prefer = arguments[0] || 'image';
-const imageWords = ['图片', '图像', '添加图片', '上传图片', 'Photo', 'Image', '相册', 'Add image'];
+const imageWords = ['图片', '图像', '添加图片', '上传图片', '上传本地图片', '本地图片', 'Photo', 'Image', '相册', 'Add image'];
 const videoWords = ['视频', '添加视频', '上传视频', 'Video', 'Add video', '影片'];
 const words = prefer === 'video' ? videoWords.concat(imageWords) : imageWords;
 const hints = prefer === 'video'
@@ -540,7 +645,15 @@ function matchBtn(el) {
   if (words.some(w => t.includes(w) || label.includes(w))) return true;
   return hints.some(h => blob.includes(h));
 }
-const root = document.querySelector('[data-pai-editor-root="1"]')
+const gateIcon = prefer === 'video'
+  ? document.querySelector('.editor-bar [data-icon-id="icon-CEX_Video2"]')
+  : document.querySelector('.editor-bar [data-icon-id="icon-icon_image"]');
+if (gateIcon) {
+  const hit = gateIcon.closest('button, [role="button"], label') || gateIcon.parentElement;
+  if (hit && tryClick(hit)) return true;
+}
+const root = document.querySelector('.editor-container--page')
+  || document.querySelector('[data-pai-editor-root="1"]')
   || document.querySelector('[class*="short-editor"]');
 const scopes = root ? [root, document] : [document];
 for (const scope of scopes) {
@@ -613,9 +726,12 @@ function isPublishWord(t) {
 }
 const _COMPOSE_WORDS = new Set(['发文','发帖','发帖子','发动态','写动态']);
 const editor = document.querySelector('[data-pai-editor="1"]');
-const cluster = editor && editor.closest(
-  '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="short-editor"], [class*="editor" i], [data-pai-editor-root="1"], [class*="PublishBox" i], [class*="post-editor" i], [class*="draftEditor" i]'
-);
+const markedRoot = document.querySelector('[data-pai-editor-root="1"]');
+const cluster = (markedRoot && editor && markedRoot.contains(editor))
+  ? markedRoot
+  : (editor && editor.closest(
+      '.editor-container--page, .editor-container, [role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="short-editor"], [class*="editor" i], [class*="PublishBox" i], [class*="post-editor" i], [class*="draftEditor" i]'
+    ));
 // 判断是否已进入编辑器：①有 data-pai-editor 或 ②有常见编辑器类名
                 const insideEditor = !!editor || !!(
                   document.querySelector('[class*="editor" i][class*="content" i]') ||
@@ -1618,6 +1734,8 @@ class BinanceSquarePublisher:
             self.submit_labels = ("发布", "Post", "Publish", "发送")
         elif platform_id == "bitget":
             self.submit_labels = ("发布", "Post", "Publish") + extra_submit
+        elif platform_id == "gate":
+            self.submit_labels = ("发布", "Post", "Publish")
         else:
             self.submit_labels = tuple(
                 x for x in (_SUBMIT_LABELS + extra_submit) if x not in ("发文", "发帖")
@@ -1678,7 +1796,7 @@ class BinanceSquarePublisher:
                 self.driver = connect_cdp(self.debugger_url)
             driver = self.driver
             logger.info("%s 打开广场 %s", self.platform_name, self.square_url)
-            open_url_new_tab(driver, self.square_url)
+            navigate_or_activate(driver, self.square_url)
             href = self._wait_on_site(driver, timeout=18.0)
             logger.info("%s 当前页 %s", self.platform_name, href or "(空)")
             if not self._href_on_site(href):
@@ -1701,22 +1819,37 @@ class BinanceSquarePublisher:
             elif self.platform_id == "binance_square":
                 # 币安：广场页上方短文编辑器已是真实发布位置，无需点「发文」开弹窗
                 steps.append("binance_entry")
+            elif self.platform_id == "gate":
+                # Gate：https://www.gate.com/zh/post 本身就是发帖页
+                steps.append("gate_entry")
             elif self.platform_id == "bitget":
                 self._click_compose(driver, steps)
 
             if not self._wait_for_editor(driver, self.wait_sec):
                 if self.platform_id == "okx":
                     self._click_okx_compose(driver, steps)
+                elif self.platform_id == "gate":
+                    # Gate /zh/post 本身就是发帖页，点侧栏「发文/发布」会走偏
+                    try:
+                        driver.execute_script(_ACTIVATE_SHORT_EDITOR_JS)
+                    except Exception:
+                        pass
+                    human_pause(0.5, 0.9)
                 else:
                     self._click_compose(driver, steps)
                 for alt in self._alt_square_urls():
-                    open_url_new_tab(driver, alt)
+                    navigate_or_activate(driver, alt)
                     human_pause(1.0, 1.6)
                     if self._wait_for_editor(driver, self.wait_sec):
                         break
                 if not self._find_body_editor(driver):
                     if self.platform_id == "okx":
                         self._click_okx_compose(driver, steps)
+                    elif self.platform_id == "gate":
+                        try:
+                            driver.execute_script(_ACTIVATE_SHORT_EDITOR_JS)
+                        except Exception:
+                            pass
                     else:
                         self._click_compose(driver, steps)
                     human_pause(0.8, 1.4)
@@ -1758,17 +1891,22 @@ class BinanceSquarePublisher:
                     elif not body:
                         body = title_text
                         steps.append("title_as_body")
+            if self.platform_id in ("bitget", "gate"):
                 if body:
+                    logger.info("%s 写入正文 %s 字", self.platform_name, len(body))
                     self._type_text(driver, body, clear_first=False)
                     steps.append("text")
                     human_pause(0.4, 0.9)
                     self._sync_editor_state(driver)
                 if images:
+                    logger.info("%s 上传图片 %s 张", self.platform_name, len(images))
                     # dump 弹框内的 file input（调试用）
                     try:
                         inp_dump = driver.execute_script(r"""
 const ed = document.querySelector('[data-pai-editor="1"]');
-const root = ed ? ed.closest('[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="PublishBox" i]') || ed.parentElement : document.body;
+const root = document.querySelector('.editor-container--page')
+  || (ed ? ed.closest('[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="PublishBox" i], .editor-container--page') : null)
+  || (ed ? ed.parentElement : document.body);
 const ins = [];
 for (const inp of root.querySelectorAll('input[type="file"]')) {
   try {
@@ -1786,6 +1924,7 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
                     n = self._upload_media(driver, images, prefer="image")
                     steps.append(f"images:{n}")
                     human_pause(1.0, 2.0)
+                    self._wait_media_settle(driver, timeout=18.0)
                 if videos:
                     n = self._upload_media(driver, videos, prefer="video")
                     steps.append(f"videos:{n}")
@@ -1917,6 +2056,8 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
         base = self.square_url.rstrip("/").split("?")[0]
         if self.platform_id == "binance_square":
             return [f"{base}?tab=Home"]
+        if self.platform_id == "gate":
+            return ["https://www.gate.com/zh/post", "https://www.gate.com/post"]
         return []
 
     def _wait_for_editor(self, driver, timeout: float) -> bool:
@@ -1935,8 +2076,11 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
         try:
             if self.platform_id == "bitget":
                 return bool(driver.execute_script(_FIND_BITGET_FIELDS_JS))
+            if self.platform_id == "gate":
+                return bool(driver.execute_script(_FIND_GATE_EDITOR_JS))
             return bool(driver.execute_script(_FIND_EDITOR_JS))
-        except Exception:
+        except Exception as e:
+            logger.debug("%s 查找编辑区异常: %s", self.platform_name, e)
             return False
 
     def _ensure_okx_orbit(self, driver, steps: List[str]) -> None:
@@ -2276,6 +2420,8 @@ return { clicked: null, score: 0 };
                   document.querySelector('[role="textbox"]') ||
                   document.querySelector('[class*="short-editor" i]') ||
                   document.querySelector('[class*="composer" i]') ||
+                  document.querySelector('.editor-container-div') ||
+                  document.querySelector('.editor-container--page') ||
                   document.querySelector('[class*="ProseMirror" i]') ||
                   document.querySelector('[class*="PublishBox" i]') ||
                   document.querySelector('[class*="post-editor" i]') ||
@@ -2284,9 +2430,12 @@ return { clicked: null, score: 0 };
                   document.querySelector('#shortPostEditorImageUploaderBox') ||
                   document.querySelector('#post-editor-more-icon')
                 );
-                const cluster = editor && editor.closest(
-                  '[role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="editor" i]'
-                );
+                const markedRoot = document.querySelector('[data-pai-editor-root="1"]');
+                const cluster = (markedRoot && editor && markedRoot.contains(editor))
+                  ? markedRoot
+                  : (editor && editor.closest(
+                      '.editor-container--page, .editor-container, [role="dialog"], [class*="modal" i], [class*="drawer" i], [class*="popup" i], [class*="sheet" i], [class*="composer" i], [class*="editor" i]'
+                    ));
                 const nodes = (cluster || document).querySelectorAll('button, [role="button"], [type="submit"]');
                 let found = null;
                 for (const el of nodes) {
@@ -2419,6 +2568,13 @@ return { clicked: null, score: 0 };
                     const t = labelOf(okxBtn);
                     if (t && SUBMIT_TEXTS.has(t) && tryClick(okxBtn)) {
                         return { ok: true, label: t, where: 'okx_publish' };
+                    }
+                }
+                // 策略 2b：Gate 广场入口条 .editor-bar「发布」
+                for (const el of document.querySelectorAll('.editor-bar button, .editor-bar [role="button"], .editor-container--page .editor-bar button')) {
+                    const t = labelOf(el);
+                    if (t === '发布' || t.toLowerCase() === 'post' || t.toLowerCase() === 'publish') {
+                        if (tryClick(el)) return { ok: true, label: t, where: 'gate_editor_bar' };
                     }
                 }
                 // 策略 3：在弹框容器内找「发文」按钮
@@ -3080,6 +3236,11 @@ return {
         """检查弹框或入口编辑器内是否有 file input（防误传到无关页面）。"""
         try:
             return bool(driver.execute_script(r"""
+                const host = (location.hostname || '').toLowerCase();
+                // Bitget / Gate：图常走粘贴或页级 file input，不要求藏在弹层里
+                if (host.includes('bitget.com') || host.includes('gate.com')) {
+                    if (document.querySelector('[data-pai-editor="1"]')) return true;
+                }
                 // 币安弹框/入口 editor（.focus 区分弹框；无 .focus 时是广场上方入口编辑器）
                 const binanceEd = document.querySelector('.short-editor-editor-wrapper [contenteditable="true"], .short-editor-editor-wrapper .ProseMirror, .short-editor-content [contenteditable="true"], .short-editor-content .ProseMirror, [data-pai-editor="1"]');
                 if (binanceEd) {
@@ -3105,12 +3266,28 @@ return {
         except Exception:
             return False
 
+    def _gate_file_inputs(self, driver, prefer: str = "image") -> list:
+        """Gate 入口条里已经挂好隐藏 file input：accept=image/* / video/*。"""
+        from selenium.webdriver.common.by import By
+
+        sel = (
+            '.editor-container--page input[type="file"][accept*="video"], '
+            '.editor-bar input[type="file"][accept*="video"]'
+            if prefer == "video"
+            else '.editor-container--page input[type="file"][accept*="image"], '
+            '.editor-bar input[type="file"][accept*="image"]'
+        )
+        try:
+            return list(driver.find_elements(By.CSS_SELECTOR, sel) or [])[:1]
+        except Exception:
+            return []
+
     def _upload_media(self, driver, paths: List[str], prefer: str = "image") -> int:
         if not paths:
             return 0
 
-        # 必须在弹框内的编辑器才能上传，否则会误传到静态页面的 input
-        if not self._has_modal_editor(driver):
+        allow_loose = self.platform_id in ("bitget", "gate")
+        if not self._has_modal_editor(driver) and not allow_loose:
             logger.warning(
                 "%s 没有弹框内编辑器，跳过上传 %s 张媒体（防止误传静态页面）",
                 self.platform_name, len(paths),
@@ -3118,41 +3295,92 @@ return {
             return 0
 
         existing = self._count_editor_media(driver, prefer=prefer)
+        if existing:
+            logger.info("%s 编辑区已有 %s 张%s，继续补传剩余", self.platform_name, existing, prefer)
         to_upload = paths[existing:] if existing > 0 else paths
         uploaded = 0
-        inputs = find_file_inputs(driver, prefer=prefer)
+        inputs = (
+            self._gate_file_inputs(driver, prefer)
+            if self.platform_id == "gate"
+            else find_file_inputs(driver, prefer=prefer)
+        )
+
+        if self.platform_id == "gate" and prefer == "image" and to_upload:
+            if not inputs:
+                inputs = self._gate_file_inputs(driver, prefer)
+            if inputs:
+                try:
+                    inputs[0].send_keys("\n".join(to_upload))
+                    deadline = time.time() + 8.0
+                    while time.time() < deadline:
+                        now = self._count_editor_media(driver, prefer=prefer)
+                        if now >= existing + len(to_upload):
+                            logger.info("%s Gate 入口条 file input 已写入 %s 张", self.platform_name, now)
+                            return now
+                        time.sleep(0.35)
+                    now = self._count_editor_media(driver, prefer=prefer)
+                    if now > existing:
+                        logger.info(
+                            "%s Gate file input 部分写入 %s/%s，剩余改逐张/粘贴",
+                            self.platform_name, now, existing + len(to_upload),
+                        )
+                        existing = now
+                        to_upload = paths[now:]
+                    else:
+                        logger.info("%s Gate file input 未见预览，改走逐张/粘贴", self.platform_name)
+                except Exception as e:
+                    logger.warning("%s Gate file input 失败: %s", self.platform_name, e)
 
         for ap in to_upload:
+            before = self._count_editor_media(driver, prefer=prefer)
+            sent = False
             try:
                 if not inputs:
-                    inputs = find_file_inputs(driver, prefer=prefer)
-                # 仅在没有隐藏 file input 时才点「添加图片」，避免多余弹窗
+                    inputs = (
+                        self._gate_file_inputs(driver, prefer)
+                        if self.platform_id == "gate"
+                        else find_file_inputs(driver, prefer=prefer)
+                    )
                 if not inputs:
                     try:
                         driver.execute_script(_CLICK_MEDIA_BUTTON_JS, prefer)
                         human_pause(0.4, 0.9)
                     except Exception:
                         pass
-                    inputs = find_file_inputs(driver, prefer=prefer)
+                    inputs = (
+                        self._gate_file_inputs(driver, prefer)
+                        if self.platform_id == "gate"
+                        else find_file_inputs(driver, prefer=prefer)
+                    )
                 if inputs:
                     inputs[0].send_keys(ap)
-                    uploaded += 1
-                    want = existing + uploaded
-                    deadline = time.time() + (
-                        min(12.0, self.media_upload_wait)
-                        if prefer == "video"
-                        else 3.5
-                    )
-                    while time.time() < deadline:
-                        if self._count_editor_media(driver, prefer=prefer) >= want:
+                    sent = True
+                    wait_until = time.time() + 3.5
+                    while time.time() < wait_until:
+                        if self._count_editor_media(driver, prefer=prefer) > before:
                             break
-                        time.sleep(0.35)
-                    continue
+                        time.sleep(0.3)
+                    if self._count_editor_media(driver, prefer=prefer) <= before:
+                        sent = False
             except Exception as e:
                 logger.warning("file input 上传失败 %s: %s", ap, e)
 
-            if prefer == "image" and self._paste_image_clipboard(driver, ap):
-                uploaded += 1
+            if not sent and prefer == "image":
+                sent = self._paste_image_clipboard(driver, ap)
+
+            if not sent:
+                logger.warning("%s 未能写入媒体 %s", self.platform_name, ap)
+                continue
+
+            uploaded += 1
+            want = max(before + 1, existing + uploaded)
+            deadline = time.time() + (
+                min(12.0, self.media_upload_wait) if prefer == "video" else 5.0
+            )
+            while time.time() < deadline:
+                if self._count_editor_media(driver, prefer=prefer) >= want:
+                    break
+                time.sleep(0.35)
         return existing + uploaded
 
     def _paste_image_clipboard(self, driver, path: str) -> bool:
@@ -3168,23 +3396,51 @@ return {
             fmt = "JPEG picture"
         elif ext == ".gif":
             fmt = "GIF picture"
+        elif ext == ".webp":
+            fmt = "«class PNGf»"
         else:
             return False
         script = f'set the clipboard to (read (POSIX file "{path}") as {fmt})'
         try:
             subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
         except Exception:
-            return False
+            if ext != ".webp":
+                return False
+            try:
+                subprocess.run(
+                    ["osascript", "-e", f'set the clipboard to (read (POSIX file "{path}") as JPEG picture)'],
+                    check=True,
+                    capture_output=True,
+                )
+            except Exception:
+                return False
         if not self._find_body_editor(driver):
             return False
         from selenium.webdriver.common.by import By
 
+        before = self._count_editor_media(driver, prefer="image")
         try:
+            driver.execute_script(
+                """
+                const title = document.querySelector('[data-pai-title="1"]');
+                if (title) { try { title.blur(); } catch (_) {} }
+                const ed = document.querySelector('[data-pai-editor="1"]');
+                if (!ed) return false;
+                ed.scrollIntoView({block:'center'});
+                ed.click();
+                ed.focus();
+                return true;
+                """
+            )
             editor = driver.find_element(By.CSS_SELECTOR, '[data-pai-editor="1"]')
-            driver.execute_script("arguments[0].click(); arguments[0].focus();", editor)
-            ActionChains(driver).key_down(Keys.COMMAND).send_keys("v").key_up(Keys.COMMAND).perform()
-            human_pause(1.0, 1.8)
-            return True
+            ActionChains(driver).move_to_element(editor).click().key_down(Keys.COMMAND).send_keys("v").key_up(Keys.COMMAND).perform()
+            deadline = time.time() + 4.0
+            while time.time() < deadline:
+                if self._count_editor_media(driver, prefer="image") > before:
+                    return True
+                time.sleep(0.35)
+            logger.warning("%s 粘贴图片后未见预览: %s", self.platform_name, path)
+            return False
         except Exception:
             return False
 

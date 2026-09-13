@@ -96,7 +96,7 @@ def publish_content(
     shared_driver = None
     needs_cdp = use_cdp or any(
         (get_platform_config(pid) or {}).get("type")
-        in ("x", "twitter", "binance_square", "okx", "bitget")
+        in ("x", "twitter", "binance_square", "okx", "bitget", "gate")
         for pid in platform_ids
     )
     if needs_cdp and debugger_url:
@@ -166,7 +166,7 @@ def publish_content(
                     submit=submit,
                     title=content.get('title', ''),
                 )
-            elif platform_type in ('binance_square', 'binance', 'square', 'okx', 'bitget'):
+            elif platform_type in ('binance_square', 'binance', 'square', 'okx', 'bitget', 'gate'):
                 from public.platforms.binance_square_publisher import (
                     BinanceSquarePublisher,
                 )

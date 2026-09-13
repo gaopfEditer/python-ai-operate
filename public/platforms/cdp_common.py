@@ -9,7 +9,8 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, List, Optional, Sequence
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -108,79 +109,192 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
     return driver
 
 
-def _try_silent_cdp_goto(driver, url: str) -> bool:
-    """优先走 auto-deal-eth 静默 CDP（不 activate / 不 switch_to）。"""
-    try:
-        eth = Path(__file__).resolve().parents[2].parent / "auto-deal-eth"
-        if eth.is_dir() and str(eth) not in sys.path:
-            sys.path.insert(0, str(eth))
-        from binance.cdp_navigation import cdp_goto
+_HOST_ALIASES = {
+    "x.com": ("x.com", "twitter.com"),
+    "twitter.com": ("x.com", "twitter.com"),
+}
 
-        cdp_goto(
-            driver,
-            url,
-            page_load_timeout=60,
-            log_prefix="publish-cdp",
-            last_tab=True,
-        )
-        return True
-    except Exception as e:
-        logger.debug("静默 CDP 导航不可用: %s", e)
+
+def _bare_host(url: str) -> str:
+    host = (urlparse(url or "").netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _host_aliases(url: str) -> Tuple[str, ...]:
+    host = _bare_host(url)
+    return _HOST_ALIASES.get(host, (host,) if host else ())
+
+
+def _path_of(url: str) -> str:
+    return (urlparse(url or "").path or "").rstrip("/").lower()
+
+
+def _is_usable_page_url(url: str) -> bool:
+    u = (url or "").strip()
+    if not u:
         return False
+    low = u.lower()
+    return not low.startswith(
+        ("chrome://", "chrome-extension://", "devtools://", "about:", "edge://", "data:")
+    )
 
 
-def open_url_new_tab(driver, url: str) -> None:
-    """在最后一个已有页签打开 URL：优先静默 CDP（不抢焦点、不新建标签）。"""
+def _urls_match(a: str, b: str) -> bool:
+    """同一页面：host 别名一致且路径相同（忽略末尾斜杠和 query）。"""
+    if not a or not b:
+        return False
+    ha, hb = _bare_host(a), _bare_host(b)
+    if not ha or not hb:
+        return False
+    aliases = _host_aliases(a) or (ha,)
+    if hb != ha and hb not in aliases and ha not in _host_aliases(b):
+        return False
+    return _path_of(a) == _path_of(b)
+
+
+def _same_site(tab_url: str, want_url: str) -> bool:
+    host = _bare_host(tab_url)
+    if not host or not _is_usable_page_url(tab_url):
+        return False
+    aliases = _host_aliases(want_url)
+    if not aliases:
+        return False
+    return any(host == a or host.endswith("." + a) for a in aliases)
+
+
+def _list_page_targets(driver) -> List[Dict[str, Any]]:
+    try:
+        raw = driver.execute_cdp_cmd("Target.getTargets", {}) or {}
+    except Exception:
+        raw = {}
+    out: List[Dict[str, Any]] = []
+    for t in raw.get("targetInfos") or []:
+        if not isinstance(t, dict):
+            continue
+        if str(t.get("type") or "") not in ("page", "tab"):
+            continue
+        url = str(t.get("url") or "")
+        if not _is_usable_page_url(url):
+            continue
+        out.append(t)
+    return out
+
+
+def _score_site_tab(tab_url: str, want_url: str) -> int:
+    if not _same_site(tab_url, want_url):
+        return 0
+    if _urls_match(tab_url, want_url):
+        return 100
+    want_path = _path_of(want_url)
+    tab_path = _path_of(tab_url)
+    if want_path and tab_path:
+        if tab_path == want_path or tab_path.startswith(want_path + "/") or want_path.startswith(tab_path + "/"):
+            return 80
+    return 40
+
+
+def find_existing_site_tab(driver, url: str) -> Optional[Dict[str, Any]]:
+    """找已打开该网站的页签：精确路径 > 同路径前缀 > 同站点。"""
+    url = (url or "").strip()
+    if not url:
+        return None
+    best = None
+    best_sc = 0
+    for t in _list_page_targets(driver):
+        sc = _score_site_tab(str(t.get("url") or ""), url)
+        if sc > best_sc:
+            best, best_sc = t, sc
+    return best if best_sc > 0 else None
+
+
+def _switch_selenium_to_target(driver, target: Dict[str, Any]) -> bool:
+    tid = str(target.get("targetId") or target.get("id") or "")
+    want_url = str(target.get("url") or "")
+    handles = []
+    try:
+        handles = list(driver.window_handles or [])
+    except Exception:
+        handles = []
+    candidates = []
+    if tid:
+        candidates.append(tid)
+        for h in handles:
+            if h == tid or (h and tid and (h.startswith(tid[:12]) or tid.startswith(h[:12]))):
+                candidates.append(h)
+    candidates.extend(handles)
+    seen = set()
+    for h in candidates:
+        if not h or h in seen:
+            continue
+        seen.add(h)
+        try:
+            driver.switch_to.window(h)
+            cur = current_href(driver)
+            if tid and h == tid:
+                return True
+            if want_url and (_urls_match(cur, want_url) or _same_site(cur, want_url)):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _navigate_current_tab(driver, url: str) -> None:
+    """只在当前 Selenium 页签跳转，绝不 createTarget / new_window。"""
     url = (url or "").strip()
     if not url:
         return
-
-    if _try_silent_cdp_goto(driver, url):
-        return
-
-    with preserve_os_focus():
-        handles = list(driver.window_handles or [])
-        if not handles:
-            try:
-                driver.execute_cdp_cmd(
-                    "Target.createTarget",
-                    {"url": "about:blank", "background": True},
-                )
-                time.sleep(0.12)
-                handles = list(driver.window_handles or [])
-            except Exception:
-                try:
-                    driver.switch_to.new_window("tab")
-                    handles = list(driver.window_handles or [])
-                except Exception:
-                    driver.execute_script("window.open('about:blank','_blank');")
-                    handles = list(driver.window_handles or [])
-
-        if handles:
-            last = handles[-1]
-            try:
-                driver.switch_to.window(last)
-            except Exception:
-                for h in reversed(handles):
-                    try:
-                        driver.switch_to.window(h)
-                        break
-                    except Exception:
-                        continue
-
+    try:
+        driver.execute_cdp_cmd("Page.navigate", {"url": url})
+    except Exception:
         try:
-            driver.execute_cdp_cmd("Page.navigate", {"url": url})
-        except Exception:
             driver.get(url)
-
-        for _ in range(30):
-            try:
-                cur = (driver.current_url or "").strip()
-                if cur and (url.startswith("about:") or cur != "about:blank"):
+        except Exception as e:
+            logger.warning("当前页签导航失败: %s", e)
+            return
+    for _ in range(40):
+        try:
+            cur = (current_href(driver) or "").strip()
+            if cur and (url.startswith("about:") or cur != "about:blank"):
+                if _same_site(cur, url) or _urls_match(cur, url):
                     break
+        except Exception:
+            pass
+        time.sleep(0.08)
+
+
+def _reuse_any_existing_tab(driver) -> bool:
+    """没有任何同站点页签时，复用已有页签，仍不新建。"""
+    handles = []
+    try:
+        handles = list(driver.window_handles or [])
+    except Exception:
+        handles = []
+    if handles:
+        for h in reversed(handles):
+            try:
+                driver.switch_to.window(h)
+                return True
             except Exception:
-                pass
-            time.sleep(0.08)
+                continue
+    for t in reversed(_list_page_targets(driver)):
+        tid = str(t.get("targetId") or t.get("id") or "")
+        if not tid:
+            continue
+        try:
+            driver.execute_cdp_cmd("Target.activateTarget", {"targetId": tid})
+            if _switch_selenium_to_target(driver, t):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def open_url_new_tab(driver, url: str) -> None:
+    """兼容旧名：复用已有站点页签，绝不新开标签。"""
+    navigate_or_activate(driver, url)
 
 
 def current_href(driver) -> str:
@@ -194,6 +308,46 @@ def current_href(driver) -> str:
         return str(driver.current_url or "")
     except Exception:
         return ""
+
+
+def navigate_or_activate(driver, url: str, *, timeout: float = 8.0) -> bool:
+    """
+    发布导航：先找已打开该网站的页签并复用，只在该页签内跳转。
+    没有同站点页签时，也只复用任意已有页签，绝不 Target.createTarget / 新开标签。
+
+    返回 True 表示复用了同站点页签，False 表示借用了其它已有页签。
+    """
+    url = (url or "").strip()
+    if not url:
+        return False
+
+    found = find_existing_site_tab(driver, url)
+    if found:
+        tid = str(found.get("targetId") or found.get("id") or "")
+        old = str(found.get("url") or "")
+        try:
+            if tid:
+                driver.execute_cdp_cmd("Target.activateTarget", {"targetId": tid})
+                time.sleep(0.12)
+        except Exception as e:
+            logger.debug("activateTarget 失败: %s", e)
+        if not _switch_selenium_to_target(driver, found):
+            logger.warning("已找到 %s 页签但未能切到 Selenium 句柄，仍尝试当前页跳转", old)
+        cur = current_href(driver)
+        if not _urls_match(cur, url):
+            logger.info("复用已有页签 %s → %s", old, url)
+            _navigate_current_tab(driver, url)
+        else:
+            logger.info("复用已有页签（已在目标页）: %s", cur or url)
+        return True
+
+    reused = _reuse_any_existing_tab(driver)
+    if not reused:
+        logger.warning("Chrome 里没有任何可用页签，放弃新建以避免把浏览器撑爆: %s", url)
+        return False
+    logger.info("站点无已开页签，复用当前页签打开 %s", url)
+    _navigate_current_tab(driver, url)
+    return False
 
 
 def wait_landed(

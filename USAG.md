@@ -93,7 +93,7 @@ TrendRadar/
 ```bash
 # 创建并激活虚拟环境
 python3 -m venv .venv
-source .venv/bin/activate          # macOS / Linux
+source venv/bin/activate          # macOS / Linux
 # .venv\Scripts\activate         # Windows
 
 # 安装依赖

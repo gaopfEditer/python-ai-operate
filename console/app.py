@@ -108,10 +108,19 @@ def _json_bytes(data: Any, status: int = 200) -> tuple[bytes, int, str]:
 
 
 def _read_json_body(handler: SimpleHTTPRequestHandler) -> Dict[str, Any]:
+    return _read_api_body(handler)
+
+
+def _read_api_body(handler: SimpleHTTPRequestHandler) -> Dict[str, Any]:
     length = int(handler.headers.get("Content-Length") or 0)
     if length <= 0:
         return {}
     raw = handler.rfile.read(length)
+    ctype = handler.headers.get("Content-Type") or ""
+    if "multipart/form-data" in ctype.lower():
+        from console.publish_api import parse_multipart
+
+        return parse_multipart(raw, ctype)
     try:
         data = json.loads(raw.decode("utf-8"))
         return data if isinstance(data, dict) else {}
@@ -1293,7 +1302,23 @@ def _save_article(topic: str, content: str, meta: Optional[Dict[str, Any]] = Non
     return str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
 
 
-def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[str, Any]) -> tuple[bytes, int, str]:
+def handle_api(
+    method: str,
+    path: str,
+    query: Dict[str, List[str]],
+    body: Dict[str, Any],
+    headers: Optional[Any] = None,
+) -> tuple[bytes, int, str]:
+    if path.startswith("/api/v1/publish"):
+        from console.publish_api import handle as handle_publish_v1
+
+        return handle_publish_v1(method, path, query, body or {}, headers)
+
+    if path.startswith("/api/v1/trade-signal"):
+        from console.trade_signal_api import handle as handle_trade_signal_v1
+
+        return handle_trade_signal_v1(method, path, query, body or {}, headers)
+
     # ── 文件代理：/api/file/<safe-path> 避免浏览器 file:// 限制 ──────
     import urllib.parse
     if path.startswith("/api/file/"):
@@ -1376,6 +1401,7 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             {"id": "binance_square", "name": "币安广场", "enabled": True, "type": "binance_square"},
             {"id": "okx", "name": "OKX", "enabled": True, "type": "okx"},
             {"id": "bitget", "name": "Bitget", "enabled": True, "type": "bitget"},
+            {"id": "gate", "name": "Gate 广场", "enabled": True, "type": "gate"},
             {"id": "reddit", "name": "Reddit", "enabled": True, "type": "reddit"},
             {"id": "x", "name": "X / Twitter", "enabled": True, "type": "x"},
         ]
@@ -2768,6 +2794,65 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         except Exception as e:
             return _json_bytes({"success": False, "error": str(e)}, 400)
 
+    # 大文件（视频等）粘贴上传 → base64 JSON 到服务器存储
+    if path == "/api/publish/cache/media-upload" and method == "POST":
+        from console import publish_queue as pq
+        import base64, uuid, mimetypes
+
+        try:
+            raw = body if isinstance(body, dict) else {}
+            b64 = str(raw.get("base64") or raw.get("data") or "").strip()
+            filename = str(raw.get("filename") or "video.mp4")
+            if not b64:
+                return _json_bytes({"success": False, "error": "无文件数据"}, 400)
+
+            # 自动检测类型
+            try:
+                head = base64.b64decode(b64[:32])
+            except Exception:
+                return _json_bytes({"success": False, "error": "base64 解码失败"}, 400)
+
+            ctype = "application/octet-stream"
+            ext = Path(filename).suffix.lower()
+            if head[:4] == b"\xff\xd8\xff":
+                ctype = "image/jpeg"
+                ext = ext or ".jpg"
+            elif head[:8] == b"\x89PNG\r\n\x1a\n":
+                ctype = "image/png"
+                ext = ext or ".png"
+            elif head[:3] == b"GIF":
+                ctype = "image/gif"
+                ext = ext or ".gif"
+            elif head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+                ctype = "image/webp"
+                ext = ext or ".webp"
+            elif head[:4] in (b"\x00\x00\x00\x18", b"\x00\x00\x00\x20") or filename.lower().endswith(".mp4") or filename.lower().endswith(".mov"):
+                ctype = "video/mp4"
+                ext = ext or ".mp4"
+            elif head[:4] == b"ftyp" or head[:4] == b"moov":
+                ctype = "video/mp4"
+                ext = ext or ".mp4"
+            else:
+                ext = mimetypes.guess_extension(ctype) or ext or ".bin"
+
+            file_bytes = base64.b64decode(b64)
+            cache_dir = pq.cache_root()
+            subdir = cache_dir / "media_uploads"
+            subdir.mkdir(parents=True, exist_ok=True)
+            safe_name = f"{uuid.uuid4().hex[:16]}{ext}"
+            dest = subdir / safe_name
+            dest.write_bytes(file_bytes)
+            rel = str(dest.relative_to(cache_dir))
+            return _json_bytes({
+                "success": True,
+                "rel": rel,
+                "name": filename,
+                "size": len(file_bytes),
+                "type": ctype,
+            })
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 500)
+
     if path == "/api/publish/queue/clear-done" and method == "POST":
         from console import publish_queue as pq
 
@@ -2854,7 +2939,35 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
             if resp.status_code != 200:
                 return _json_bytes({"ok": False, "error": f"接口返回 {resp.status_code}", "items": []})
             data = resp.json()
-            return _json_bytes({"ok": True, "items": data.get("items", []), "total": data.get("total", 0)})
+            items = data.get("items") or []
+            by_url, by_title = {}, {}
+            if any(isinstance(it, dict) and not (it.get("publish_at") or it.get("published_at")) for it in items):
+                try:
+                    hot = _req.get(f"{base}/api/v1/hotlists", timeout=8).json()
+                    for board in hot.get("boards") or []:
+                        for hi in board.get("items") or []:
+                            ts = hi.get("published_at") or ""
+                            if not ts:
+                                continue
+                            if hi.get("url"):
+                                by_url[hi["url"]] = ts
+                            if hi.get("title"):
+                                by_title[hi["title"]] = ts
+                except Exception:
+                    pass
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if not item.get("publish_at"):
+                    item["publish_at"] = (
+                        item.get("published_at")
+                        or by_url.get(item.get("url") or "")
+                        or by_title.get(item.get("title") or "")
+                        or item.get("pub_time")
+                        or item.get("event_time")
+                        or ""
+                    )
+            return _json_bytes({"ok": True, "items": items, "total": data.get("total", 0)})
         except _req.exceptions.ConnectionError:
             return _json_bytes({"ok": False, "error": "news_mornitor 服务未启动（需 python -m news_mornitor）", "items": []})
         except Exception as e:
@@ -2926,6 +3039,53 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
         tag = f"rt_{item_id[:8]}" if len(item_id) >= 8 else f"rt_{uuid.uuid4().hex[:8]}"
         img_path = out_dir / f"{tag}.png"
 
+        # ── 共享：智能打开/激活 Gemini tab（复用已有页签）─────────────────
+        def _open_gemini_tab(driver, debugger_url=""):
+            """优先激活已有 Gemini tab，没有再开新 blank tab 并导航。返回 (driver, new_handle)。"""
+            import requests as _req
+            from urllib.parse import urlparse as _urlparse
+
+            gemini_base = "https://gemini.google.com/app"
+            debugger = debugger_url.strip() or os.environ.get("CDP_DEBUGGER_URL") or os.environ.get("BROWSER_DEBUGGER_URL") or ""
+
+            # 1. 尝试激活已有 tab
+            if debugger:
+                try:
+                    resp = _req.get(f"http://{debugger}/json", timeout=5)
+                    tabs = resp.json() if resp.status_code == 200 else []
+                    for tab in tabs:
+                        tab_url = str(tab.get("url") or "")
+                        if not tab_url or tab_url in ("about:blank", "chrome://newtab/"):
+                            continue
+                        try:
+                            p1 = _urlparse(gemini_base)
+                            p2 = _urlparse(tab_url)
+                            if p1.netloc == p2.netloc and (p1.path.rstrip("/") or "/") == (p2.path.rstrip("/") or "/"):
+                                tid = str(tab.get("id") or tab.get("targetId") or "")
+                                if tid:
+                                    _req.post(f"http://{debugger}/json/activate", json={"id": tid}, timeout=5)
+                                    handles = list(driver.window_handles or [])
+                                    for h in handles:
+                                        try:
+                                            driver.switch_to.window(h)
+                                            if gemini_base.replace("https://", "").replace("http://", "") in (driver.current_url or "").replace("https://", "").replace("http://", ""):
+                                                return driver, h
+                                        except Exception:
+                                            continue
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
+            # 2. 没找到 → 开新 tab
+            main_handle = driver.current_window_handle if driver.window_handles else None
+            driver.execute_script("window.open('about:blank');")
+            _time.sleep(0.5)
+            handles = list(driver.window_handles)
+            new_handle = next((h for h in handles if h != main_handle), handles[-1])
+            driver.switch_to.window(new_handle)
+            return driver, new_handle
+
         # ── 核心：隔离新页签生成图片，成功才返回 ──────────────────────────
         def _gen_in_isolated_tab(max_retries=5, retry_delay=20):
             sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
@@ -2934,19 +3094,12 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
 
             last_err = ""
             for attempt in range(1, max_retries + 1):
-                # 每次重试都开一个完全独立的 browser 实例
                 driver = None
                 try:
                     driver = init_browser()
-                    # 强制在新页签打开 Gemini（不走 navigate_in_last_tab，避免切走用户当前页签）
-                    main_handle = driver.current_window_handle if driver.window_handles else None
-                    driver.execute_script("window.open('about:blank');")
-                    human_pause(2.0, 4.0)
-                    handles = list(driver.window_handles)
-                    new_handle = next((h for h in handles if h != main_handle), handles[-1])
-                    driver.switch_to.window(new_handle)
+                    _open_gemini_tab(driver)
                     driver.get("https://gemini.google.com/app")
-                    human_pause(6.0, 9.0)  # 等待页面完全加载
+                    _time.sleep(6.0)
 
                     # 调用文生图
                     result = generate_image_with_gemini_web(
@@ -3060,14 +3213,9 @@ def handle_api(method: str, path: str, query: Dict[str, List[str]], body: Dict[s
                 driver = None
                 try:
                     driver = init_browser()
-                    main_handle = driver.current_window_handle if driver.window_handles else None
-                    driver.execute_script("window.open('about:blank');")
-                    human_pause(2.0, 4.0)
-                    handles = list(driver.window_handles)
-                    new_handle = next((h for h in handles if h != main_handle), handles[-1])
-                    driver.switch_to.window(new_handle)
+                    _open_gemini_tab(driver)
                     driver.get("https://gemini.google.com/app")
-                    human_pause(6.0, 9.0)
+                    _time.sleep(6.0)
 
                     result = generate_image_with_gemini_web(
                         prompt_text,
@@ -4284,6 +4432,7 @@ _QUIET_GET_PATHS = (
     "/api/signals/watch",
     "/api/signals/cycle",
     "/api/jobs/",
+    "/api/v1/publish/jobs/",
 )
 
 
@@ -4323,13 +4472,18 @@ class ConsoleHandler(SimpleHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, X-Publish-Token",
+        )
         self.end_headers()
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
-            body, status, ctype = handle_api("GET", parsed.path, parse_qs(parsed.query), {})
+            body, status, ctype = handle_api(
+                "GET", parsed.path, parse_qs(parsed.query), {}, headers=self.headers
+            )
             self._send(body, status, ctype)
             return
         if parsed.path in ("/", "/index.html"):
@@ -4343,9 +4497,13 @@ class ConsoleHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
             try:
-                req_body = _read_json_body(self)
+                req_body = _read_api_body(self)
                 body, status, ctype = handle_api(
-                    "POST", parsed.path, parse_qs(parsed.query), req_body
+                    "POST",
+                    parsed.path,
+                    parse_qs(parsed.query),
+                    req_body,
+                    headers=self.headers,
                 )
                 self._send(body, status, ctype)
             except Exception as e:
@@ -4357,7 +4515,9 @@ class ConsoleHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
-            body, status, ctype = handle_api("DELETE", parsed.path, parse_qs(parsed.query), {})
+            body, status, ctype = handle_api(
+                "DELETE", parsed.path, parse_qs(parsed.query), {}, headers=self.headers
+            )
             self._send(body, status, ctype)
             return
         self._send(*_json_bytes({"success": False, "error": "Not Found"}, 404))
@@ -4491,6 +4651,8 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         safe_print(" 列表信号: 分时自动监听已开启（北京时间阶梯频率）")
     if cycle_on:
         safe_print(" 列表信号: 周期抓取已开启（5–15 分钟随机间隔，首次最多 8h）")
+    safe_print(" 外部发布: POST /api/v1/publish  （文档 docs/cdp-publish-api.md）")
+    safe_print(" 交易信号发布: POST /api/v1/trade-signal/publish  （AI+OI截图→发布）")
     safe_print(" 按 Ctrl+C 停止")
     safe_print("=" * 60)
     if open_browser:
