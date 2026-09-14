@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CACHE_DIR = PROJECT_ROOT / "output" / "oi_chart_cache"
 
+# 暂时关掉 AI 短评：DeepSeek/Ollama/千问连跳失败会空等近一分钟
+_USE_AI_SHORT_ANALYSIS = False
+
 
 def _env(name: str, default: str = "") -> str:
     return (os.environ.get(name) or default).strip()
@@ -138,6 +141,8 @@ def write_short_analysis(
     if extra:
         bits.append(extra)
     fallback = "\n".join(bits)
+    if not _USE_AI_SHORT_ANALYSIS:
+        return fallback
 
     prompt = (
         f"币种：{sym}\n"
@@ -333,12 +338,15 @@ def publish_text_with_image(
 
 def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
     """完整编排：分析 → 截图 → 发布。"""
+    t_all = time.perf_counter()
+    timings: Dict[str, int] = {}
+
     symbol = str(body.get("symbol") or "").strip()
     direction = str(body.get("direction") or "").strip()
     if not symbol:
-        return {"success": False, "error": "缺少 symbol"}
+        return {"success": False, "error": "缺少 symbol", "elapsed_ms": 0, "timings": timings}
     if not direction:
-        return {"success": False, "error": "缺少 direction"}
+        return {"success": False, "error": "缺少 direction", "elapsed_ms": 0, "timings": timings}
 
     event = str(body.get("event") or body.get("phase") or "entry").strip() or "entry"
     narrative = str(body.get("narrative") or body.get("body") or body.get("rawContent") or "").strip()
@@ -362,6 +370,7 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
     elif not isinstance(platforms, list):
         platforms = None
 
+    t0 = time.perf_counter()
     analysis = (
         str(body.get("text") or body.get("content") or "").strip()
         if skip_ai
@@ -387,10 +396,12 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
             stop_loss=stop_loss,
             note=note,
         )
+    timings["analysis_ms"] = int((time.perf_counter() - t0) * 1000)
 
     image_path: Optional[Path] = None
     chart_url = ""
     if not skip_shot:
+        t0 = time.perf_counter()
         chart_url = resolve_chart_url(symbol=symbol, oi_url=body.get("oi_url") or body.get("oiUrl"))
         image_path = screenshot_pattern_chart(
             symbol=symbol,
@@ -399,11 +410,28 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
             debugger_url=str(body.get("chart_debugger_url") or body.get("cdp_debugger_url") or "").strip()
             or None,
         )
+        timings["screenshot_ms"] = int((time.perf_counter() - t0) * 1000)
+        logger.info("OI 截图耗时 %sms · %s", timings["screenshot_ms"], image_path)
+    else:
+        timings["screenshot_ms"] = 0
 
     publish_result: Dict[str, Any] = {"skipped": True}
     if not skip_publish:
+        t0 = time.perf_counter()
+        logger.info(
+            "开始 CDP 发送 · %s · %s · platforms=%s",
+            normalize_trade_symbol(symbol) or symbol,
+            direction,
+            platforms or _default_platforms(),
+        )
         if image_path is None and not analysis:
-            return {"success": False, "error": "无正文且无截图，无法发布"}
+            elapsed_ms = int((time.perf_counter() - t_all) * 1000)
+            return {
+                "success": False,
+                "error": "无正文且无截图，无法发布",
+                "elapsed_ms": elapsed_ms,
+                "timings": timings,
+            }
         if image_path is None:
             # 仅文：仍走 publish
             from console.publish_api import _run_publish
@@ -428,8 +456,31 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
                 submit=bool(submit),
                 debugger_url=str(body.get("debugger_url") or "").strip() or None,
             )
+        timings["publish_ms"] = int(
+            publish_result.get("elapsed_ms")
+            or (time.perf_counter() - t0) * 1000
+        )
+        ok_pub = bool(publish_result.get("success"))
+        logger.info(
+            "CDP 发送%s · %sms · %s",
+            "成功" if ok_pub else "失败",
+            timings["publish_ms"],
+            publish_result.get("error") or "",
+        )
+    else:
+        timings["publish_ms"] = 0
 
     ok = True if skip_publish else bool(publish_result.get("success"))
+    elapsed_ms = int((time.perf_counter() - t_all) * 1000)
+    timings["total_ms"] = elapsed_ms
+    logger.info(
+        "交易信号流水线%s · 总 %sms · 分析 %sms · 截图 %sms · 发布 %sms",
+        "成功" if ok else "失败",
+        elapsed_ms,
+        timings.get("analysis_ms", 0),
+        timings.get("screenshot_ms", 0),
+        timings.get("publish_ms", 0),
+    )
     return {
         "success": ok,
         "analysis": analysis,
@@ -440,5 +491,7 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
         "symbol": normalize_trade_symbol(symbol),
         "direction": direction,
         "event": event,
+        "elapsed_ms": elapsed_ms,
+        "timings": timings,
         "error": None if ok else str(publish_result.get("error") or "发布失败"),
     }

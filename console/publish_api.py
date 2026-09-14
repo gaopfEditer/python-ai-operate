@@ -267,6 +267,8 @@ def _list_platforms() -> List[Dict[str, Any]]:
 
 
 def _run_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
+    import time
+
     from console.app import _publish_lock_acquire, _publish_lock_release
     from public.index import publish_content_with_retry
 
@@ -276,7 +278,8 @@ def _run_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
         media=",".join(payload["media_paths"]),
     )
     if not _publish_lock_acquire(lock_key):
-        return {"success": False, "error": "另一个发布任务正在进行，请稍候再试"}
+        return {"success": False, "error": "另一个发布任务正在进行，请稍候再试", "elapsed_ms": 0}
+    t0 = time.perf_counter()
     try:
         result = publish_content_with_retry(
             content={"title": payload["title"], "content": payload["content"]},
@@ -288,12 +291,19 @@ def _run_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
             submit=payload["submit"],
         )
         result["media_count"] = len(payload["media_paths"])
+        if "elapsed_ms" not in result:
+            result["elapsed_ms"] = int((time.perf_counter() - t0) * 1000)
         return result
+    except Exception as e:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        return {"success": False, "error": str(e), "elapsed_ms": elapsed_ms}
     finally:
         _publish_lock_release()
 
 
 def _start_job(payload: Dict[str, Any]) -> tuple[bytes, int, str]:
+    import time
+
     from console.app import _set_job
 
     job_id = uuid.uuid4().hex
@@ -310,17 +320,29 @@ def _start_job(payload: Dict[str, Any]) -> tuple[bytes, int, str]:
         from console.app import _set_job as set_job
 
         set_job(job_id, status="running", message="正在 CDP 发布…")
+        t0 = time.perf_counter()
         try:
             result = _run_publish(payload)
             ok = bool(result.get("success"))
+            elapsed_ms = int(result.get("elapsed_ms") or (time.perf_counter() - t0) * 1000)
             set_job(
                 job_id,
                 status="done" if ok else "error",
-                message="发布完成" if ok else str(result.get("error") or "发布失败"),
+                message=(
+                    f"{'发布完成' if ok else str(result.get('error') or '发布失败')}"
+                    f" · {elapsed_ms}ms"
+                ),
                 result=result,
+                elapsed_ms=elapsed_ms,
             )
         except Exception as e:
-            set_job(job_id, status="error", message=str(e))
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            set_job(
+                job_id,
+                status="error",
+                message=f"{e} · {elapsed_ms}ms",
+                elapsed_ms=elapsed_ms,
+            )
 
     threading.Thread(target=_worker, daemon=True, name=f"publish-api-{job_id[:8]}").start()
     return _json_bytes(

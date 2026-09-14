@@ -68,21 +68,41 @@ def handle(
     )
 
     def _worker() -> None:
+        import time
+
         from console.app import _set_job as set_job
         from signals.trade_signal_publish import run_trade_signal_pipeline
 
-        set_job(job_id, status="running", message="AI 分析 + OI 截图 + 发布…")
+        set_job(job_id, status="running", message="OI 截图 + CDP 发布…")
+        t0 = time.perf_counter()
         try:
             result = run_trade_signal_pipeline(payload)
             ok = bool(result.get("success"))
+            elapsed_ms = int(result.get("elapsed_ms") or (time.perf_counter() - t0) * 1000)
+            timings = result.get("timings") or {}
+            detail = (
+                f"总{elapsed_ms}ms"
+                f"/截图{timings.get('screenshot_ms', 0)}ms"
+                f"/发布{timings.get('publish_ms', 0)}ms"
+            )
             set_job(
                 job_id,
                 status="done" if ok else "error",
-                message="完成" if ok else str(result.get("error") or "失败"),
+                message=(
+                    f"{'完成' if ok else str(result.get('error') or '失败')} · {detail}"
+                ),
                 result=result,
+                elapsed_ms=elapsed_ms,
+                timings=timings,
             )
         except Exception as e:  # noqa: BLE001
-            set_job(job_id, status="error", message=str(e))
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            set_job(
+                job_id,
+                status="error",
+                message=f"{e} · {elapsed_ms}ms",
+                elapsed_ms=elapsed_ms,
+            )
 
     threading.Thread(
         target=_worker, daemon=True, name=f"trade-signal-{job_id[:8]}"

@@ -94,6 +94,7 @@ def publish_content(
     media = list(media_paths or content.get("media_paths") or [])
     results = []
     shared_driver = None
+    t0 = time.perf_counter()
     needs_cdp = use_cdp or any(
         (get_platform_config(pid) or {}).get("type")
         in ("x", "twitter", "binance_square", "okx", "bitget", "gate")
@@ -115,7 +116,8 @@ def publish_content(
                 results.append({
                     'platform': platform_id,
                     'success': False,
-                    'error': f'平台配置不存在: {platform_id}'
+                    'error': f'平台配置不存在: {platform_id}',
+                    'elapsed_ms': 0,
                 })
                 continue
 
@@ -123,7 +125,8 @@ def publish_content(
                 results.append({
                     'platform': platform_id,
                     'success': False,
-                    'error': f'平台未启用: {platform_id}'
+                    'error': f'平台未启用: {platform_id}',
+                    'elapsed_ms': 0,
                 })
                 continue
 
@@ -131,6 +134,7 @@ def publish_content(
             platform_name = platform_config.get('name', platform_id)
 
             logger.info(f"正在发布到平台: {platform_name} ({platform_id})")
+            plat_t0 = time.perf_counter()
 
             if platform_type == 'typecho':
                 from public.platforms.typecho_publisher import TypechoPublisher
@@ -199,8 +203,18 @@ def publish_content(
                     'error': f'不支持的平台类型: {platform_type}',
                 }
 
+            elapsed_ms = int((time.perf_counter() - plat_t0) * 1000)
             result['platform'] = platform_id
             result['platform_name'] = platform_name
+            result['elapsed_ms'] = elapsed_ms
+            ok = bool(result.get('success'))
+            logger.info(
+                "CDP 发布%s · %s · %sms%s",
+                "成功" if ok else "失败",
+                platform_name,
+                elapsed_ms,
+                "" if ok else f" · {result.get('error') or ''}",
+            )
             results.append(result)
     finally:
         # 不 quit 共享 driver，保留用户已登录的 Chrome
@@ -208,11 +222,19 @@ def publish_content(
 
     success_count = sum(1 for r in results if r.get('success', False))
     total_count = len(results)
+    total_ms = int((time.perf_counter() - t0) * 1000)
+    logger.info(
+        "CDP 发布结束 · 成功 %s/%s · 总耗时 %sms",
+        success_count,
+        total_count,
+        total_ms,
+    )
 
     return {
         'success': success_count > 0,
         'total': total_count,
         'success_count': success_count,
+        'elapsed_ms': total_ms,
         'results': results
     }
 
