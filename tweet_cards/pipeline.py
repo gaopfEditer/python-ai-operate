@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from tweet_cards.analyze import analyze_tweet_text
 from tweet_cards.fetch import fetch_tweet, split_inputs
-from tweet_cards.store import list_cards, stats, upsert_card
+from tweet_cards.store import list_cards, list_categories, stats, update_card, upsert_card
 
 ProgressCb = Optional[Callable[[str], None]]
 
@@ -94,6 +94,49 @@ def ingest_tweet_input(
     }
 
 
-def list_tweet_cards(*, limit: int = 40, keyword: str = "") -> Dict[str, Any]:
-    items = list_cards(limit=limit, keyword=keyword)
-    return {"success": True, "items": items, "stats": stats()}
+def _parse_favorited(raw: Any) -> Optional[bool]:
+    if raw is None or raw == "" or str(raw).lower() == "all":
+        return None
+    s = str(raw).strip().lower()
+    if s in ("1", "true", "yes", "favorited", "starred"):
+        return True
+    if s in ("0", "false", "no", "unfavorited"):
+        return False
+    return None
+
+
+def list_tweet_cards(
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str = "",
+    category: str = "",
+    favorited: Any = None,
+) -> Dict[str, Any]:
+    result = list_cards(
+        page=page,
+        page_size=page_size,
+        keyword=keyword,
+        category=category,
+        favorited=_parse_favorited(favorited),
+    )
+    return {
+        "success": True,
+        **result,
+        "categories": list_categories(),
+        "stats": stats(),
+    }
+
+
+def patch_tweet_card(tweet_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    fields: Dict[str, Any] = {}
+    if "favorited" in body:
+        fields["favorited"] = bool(body.get("favorited"))
+    if "user_category" in body or "category" in body:
+        fields["user_category"] = str(
+            body.get("user_category") if "user_category" in body else body.get("category") or ""
+        ).strip()
+    card = update_card(tweet_id, fields)
+    if not card:
+        return {"success": False, "error": "未找到卡片"}
+    return {"success": True, "card": card, "stats": stats()}

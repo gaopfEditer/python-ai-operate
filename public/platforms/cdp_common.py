@@ -685,3 +685,161 @@ def type_text_human(
     except Exception:
         pass
     raise RuntimeError("编辑区写入异常（乱码或垃圾文本），已中止")
+
+
+_APPEND_TEXT_AT_CARET_JS = """
+const root = arguments[0];
+const text = String(arguments[1] || '');
+function pickEditable(n) {
+  if (!n) return null;
+  const tag = String(n.tagName || '').toUpperCase();
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return n;
+  if (n.isContentEditable && (n.getAttribute('role') === 'textbox' || n.className && String(n.className).includes('DraftEditor'))) return n;
+  const inner = n.querySelector && n.querySelector(
+    '[contenteditable="true"][role="textbox"], .public-DraftEditor-content[contenteditable="true"], [contenteditable="true"]'
+  );
+  if (inner) return inner;
+  if (n.isContentEditable) return n;
+  return n;
+}
+const el = pickEditable(root);
+if (!el) return { ok: false, got: '' };
+try { el.click(); } catch (_) {}
+el.focus && el.focus();
+const tag = String(el.tagName || '').toUpperCase();
+if (tag === 'TEXTAREA' || tag === 'INPUT') {
+  el.value = String(el.value || '') + text;
+  try {
+    const len = (el.value || '').length;
+    el.setSelectionRange(len, len);
+  } catch (_) {}
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return { ok: true, got: String(el.value || '') };
+}
+const sel = window.getSelection();
+if (!sel) return { ok: false, got: '' };
+const range = document.createRange();
+range.selectNodeContents(el);
+range.collapse(false);
+sel.removeAllRanges();
+sel.addRange(range);
+let inserted = false;
+try { inserted = !!document.execCommand('insertText', false, text); } catch (_) {}
+if (!inserted) {
+  try {
+    el.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true, cancelable: true, inputType: 'insertText', data: text
+    }));
+    el.dispatchEvent(new InputEvent('input', {
+      bubbles: true, inputType: 'insertText', data: text
+    }));
+  } catch (_) {}
+}
+const got = String(el.innerText || el.textContent || '').replace(/\\u200b/g, '');
+return { ok: true, got: got };
+"""
+
+
+def append_text_at_caret(driver, element, text: str) -> str:
+    """在光标处追加文本（不选中全文），适合 Draft.js 逐段写入。"""
+    chunk = sanitize_typed_text(text)
+    if not chunk:
+        return read_editor_text(driver, element)
+    try:
+        res = driver.execute_script(_APPEND_TEXT_AT_CARET_JS, element, chunk)
+        if isinstance(res, dict):
+            return str(res.get("got") or "")
+    except Exception:
+        pass
+    return read_editor_text(driver, element)
+
+
+def multiline_content_preserved(got: str, expected: str) -> bool:
+    """核对非空行是否按顺序出现在编辑区（允许 X 合并尾部空行、轻微空格差异）。"""
+    exp = sanitize_typed_text(expected or "")
+    if not exp:
+        return True
+    got_s = sanitize_typed_text(got or "")
+    pos = 0
+    seen = 0
+    for raw in exp.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        idx = got_s.find(line, pos)
+        if idx < 0:
+            return False
+        pos = idx + len(line)
+        seen += 1
+    if seen == 0:
+        return True
+    compact_exp = exp.replace("\n", "").replace(" ", "")
+    compact_got = got_s.replace("\n", "").replace(" ", "")
+    head = compact_exp[: min(12, len(compact_exp))]
+    if head and head not in compact_got:
+        return False
+    if any(0xE000 <= ord(c) <= 0xF8FF for c in compact_got):
+        return False
+    return True
+
+
+def type_text_multiline_soft_breaks(
+    driver,
+    element,
+    text: str,
+    *,
+    clear_first: bool = True,
+    line_pause: Tuple[float, float] = (0.03, 0.09),
+    break_pause: Tuple[float, float] = (0.05, 0.12),
+) -> str:
+    """
+    逐行 insertText + Shift+Enter，避免 X/Twitter 整段粘贴吞掉空行与行首空格。
+    空行：连续 Shift+Enter；有内容的行：在光标处追加后再换行。
+    """
+    from selenium.webdriver.common.action_chains import ActionChains
+    from selenium.webdriver.common.keys import Keys
+
+    body = sanitize_typed_text(text or "")
+    if not body:
+        return ""
+    if clear_first:
+        try:
+            driver.execute_script(_CLEAR_EDITOR_JS, element)
+        except Exception:
+            pass
+        human_pause(0.12, 0.25)
+    try:
+        element.click()
+    except Exception:
+        driver.execute_script("arguments[0].click(); arguments[0].focus();", element)
+    human_pause(0.08, 0.18)
+
+    lines = body.split("\n")
+    got = ""
+    for i, line in enumerate(lines):
+        if line:
+            got = append_text_at_caret(driver, element, line)
+            human_pause(*line_pause)
+        if i < len(lines) - 1:
+            ActionChains(driver).click(element).key_down(Keys.SHIFT).send_keys(
+                Keys.ENTER
+            ).key_up(Keys.SHIFT).perform()
+            human_pause(*break_pause)
+            got = read_editor_text(driver, element)
+
+    got = read_editor_text(driver, element)
+    if multiline_content_preserved(got, body):
+        return got
+    logger.warning(
+        "多行写入结果异常。期望前20字=%r 实际=%r",
+        body[:20],
+        (got or "")[:60],
+    )
+    try:
+        driver.execute_script(_CLEAR_EDITOR_JS, element)
+    except Exception:
+        pass
+    raise RuntimeError(
+        f"X 正文写入异常（空行/格式丢失），已中止: 期望前20={body[:20]!r} 实际={(got or '')[:40]!r}"
+    )

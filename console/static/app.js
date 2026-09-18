@@ -40,6 +40,9 @@ const state = {
   labConfigProfiles: [],
   sigMode: "list",
   sigConfig: {},
+  tcPage: 1,
+  tcCategories: [],
+  tcListMeta: { total: 0, pages: 1 },
 };
 
 const APP_MAIN_TAB_LS = "appMainTab";
@@ -6291,6 +6294,11 @@ function bind() {
 
   $("#btnTcIngest")?.addEventListener("click", () => runTweetCardIngest());
   $("#btnTcRefresh")?.addEventListener("click", () => loadTweetCards());
+  $("#btnTcApplyFilter")?.addEventListener("click", () => {
+    state.tcPage = 1;
+    tcSaveFilterPrefs();
+    loadTweetCards();
+  });
   const tcPrivacy = $("#tcHideSensitive");
   if (tcPrivacy) {
     tcPrivacy.checked = localStorage.getItem("tcHideSensitive") === "1";
@@ -6299,8 +6307,29 @@ function bind() {
       loadTweetCards();
     });
   }
+  tcRestoreFilterPrefs();
+  ["tcCategory", "tcFavorited", "tcPageSize"].forEach((id) => {
+    $("#" + id)?.addEventListener("change", () => {
+      state.tcPage = 1;
+      tcSaveFilterPrefs();
+      loadTweetCards();
+    });
+  });
   $("#tcKeyword")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") loadTweetCards();
+    if (e.key === "Enter") {
+      state.tcPage = 1;
+      tcSaveFilterPrefs();
+      loadTweetCards();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-tc-page]");
+    if (!btn) return;
+    e.preventDefault();
+    const page = Number(btn.getAttribute("data-tc-page"));
+    if (!page || page === state.tcPage) return;
+    state.tcPage = page;
+    loadTweetCards();
   });
 }
 
@@ -8622,8 +8651,92 @@ function fmtCount(n) {
   return String(Math.round(v));
 }
 
+const TC_FILTER_LS = "tcFilterPrefs";
+
 function isTcPrivacyOn() {
   return !!$("#tcHideSensitive")?.checked || localStorage.getItem("tcHideSensitive") === "1";
+}
+
+function tcSaveFilterPrefs() {
+  const prefs = {
+    category: $("#tcCategory")?.value || "",
+    favorited: $("#tcFavorited")?.value || "all",
+    pageSize: $("#tcPageSize")?.value || "20",
+    keyword: $("#tcKeyword")?.value.trim() || "",
+    page: state.tcPage || 1,
+  };
+  localStorage.setItem(TC_FILTER_LS, JSON.stringify(prefs));
+}
+
+function tcRestoreFilterPrefs() {
+  try {
+    const raw = localStorage.getItem(TC_FILTER_LS);
+    if (!raw) return;
+    const prefs = JSON.parse(raw);
+    if ($("#tcCategory") && prefs.category != null) $("#tcCategory").value = prefs.category;
+    if ($("#tcFavorited") && prefs.favorited != null) $("#tcFavorited").value = prefs.favorited;
+    if ($("#tcPageSize") && prefs.pageSize != null) $("#tcPageSize").value = String(prefs.pageSize);
+    if ($("#tcKeyword") && prefs.keyword != null) $("#tcKeyword").value = prefs.keyword;
+    if (prefs.page) state.tcPage = Number(prefs.page) || 1;
+  } catch (_) {}
+}
+
+function tcBuildQuery() {
+  const qs = new URLSearchParams();
+  qs.set("page", String(state.tcPage || 1));
+  qs.set("page_size", String($("#tcPageSize")?.value || 20));
+  const kw = $("#tcKeyword")?.value.trim();
+  if (kw) qs.set("keyword", kw);
+  const cat = $("#tcCategory")?.value || "";
+  if (cat) qs.set("category", cat);
+  const fav = $("#tcFavorited")?.value || "all";
+  if (fav && fav !== "all") qs.set("favorited", fav);
+  return qs;
+}
+
+function tcRenderCategoryOptions(categories, selected) {
+  const sel = $("#tcCategory");
+  if (!sel) return;
+  const cur = selected != null ? selected : sel.value;
+  const cats = Array.isArray(categories) ? categories : [];
+  state.tcCategories = cats;
+  sel.innerHTML =
+    `<option value="">全部类目</option>` +
+    cats.map((c) => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join("");
+  sel.value = cur || "";
+  if (cur && !cats.includes(cur)) {
+    const opt = document.createElement("option");
+    opt.value = cur;
+    opt.textContent = cur;
+    sel.appendChild(opt);
+    sel.value = cur;
+  }
+}
+
+function tcRenderPager(meta) {
+  const top = $("#tcPager");
+  const bottom = $("#tcPagerBottom");
+  const page = Number(meta.page || 1);
+  const pages = Number(meta.pages || 1);
+  const total = Number(meta.total || 0);
+  const html =
+    pages <= 1 && !total
+      ? ""
+      : `<div class="tc-pager-inner">
+          <button type="button" class="btn ghost xs" data-tc-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button>
+          <span class="muted">第 ${page} / ${pages} 页 · 共 ${total} 条${meta.stats && meta.stats.favorited != null ? ` · 收藏 ${meta.stats.favorited}` : ""}</span>
+          <button type="button" class="btn ghost xs" data-tc-page="${page + 1}" ${page >= pages ? "disabled" : ""}>下一页</button>
+        </div>`;
+  [top, bottom].forEach((el) => {
+    if (!el) return;
+    if (!html) {
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = html;
+  });
 }
 
 function tcAuthorView(c) {
@@ -8641,32 +8754,152 @@ function tcAuthorView(c) {
   };
 }
 
+async function tcPatchCard(tid, patch) {
+  const data = await api(`/api/tweet-cards/${encodeURIComponent(tid)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  if (!data.success) throw new Error(data.error || "更新失败");
+  return data.card;
+}
+
+async function tcDeleteCard(tid) {
+  const privacy = isTcPrivacyOn();
+  if (!tid || !confirm(privacy ? "删除这条卡片？" : `删除卡片 ${tid}？`)) return false;
+  await api(`/api/tweet-cards/${encodeURIComponent(tid)}`, { method: "DELETE" });
+  toast("已删除", "ok");
+  return true;
+}
+
+function tcShowCardContextMenu(ev, card) {
+  const tid = String(card.tweet_id || "");
+  if (!tid) return;
+  const categories = state.tcCategories || [];
+  const displayCat = String(card.display_category || card.user_category || card.category || "");
+  const hasUserCat = !!String(card.user_category || "").trim();
+  const items = [
+    {
+      label: card.favorited ? "取消收藏" : "加入收藏",
+      action: async () => {
+        await tcPatchCard(tid, { favorited: !card.favorited });
+        toast(card.favorited ? "已取消收藏" : "已收藏", "ok");
+        await loadTweetCards();
+      },
+    },
+  ];
+  categories.forEach((cat) => {
+    items.push({
+      label: `加入类目：${cat}`,
+      action: async () => {
+        await tcPatchCard(tid, { user_category: cat });
+        toast(`已加入「${cat}」`, "ok");
+        await loadTweetCards();
+      },
+    });
+  });
+  items.push({
+    label: "新建类目并加入…",
+    action: async () => {
+      const cat = prompt("输入新类目名称", displayCat || "");
+      if (cat == null) return;
+      const name = String(cat).trim();
+      if (!name) return;
+      await tcPatchCard(tid, { user_category: name });
+      toast(`已加入「${name}」`, "ok");
+      await loadTweetCards();
+    },
+  });
+  if (hasUserCat) {
+    items.push({
+      label: "移出类目",
+      action: async () => {
+        await tcPatchCard(tid, { user_category: "" });
+        toast("已移出类目", "ok");
+        await loadTweetCards();
+      },
+    });
+  }
+  items.push({
+    label: "删除",
+    danger: true,
+    action: async () => {
+      if (await tcDeleteCard(tid)) await loadTweetCards();
+    },
+  });
+  showAppCtxMenu(ev.clientX, ev.clientY, items);
+}
+
+function tcBindCardEvents(box, privacy) {
+  box.querySelectorAll(".tc-card").forEach((el) => {
+    const tid = el.getAttribute("data-tid") || "";
+    el.addEventListener("contextmenu", (ev) => {
+      if (ev.target.closest("a, button, input, textarea")) return;
+      ev.preventDefault();
+      const idx = Number(el.getAttribute("data-tc-idx"));
+      const items = (state.tcItems || [])[idx];
+      if (items) tcShowCardContextMenu(ev, items);
+    });
+  });
+  box.querySelectorAll("[data-tc-fav]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const tid = btn.getAttribute("data-tc-fav");
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      try {
+        await tcPatchCard(tid, { favorited: on });
+        await loadTweetCards();
+      } catch (err) {
+        toast(String(err), "error");
+      }
+    });
+  });
+  box.querySelectorAll("[data-tc-del]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const tid = btn.getAttribute("data-tc-del");
+      try {
+        if (await tcDeleteCard(tid)) await loadTweetCards();
+      } catch (e) {
+        toast(String(e), "error");
+      }
+    });
+  });
+}
+
 async function loadTweetCards() {
   const box = $("#tcCards");
   if (!box) return;
   const privacy = isTcPrivacyOn();
   box.classList.toggle("tc-privacy-on", privacy);
-  const kw = $("#tcKeyword")?.value.trim() || "";
+  tcSaveFilterPrefs();
   try {
-    const data = await api(
-      `/api/tweet-cards?limit=60${kw ? `&keyword=${encodeURIComponent(kw)}` : ""}`
-    );
+    const data = await api(`/api/tweet-cards?${tcBuildQuery().toString()}`);
     const items = data.items || [];
+    state.tcItems = items;
+    state.tcListMeta = {
+      total: data.total || 0,
+      pages: data.pages || 1,
+      page: data.page || 1,
+      stats: data.stats || {},
+    };
+    tcRenderCategoryOptions(data.categories || [], $("#tcCategory")?.value || "");
+    tcRenderPager({ ...state.tcListMeta, stats: data.stats });
     const badge = $("#countTweetCards");
-    if (badge) badge.textContent = String((data.stats && data.stats.total) || items.length);
+    if (badge) badge.textContent = String((data.stats && data.stats.total) || 0);
     if (!items.length) {
-      box.innerHTML = `<p class="muted">暂无卡片。粘贴推特链接后点「解析入库」。</p>`;
+      box.innerHTML = `<p class="muted">暂无卡片。粘贴推特链接后点「解析入库」，或调整筛选条件。</p>`;
       return;
     }
     box.innerHTML = items
-      .map((c) => {
+      .map((c, idx) => {
         const author = tcAuthorView(c);
         const avatar = author.avatar
           ? `<img class="tc-avatar" src="${escapeAttr(author.avatar)}" alt="" loading="lazy" />`
           : `<div class="tc-avatar" aria-hidden="true"></div>`;
+        const displayCat = c.display_category || c.user_category || c.category || "";
         const tags = [
+          c.favorited ? `<span class="tc-tag fav">★ 收藏</span>` : "",
           c.emotion ? `<span class="tc-tag emo">${escapeHtml(c.emotion)}</span>` : "",
-          c.category ? `<span class="tc-tag cat">${escapeHtml(c.category)}</span>` : "",
+          displayCat ? `<span class="tc-tag cat">${escapeHtml(displayCat)}</span>` : "",
           ...(c.tags || []).map((t) => `<span class="tc-tag">#${escapeHtml(String(t))}</span>`),
         ].join("");
         const points = (c.core_points || [])
@@ -8679,13 +8912,14 @@ async function loadTweetCards() {
           )
           .join("");
         const tid = String(c.tweet_id || "");
-        return `<article class="tc-card"${privacy ? "" : ` data-tid="${escapeAttr(tid)}"`}>
+        return `<article class="tc-card${c.favorited ? " is-favorited" : ""}" data-tid="${escapeAttr(tid)}" data-tc-idx="${idx}" title="右键：收藏 / 类目 / 删除">
           <div class="tc-head">
             ${avatar}
             <div class="tc-author">
               <strong>${escapeHtml(author.name)}</strong>
               <span>${escapeHtml(author.handle)}</span>
             </div>
+            <button type="button" class="tc-fav-btn${c.favorited ? " on" : ""}" data-tc-fav="${escapeAttr(tid)}" aria-pressed="${c.favorited ? "true" : "false"}" title="${c.favorited ? "取消收藏" : "收藏"}">${c.favorited ? "★" : "☆"}</button>
           </div>
           <p class="tc-summary">${escapeHtml(c.summary || (c.text || "").slice(0, 60))}</p>
           ${points ? `<ul class="tc-points">${points}</ul>` : ""}
@@ -8707,19 +8941,7 @@ async function loadTweetCards() {
         </article>`;
       })
       .join("");
-    box.querySelectorAll("[data-tc-del]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const tid = btn.getAttribute("data-tc-del");
-        if (!tid || !confirm(privacy ? "删除这条卡片？" : `删除卡片 ${tid}？`)) return;
-        try {
-          await api(`/api/tweet-cards/${encodeURIComponent(tid)}`, { method: "DELETE" });
-          toast("已删除", "ok");
-          await loadTweetCards();
-        } catch (e) {
-          toast(String(e), "error");
-        }
-      });
-    });
+    tcBindCardEvents(box, privacy);
   } catch (e) {
     box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
   }
@@ -8761,6 +8983,7 @@ async function runTweetCardIngest() {
         if (job.status === "done") {
           toast(result.message || "已入库", "ok");
           if ($("#tcInput")) $("#tcInput").value = "";
+          state.tcPage = 1;
           await loadTweetCards();
         }
         break;

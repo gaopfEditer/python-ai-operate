@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260917a" />
+  <link rel="stylesheet" href="/app.css?v=20260918a" />
 </head>
 <body>
   <div class="shell">
@@ -865,9 +865,37 @@
               <input id="tcKeyword" type="search" placeholder="作者 / 摘要 / 标签" />
             </label>
           </div>
+          <div class="tc-filters toolbar" style="margin:0;flex-wrap:wrap">
+            <label class="field" style="margin:0;min-width:140px">
+              <span>类目</span>
+              <select id="tcCategory">
+                <option value="">全部类目</option>
+              </select>
+            </label>
+            <label class="field" style="margin:0;min-width:120px">
+              <span>收藏</span>
+              <select id="tcFavorited">
+                <option value="all">全部</option>
+                <option value="1">已收藏</option>
+                <option value="0">未收藏</option>
+              </select>
+            </label>
+            <label class="field" style="margin:0;min-width:100px">
+              <span>每页</span>
+              <select id="tcPageSize">
+                <option value="12">12</option>
+                <option value="20" selected>20</option>
+                <option value="40">40</option>
+                <option value="60">60</option>
+              </select>
+            </label>
+            <button id="btnTcApplyFilter" class="btn ghost" type="button">应用筛选</button>
+          </div>
           <p id="tcStatus" class="status"></p>
         </div>
+        <div id="tcPager" class="tc-pager" hidden></div>
         <div id="tcCards" class="tc-cards"></div>
+        <div id="tcPagerBottom" class="tc-pager" hidden></div>
       </section>
       </section>
 
@@ -941,6 +969,6 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260917a"></script>
+  <script src="/app.js?v=20260918a"></script>
 </body>
 </html>

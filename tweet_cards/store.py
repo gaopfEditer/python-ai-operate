@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = PROJECT_ROOT / "output" / "tweet_cards.db"
@@ -50,6 +50,33 @@ def connect():
         conn.close()
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    cols = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(tweet_cards)").fetchall()
+    }
+    if "favorited" not in cols:
+        conn.execute(
+            "ALTER TABLE tweet_cards ADD COLUMN favorited INTEGER NOT NULL DEFAULT 0"
+        )
+    if "user_category" not in cols:
+        conn.execute(
+            "ALTER TABLE tweet_cards ADD COLUMN user_category TEXT NOT NULL DEFAULT ''"
+        )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_tweet_cards_favorited
+            ON tweet_cards(favorited);
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_tweet_cards_user_category
+            ON tweet_cards(user_category);
+        """
+    )
+
+
 def init_db() -> Path:
     with connect() as conn:
         conn.executescript(
@@ -78,6 +105,8 @@ def init_db() -> Path:
                 llm_json TEXT NOT NULL DEFAULT '{}',
                 source TEXT NOT NULL DEFAULT '',
                 raw_json TEXT NOT NULL DEFAULT '{}',
+                favorited INTEGER NOT NULL DEFAULT 0,
+                user_category TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -87,7 +116,12 @@ def init_db() -> Path:
                 ON tweet_cards(author_handle);
             """
         )
+        _migrate(conn)
     return DB_PATH
+
+
+def _effective_category_expr() -> str:
+    return "CASE WHEN user_category != '' THEN user_category ELSE category END"
 
 
 def _row_to_card(row: sqlite3.Row) -> Dict[str, Any]:
@@ -98,6 +132,11 @@ def _row_to_card(row: sqlite3.Row) -> Dict[str, Any]:
     d["tags"] = _loads(d.pop("tags_json", "[]"), [])
     d["llm"] = _loads(d.pop("llm_json", "{}"), {})
     d["raw"] = _loads(d.pop("raw_json", "{}"), {})
+    d["favorited"] = bool(int(d.get("favorited") or 0))
+    user_cat = str(d.get("user_category") or "").strip()
+    ai_cat = str(d.get("category") or "").strip()
+    d["user_category"] = user_cat
+    d["display_category"] = user_cat or ai_cat
     return d
 
 
@@ -116,8 +155,10 @@ def upsert_card(payload: Dict[str, Any]) -> Dict[str, Any]:
                 likes, replies, retweets, bookmarks, views,
                 images_json, media_json,
                 summary, core_points_json, emotion, tags_json, category,
-                llm_json, source, raw_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                llm_json, source, raw_json,
+                favorited, user_category,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?)
             ON CONFLICT(tweet_id) DO UPDATE SET
                 url=excluded.url,
                 author_name=excluded.author_name,
@@ -185,28 +226,122 @@ def get_card(tweet_id: str) -> Optional[Dict[str, Any]]:
     return _row_to_card(row) if row else None
 
 
-def list_cards(*, limit: int = 40, keyword: str = "") -> List[Dict[str, Any]]:
-    init_db()
-    lim = max(1, min(int(limit or 40), 200))
+def _build_list_query(
+    *,
+    keyword: str = "",
+    category: str = "",
+    favorited: Optional[bool] = None,
+) -> Tuple[str, List[Any]]:
+    where: List[str] = []
+    params: List[Any] = []
     kw = (keyword or "").strip()
+    if kw:
+        like = f"%{kw}%"
+        where.append(
+            """
+            (text LIKE ? OR summary LIKE ? OR author_handle LIKE ?
+             OR author_name LIKE ? OR tags_json LIKE ?)
+            """
+        )
+        params.extend([like, like, like, like, like])
+    cat = (category or "").strip()
+    if cat:
+        where.append(f"({_effective_category_expr()}) = ?")
+        params.append(cat)
+    if favorited is True:
+        where.append("favorited = 1")
+    elif favorited is False:
+        where.append("favorited = 0")
+    sql_where = f"WHERE {' AND '.join(where)}" if where else ""
+    return sql_where, params
+
+
+def list_cards(
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str = "",
+    category: str = "",
+    favorited: Optional[bool] = None,
+) -> Dict[str, Any]:
+    init_db()
+    pg = max(1, int(page or 1))
+    size = max(1, min(int(page_size or 20), 100))
+    offset = (pg - 1) * size
+    sql_where, params = _build_list_query(
+        keyword=keyword, category=category, favorited=favorited
+    )
     with connect() as conn:
-        if kw:
-            like = f"%{kw}%"
-            rows = conn.execute(
-                """
-                SELECT * FROM tweet_cards
-                WHERE text LIKE ? OR summary LIKE ? OR author_handle LIKE ?
-                   OR author_name LIKE ? OR tags_json LIKE ?
-                ORDER BY id DESC LIMIT ?
-                """,
-                (like, like, like, like, like, lim),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM tweet_cards ORDER BY id DESC LIMIT ?",
-                (lim,),
-            ).fetchall()
-    return [_row_to_card(r) for r in rows]
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM tweet_cards {sql_where}",
+            params,
+        ).fetchone()["c"]
+        rows = conn.execute(
+            f"""
+            SELECT * FROM tweet_cards
+            {sql_where}
+            ORDER BY favorited DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, size, offset],
+        ).fetchall()
+    items = [_row_to_card(r) for r in rows]
+    pages = max(1, (int(total) + size - 1) // size) if total else 1
+    return {
+        "items": items,
+        "total": int(total),
+        "page": pg,
+        "page_size": size,
+        "pages": pages,
+        "has_prev": pg > 1,
+        "has_next": pg < pages,
+    }
+
+
+def list_categories() -> List[str]:
+    init_db()
+    expr = _effective_category_expr()
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT {expr} AS cat
+            FROM tweet_cards
+            WHERE {expr} != ''
+            ORDER BY cat COLLATE NOCASE
+            """
+        ).fetchall()
+    return [str(r["cat"]) for r in rows if r["cat"]]
+
+
+def update_card(tweet_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    init_db()
+    tid = str(tweet_id or "").strip()
+    if not tid:
+        return None
+    sets: List[str] = []
+    params: List[Any] = []
+    if "favorited" in fields:
+        sets.append("favorited = ?")
+        params.append(1 if fields["favorited"] else 0)
+    if "user_category" in fields:
+        sets.append("user_category = ?")
+        params.append(str(fields.get("user_category") or "").strip())
+    if not sets:
+        return get_card(tid)
+    sets.append("updated_at = ?")
+    params.append(_now())
+    params.append(tid)
+    with connect() as conn:
+        cur = conn.execute(
+            f"UPDATE tweet_cards SET {', '.join(sets)} WHERE tweet_id = ?",
+            params,
+        )
+        if cur.rowcount <= 0:
+            return None
+        row = conn.execute(
+            "SELECT * FROM tweet_cards WHERE tweet_id=?", (tid,)
+        ).fetchone()
+    return _row_to_card(row) if row else None
 
 
 def delete_card(tweet_id: str) -> bool:
@@ -223,4 +358,11 @@ def stats() -> Dict[str, Any]:
     init_db()
     with connect() as conn:
         total = conn.execute("SELECT COUNT(*) AS c FROM tweet_cards").fetchone()["c"]
-    return {"total": total, "db": str(DB_PATH).replace("\\", "/")}
+        favorited = conn.execute(
+            "SELECT COUNT(*) AS c FROM tweet_cards WHERE favorited = 1"
+        ).fetchone()["c"]
+    return {
+        "total": total,
+        "favorited": favorited,
+        "db": str(DB_PATH).replace("\\", "/"),
+    }

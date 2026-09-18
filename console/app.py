@@ -1345,7 +1345,7 @@ def handle_api(
     # ── 文件上传：粘贴图片或拖拽图片 ───────────────────────────────
     if path == "/api/file/upload" and method == "POST":
         try:
-            import urllib.parse, uuid, base64, re
+            import urllib.parse, base64, re
             b64 = body.get("base64", "") if isinstance(body, dict) else ""
 
             if not b64:
@@ -2803,7 +2803,7 @@ def handle_api(
     # 大文件（视频等）粘贴上传 → base64 JSON 到服务器存储
     if path == "/api/publish/cache/media-upload" and method == "POST":
         from console import publish_queue as pq
-        import base64, uuid, mimetypes
+        import base64, mimetypes
 
         try:
             raw = body if isinstance(body, dict) else {}
@@ -3025,7 +3025,7 @@ def handle_api(
             return _json_bytes({"success": False, "error": str(e)})
 
     if path == "/api/realtime/gen-image" and method == "POST":
-        import shutil, uuid, subprocess, os as _os, time as _time
+        import shutil, subprocess, os as _os, time as _time
         from pathlib import Path as _Path
         item_id = str(body.get("id") or "")
         title = str(body.get("title") or "")
@@ -4351,15 +4351,36 @@ def handle_api(
         return _json_bytes(result, code)
 
     # ——— 推文卡片（粘贴链接解析） ———
+    if path == "/api/tweet-cards/categories" and method == "GET":
+        from tweet_cards.store import list_categories, stats
+
+        return _json_bytes(
+            {"success": True, "categories": list_categories(), "stats": stats()}
+        )
+
     if path == "/api/tweet-cards" and method == "GET":
         from tweet_cards.pipeline import list_tweet_cards
 
         try:
-            limit = int((query.get("limit") or ["40"])[0])
+            page = int((query.get("page") or ["1"])[0])
         except Exception:
-            limit = 40
+            page = 1
+        try:
+            page_size = int((query.get("page_size") or query.get("limit") or ["20"])[0])
+        except Exception:
+            page_size = 20
         keyword = (query.get("keyword") or [""])[0]
-        return _json_bytes(list_tweet_cards(limit=limit, keyword=keyword))
+        category = (query.get("category") or [""])[0]
+        favorited = (query.get("favorited") or [""])[0]
+        return _json_bytes(
+            list_tweet_cards(
+                page=page,
+                page_size=page_size,
+                keyword=keyword,
+                category=category,
+                favorited=favorited,
+            )
+        )
 
     if path == "/api/tweet-cards/ingest" and method == "POST":
         job_id = uuid.uuid4().hex[:12]
@@ -4411,17 +4432,24 @@ def handle_api(
         threading.Thread(target=_worker, daemon=True).start()
         return _json_bytes({"success": True, "job_id": job_id})
 
-    if path.startswith("/api/tweet-cards/") and method == "DELETE":
-        from tweet_cards.store import delete_card
-
-        tid = path[len("/api/tweet-cards/") :].strip("/")
-        if not tid:
+    if path.startswith("/api/tweet-cards/") and method in ("PATCH", "DELETE"):
+        rest = path[len("/api/tweet-cards/") :].strip("/")
+        if not rest or "/" in rest:
             return _json_bytes({"success": False, "error": "缺少 tweet_id"}, 400)
-        ok = delete_card(tid)
-        return _json_bytes(
-            {"success": ok, "error": None if ok else "未找到"},
-            200 if ok else 404,
-        )
+        tid = rest
+        if method == "DELETE":
+            from tweet_cards.store import delete_card
+
+            ok = delete_card(tid)
+            return _json_bytes(
+                {"success": ok, "error": None if ok else "未找到"},
+                200 if ok else 404,
+            )
+        from tweet_cards.pipeline import patch_tweet_card
+
+        result = patch_tweet_card(tid, body or {})
+        code = 200 if result.get("success") else 404
+        return _json_bytes(result, code)
 
     return _json_bytes({"success": False, "error": f"未知接口: {path}"}, 404)
 
