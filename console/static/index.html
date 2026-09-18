@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260913a" />
+  <link rel="stylesheet" href="/app.css?v=20260917a" />
 </head>
 <body>
   <div class="shell">
@@ -66,14 +66,22 @@
         <div class="lab-workbench">
           <!-- 左：语料与采集 -->
           <aside class="lab-col lab-left">
-            <form id="labCaptureForm" class="lab-capture">
-              <input id="labCaptureInput" type="text" placeholder="粘贴推文 / 链接 / 碎片…" autocomplete="off" />
-            </form>
             <div class="lab-material-bar">
-              <span class="lab-material-label">素材类目</span>
-              <div id="labMaterialTabs" class="lab-material-tabs"></div>
+              <span class="lab-material-label">进料口 · 产线</span>
+              <div id="labProductionLines" class="lab-production-lines"></div>
+              <div id="labPersonaBar" class="lab-persona-bar"></div>
+              <div id="labMaterialTabs" class="lab-material-tabs lab-sub-templates"></div>
             </div>
             <div id="labContentMix" class="lab-content-mix" hidden></div>
+            <form id="labCaptureForm" class="lab-capture-struct">
+              <div class="lab-capture-grid">
+                <label class="lab-capture-field"><span>事实</span><input id="labCaptureFact" type="text" placeholder="一句话数字/事件" autocomplete="off" /></label>
+                <label class="lab-capture-field"><span>谁痛</span><input id="labCapturePain" type="text" placeholder="谁会亏、谁会骂" autocomplete="off" /></label>
+                <label class="lab-capture-field"><span>能站哪边</span><input id="labCaptureStance" type="text" placeholder="12字内结论" maxlength="24" autocomplete="off" /></label>
+              </div>
+              <button type="submit" class="btn ghost btn-sm lab-capture-btn">快捕入库</button>
+              <input id="labCaptureInput" type="hidden" value="" />
+            </form>
             <div id="labCategoryTemplates" class="lab-category-templates" hidden>
               <div class="lab-category-templates-head">
                 <span>类目结构模板</span>
@@ -101,26 +109,37 @@
           <section class="lab-col lab-center">
             <div class="lab-tray-head">
               <h3>合成器</h3>
-              <span class="lab-tray-badge" id="labTrayBadge">已选 0/3</span>
+              <span class="lab-tray-badge" id="labTrayBadge">主料未选 · 旧钩子 0/2</span>
             </div>
+            <p class="lab-tray-hint muted" id="labBlocksHint">选 1 条主料；旧钩子仅从下方「精选留存」拖入（撕/问）</p>
             <div id="labBlocks" class="lab-tray"></div>
             <label class="lab-field">
-              <span>热点事件</span>
-              <input id="regenTopic" type="text" placeholder="当前要写的热点…" />
+              <span>本轮只写这一件事</span>
+              <input id="regenTopic" type="text" placeholder="来源：币安热榜#3｜事实：CL 4h资金费 -0.01%｜不要写第二件事" />
+              <div id="labTopicChips" class="lab-topic-chips"></div>
             </label>
             <div class="lab-field">
-              <span>叙事配方</span>
+              <span>叙事配方 <em class="muted lab-field-sub">主 1 + 辅最多 1</em></span>
               <div class="lab-formulas" id="labFormulas"></div>
+              <div class="lab-formulas-secondary" id="labFormulasSecondary" hidden>
+                <span class="muted lab-formula-aux-label">辅配方（可选）</span>
+                <div class="lab-formulas" id="labFormulasAux"></div>
+              </div>
             </div>
             <div class="lab-field">
               <div class="lab-field-head">
-                <span>实验室后处理</span>
-                <button id="btnLabProfileConfig" class="btn ghost xs" type="button" title="编辑三套 Prompt 配置">⚙ 配置 Prompt</button>
+                <span>出货形态</span>
+                <button id="btnLabProfileConfig" class="btn ghost xs" type="button" title="编辑三套产线 Prompt">⚙ 配置 Prompt</button>
               </div>
               <div class="lab-profiles" id="labProfiles"></div>
-              <p class="lab-profile-hint muted" id="labProfileHint">通用：归纳提示词 + 三版短贴</p>
+              <div class="lab-profile-attachments muted" id="labProfileAttachments"></div>
+              <p class="lab-profile-hint muted" id="labProfileHint">通用短贴 · 广场/动态</p>
             </div>
-            <input id="regenPrompt" type="text" class="lab-extra-input" placeholder="补充要求（可选）" />
+            <div class="lab-field">
+              <span>补充要求</span>
+              <div id="labSupplementChips" class="lab-supplement-chips"></div>
+              <input id="regenPrompt" type="text" class="lab-extra-input" placeholder="芯片不够时再手填…" />
+            </div>
             <input id="regenStyle" type="hidden" value="X/Twitter" />
             <input id="regenTemplateIds" type="hidden" value="" />
             <button id="btnCorpusRegen" class="btn primary lab-gen-btn" type="button">生成 3 个变体</button>
@@ -150,6 +169,7 @@
               </div>
             </div>
             <div class="lab-tweaks" id="labTweaks" hidden>
+              <button type="button" class="chip-action" data-tweak="hook_only">只改第一句</button>
               <button type="button" class="chip-action" data-tweak="sharper_hook">强化 Hook</button>
               <button type="button" class="chip-action" data-tweak="more_colloquial">更口语</button>
               <button type="button" class="chip-action" data-tweak="add_data">加数据</button>
@@ -169,13 +189,12 @@
               <button id="btnLabPublishPreview" class="btn ghost" type="button">CDP 发布</button>
             </div>
             <div class="lab-hist-head">
-              <h4 class="lab-hist-title">精选留存历史</h4>
+              <h4 class="lab-hist-title">精选留存 <em class="muted">可拖旧钩子</em></h4>
               <button id="btnLoadFeatured" class="btn ghost xs" type="button">刷新</button>
             </div>
             <div id="corpusGenList" class="lab-gen-hist"></div>
             <div id="corpusTplHistory" hidden></div>
             <pre id="corpusRegenOut" hidden></pre>
-            <div id="labBlocksHint" hidden></div>
           </aside>
         </div>
         </div>
@@ -279,14 +298,15 @@
 
         <dialog id="labPublishPreviewDialog" class="corpus-dialog lab-publish-dialog">
           <form method="dialog" id="labPublishPreviewForm" class="form-grid">
-            <h3 style="grid-column:1/-1;margin:0">发布预览</h3>
+            <h3 style="grid-column:1/-1;margin:0">发布预览 · 出厂检查</h3>
+            <ul id="labPublishChecklist" class="lab-publish-checklist"></ul>
             <p class="lab-preview-meta muted" id="labPublishPreviewMeta"></p>
             <p class="lab-preview-hook" id="labPublishPreviewHook"></p>
             <pre class="lab-preview-body" id="labPublishPreviewBody"></pre>
-            <p class="muted lab-preview-note">确认后将带入「CDP 发布」页，可继续编辑正文、选择平台并通过 CDP 发布。</p>
+            <p class="muted lab-preview-note">四项检查通过后才能发布。确认后将带入「CDP 发布」页。</p>
             <div class="field full lab-preview-actions">
               <button value="cancel" class="btn ghost" type="submit">取消</button>
-              <button id="btnLabPublishConfirm" value="confirm" class="btn primary" type="submit">送到 CDP 发布</button>
+              <button id="btnLabPublishConfirm" value="confirm" class="btn primary" type="submit" disabled>送到 CDP 发布</button>
             </div>
           </form>
         </dialog>
@@ -921,6 +941,6 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260913a"></script>
+  <script src="/app.js?v=20260917a"></script>
 </body>
 </html>

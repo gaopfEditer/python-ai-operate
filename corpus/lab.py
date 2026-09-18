@@ -60,6 +60,7 @@ FORMULA_PRESETS: Dict[str, Dict[str, str]] = {
 }
 
 TWEAK_PRESETS: Dict[str, str] = {
+    "hook_only": "只改第一句钩子（≤18字优先），正文其余段落一字不改。只输出完整帖子正文。",
     "sharper_hook": "只重写开头钩子，让第一句更刺眼、更抓人；后文保持大意。只输出完整帖子正文。",
     "more_colloquial": "整体改得更口语、像真人随手发的；保留核心观点。只输出完整帖子正文。",
     "add_data": "在合适位置补充具体数字/参数/对比（可合理推断但要像真实经验）。只输出完整帖子正文。",
@@ -911,6 +912,12 @@ def feature_variant(
     variant_id: str = "",
     variant_label: str = "",
     formula_id: str = "",
+    structure_name: str = "",
+    production_line: str = "",
+    number_part: str = "",
+    engagement: str = "",
+    persona: str = "",
+    account_type: str = "",
     generation_id: Optional[int] = None,
     template_ids: Optional[Sequence[int]] = None,
     source_cards: Optional[List[Dict[str, Any]]] = None,
@@ -946,6 +953,12 @@ def feature_variant(
         "variant_id": variant_id or "",
         "variant_label": variant_label or "",
         "formula": formula_id or "",
+        "structure_name": (structure_name or formula_id or "").strip(),
+        "production_line": (production_line or "").strip(),
+        "number_part": (number_part or "").strip(),
+        "engagement": (engagement or "静").strip(),
+        "persona": (persona or "").strip(),
+        "account_type": (account_type or "").strip(),
         "platform_style": platform_style or "",
         "note": (note or "").strip(),
         "full_content": content,
@@ -962,6 +975,8 @@ def feature_variant(
         "variant_id": variant_id or "",
         "variant_label": variant_label or "",
         "formula": formula_id or "",
+        "production_line": (production_line or "").strip(),
+        "engagement": (engagement or "静").strip(),
         "template_ids": [t.get("id") for t in tmpls] or tids,
         "mode": "lab_feature",
     }

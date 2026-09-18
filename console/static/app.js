@@ -10,10 +10,18 @@ const state = {
   historyPlatform: "",
   taskStatus: "all",
   corpusSelected: new Set(),
+  corpusMainId: null,
+  corpusHookGenIds: new Set(),
   corpusItems: [],
+  corpusGenerations: [],
+  labProductionLine: localStorage.getItem("labProductionLine") || "A",
+  labPersona: localStorage.getItem("labPersona") || "ledger",
+  labQuotaPreset: localStorage.getItem("labQuotaPreset") || "cold",
   labFormula: localStorage.getItem("labFormula") || "contrarian",
+  labFormulaSecondary: localStorage.getItem("labFormulaSecondary") || "",
   labProfile: localStorage.getItem("labProfile") || "general",
-  labMaterialCategory: localStorage.getItem("labMaterialCategory") || "all",
+  labMaterialCategory: localStorage.getItem("labMaterialCategory") || "toolkit",
+  labSupplementChips: new Set(["1000u", "hook18", "number", "cta"]),
   labMaterialCategories: [],
   labContentMix: [],
   labCategoryTemplates: [],
@@ -98,17 +106,25 @@ function snapshotLabSession() {
       saved_at: Date.now(),
       tabs: {
         labMode: state.labMode || "lab",
-        materialCategory: state.labMaterialCategory || "all",
+        productionLine: state.labProductionLine || "A",
+        persona: state.labPersona || "ledger",
+        quotaPreset: state.labQuotaPreset || "cold",
+        materialCategory: state.labMaterialCategory || "toolkit",
         formula: state.labFormula || "contrarian",
+        formulaSecondary: state.labFormulaSecondary || "",
         profile: state.labProfile || "general",
         corpusStatus: $("#corpusStatus")?.value ?? "active",
         tagFilter: state.labTagFilter || "",
+        supplementChips: [...(state.labSupplementChips || [])],
       },
       forms: {
         topic: $("#regenTopic")?.value || "",
         prompt: $("#regenPrompt")?.value || "",
         style: $("#regenStyle")?.value || "X/Twitter",
         keyword: $("#corpusKeyword")?.value || "",
+        captureFact: $("#labCaptureFact")?.value || "",
+        capturePain: $("#labCapturePain")?.value || "",
+        captureStance: $("#labCaptureStance")?.value || "",
         capture: $("#labCaptureInput")?.value || "",
         xgrowthLimit: $("#xgrowthLimit")?.value || "8",
         xgrowthMinVel: $("#xgrowthMinVel")?.value || "0",
@@ -116,7 +132,9 @@ function snapshotLabSession() {
         xgrowthOpenTweet: !!$("#xgrowthOpenTweet")?.checked,
       },
       results: {
-        selectedIds: [...(state.corpusSelected || [])].map(Number).filter(Boolean).slice(0, 3),
+        mainId: state.corpusMainId,
+        hookGenIds: [...(state.corpusHookGenIds || [])].map(Number).filter(Boolean).slice(0, 2),
+        selectedIds: labTrayTemplateIds(),
         corpusItems: (state.corpusItems || [])
           .slice(0, 80)
           .map(_labSlimCorpusItem)
@@ -144,6 +162,10 @@ function snapshotLabSession() {
     localStorage.setItem("labProfile", payload.tabs.profile);
     localStorage.setItem("labMaterialCategory", payload.tabs.materialCategory);
     localStorage.setItem("labFormula", payload.tabs.formula);
+    localStorage.setItem("labFormulaSecondary", payload.tabs.formulaSecondary || "");
+    localStorage.setItem("labProductionLine", payload.tabs.productionLine || "A");
+    localStorage.setItem("labPersona", payload.tabs.persona || "ledger");
+    localStorage.setItem("labQuotaPreset", payload.tabs.quotaPreset || "cold");
     localStorage.setItem("appLabMode", payload.tabs.labMode);
   } catch (_) {
     /* quota / private mode */
@@ -165,9 +187,14 @@ function restoreLabSessionTabsAndForms(cached) {
   const tabs = c.tabs || {};
   const forms = c.forms || {};
   if (tabs.labMode) state.labMode = tabs.labMode === "memos" ? "memos" : "lab";
+  if (tabs.productionLine) state.labProductionLine = String(tabs.productionLine);
+  if (tabs.persona) state.labPersona = String(tabs.persona);
+  if (tabs.quotaPreset) state.labQuotaPreset = String(tabs.quotaPreset);
   if (tabs.materialCategory) state.labMaterialCategory = String(tabs.materialCategory);
   if (tabs.formula) state.labFormula = String(tabs.formula);
+  if (tabs.formulaSecondary != null) state.labFormulaSecondary = String(tabs.formulaSecondary || "");
   if (tabs.profile) state.labProfile = String(tabs.profile);
+  if (Array.isArray(tabs.supplementChips)) state.labSupplementChips = new Set(tabs.supplementChips);
   if (tabs.tagFilter != null) state.labTagFilter = String(tabs.tagFilter || "");
   if ($("#corpusStatus") && tabs.corpusStatus != null) {
     $("#corpusStatus").value = tabs.corpusStatus;
@@ -176,6 +203,9 @@ function restoreLabSessionTabsAndForms(cached) {
   if ($("#regenPrompt") && forms.prompt != null) $("#regenPrompt").value = forms.prompt;
   if ($("#regenStyle") && forms.style) $("#regenStyle").value = forms.style;
   if ($("#corpusKeyword") && forms.keyword != null) $("#corpusKeyword").value = forms.keyword;
+  if ($("#labCaptureFact") && forms.captureFact != null) $("#labCaptureFact").value = forms.captureFact;
+  if ($("#labCapturePain") && forms.capturePain != null) $("#labCapturePain").value = forms.capturePain;
+  if ($("#labCaptureStance") && forms.captureStance != null) $("#labCaptureStance").value = forms.captureStance;
   if ($("#labCaptureInput") && forms.capture != null) $("#labCaptureInput").value = forms.capture;
   if ($("#xgrowthLimit") && forms.xgrowthLimit != null) $("#xgrowthLimit").value = forms.xgrowthLimit;
   if ($("#xgrowthMinVel") && forms.xgrowthMinVel != null) $("#xgrowthMinVel").value = forms.xgrowthMinVel;
@@ -198,14 +228,15 @@ function restoreLabSessionResults(cached) {
       state.corpusItems = r.corpusItems;
     }
   }
-  if (Array.isArray(r.selectedIds) && r.selectedIds.length) {
-    const alive = new Set((state.corpusItems || []).map((x) => Number(x.id)));
-    const ids = r.selectedIds
-      .map(Number)
-      .filter((id) => alive.has(id) || !(state.corpusItems || []).length)
-      .slice(0, 3);
-    if (ids.length) state.corpusSelected = new Set(ids);
+  if (r.mainId != null) {
+    state.corpusMainId = Number(r.mainId) || null;
+  } else if (Array.isArray(r.selectedIds) && r.selectedIds.length) {
+    state.corpusMainId = Number(r.selectedIds[0]) || null;
   }
+  if (Array.isArray(r.hookGenIds) && r.hookGenIds.length) {
+    state.corpusHookGenIds = new Set(r.hookGenIds.map(Number).filter(Boolean).slice(0, 2));
+  }
+  syncCorpusSelectionFromTray();
   if (Array.isArray(r.variants) && r.variants.length) {
     const idx = Number(r.activeVariantIdx);
     if (Array.isArray(r.imagePick)) {
@@ -754,20 +785,32 @@ function switchTab(name) {
   }
   if (name === "corpus") {
     const cached = hydrateLabSessionOnEnter();
+    if (!state.labProductionLine || state.labMaterialCategory === "all") {
+      state.labProductionLine = state.labProductionLine || "A";
+      applyProductionLineDefaults({ reload: false });
+    }
     loadLabMaterials().then(() => {
+      renderLabProductionLines();
+      renderLabPersonaBar();
       renderLabMaterialTabs();
       renderLabContentMix();
+      renderLabTopicChips();
+      renderLabSupplementChips();
+      renderLabBlocks();
     });
     loadLabFormulas();
     if (cached) restoreLabSessionResults(cached);
     loadCorpus().then(() => {
       if (cached) {
         const r = cached.results || {};
-        if (Array.isArray(r.selectedIds) && r.selectedIds.length) {
+        if (r.mainId != null || (Array.isArray(r.selectedIds) && r.selectedIds.length)) {
           const alive = new Set((state.corpusItems || []).map((x) => Number(x.id)));
-          const ids = r.selectedIds.map(Number).filter((id) => alive.has(id)).slice(0, 3);
-          if (ids.length) {
-            state.corpusSelected = new Set(ids);
+          const mid = Number(r.mainId || r.selectedIds?.[0]);
+          if (mid && alive.has(mid)) {
+            state.corpusMainId = mid;
+            if (Array.isArray(r.hookGenIds)) {
+              state.corpusHookGenIds = new Set(r.hookGenIds.map(Number).filter(Boolean).slice(0, 2));
+            }
             renderCorpusItems(state.corpusItems || []);
             syncCorpusSelectionInput();
           }
@@ -912,50 +955,226 @@ const LAYER_LABEL = {
 };
 
 const LAB_FORMULAS_FALLBACK = [
-  { id: "contrarian", label: "反常识批判风", emoji: "⚡", blurb: "否定直觉 → 隐藏代价 → 底层解法" },
-  { id: "build_public", label: "Build in Public 复盘", emoji: "🧪", blurb: "踩坑数据 → 实验对比 → 通用经验" },
-  { id: "absurd", label: "荒诞讽刺风", emoji: "🎭", blurb: "严肃日常 → 荒谬反转 → 时代痛点" },
-  { id: "checklist", label: "硬核极简清单", emoji: "🛠️", blurb: "痛点 → 3点建议 → 落地指令" },
+  { id: "contrarian", label: "反常识批判风", emoji: "⚡", blurb: "A线：费率/杠杆/展期", line: "A", role: "primary" },
+  { id: "build_public", label: "Build in Public 复盘", emoji: "🧪", blurb: "B线：广场热榜复盘", line: "B", role: "primary" },
+  { id: "absurd", label: "荒诞讽刺刺风", emoji: "🎭", blurb: "C线：对立/隐喻", line: "C", role: "primary" },
+  { id: "checklist", label: "硬核极简清单", emoji: "🛠️", blurb: "仅配图/加数据附件", line: "", role: "aux" },
 ];
 
-const LAB_PROFILE_MATERIAL_MAP = {
-  general: "x_hot",
-  technical: "market",
-  longform_video: "thread",
+const LAB_PRODUCTION_LINES = {
+  A: {
+    id: "A",
+    label: "交易认知",
+    emoji: "📊",
+    persona: "ledger",
+    personaLabel: "账房",
+    categories: ["toolkit", "market", "signal"],
+    defaultFormula: "contrarian",
+    defaultProfile: "general",
+    accountType: "认知号",
+    imageTemplate: "三列对比",
+    variantHint: "A刺眼 · B干货 · C故事",
+  },
+  B: {
+    id: "B",
+    label: "热点二创",
+    emoji: "🔥",
+    persona: "reviewer",
+    personaLabel: "复盘员",
+    categories: ["kol_review", "onchain", "tokenomics", "general"],
+    defaultFormula: "build_public",
+    defaultProfile: "technical",
+    accountType: "热点号",
+    imageTemplate: "杠杆对照",
+    variantHint: "A刺眼 · B干货 · C故事",
+  },
+  C: {
+    id: "C",
+    label: "情绪引流",
+    emoji: "⚡",
+    persona: "provocateur",
+    personaLabel: "刺儿头",
+    categories: ["derivatives", "engagement", "general"],
+    defaultFormula: "absurd",
+    defaultProfile: "general",
+    accountType: "情绪号",
+    imageTemplate: "大字金句",
+    variantHint: "A刺眼 · B干货 · C故事",
+  },
 };
+
+const LAB_QUOTA_PRESETS = {
+  cold: { label: "冷启动", A: 30, B: 20, C: 50 },
+  trust: { label: "有信任后", A: 40, B: 30, C: 30 },
+};
+
+const LAB_PERSONAS = [
+  { id: "ledger", label: "账房", line: "A" },
+  { id: "reviewer", label: "复盘员", line: "B" },
+  { id: "provocateur", label: "刺儿头", line: "C" },
+];
+
+const LAB_TOPIC_SOURCE_CHIPS = [
+  { id: "plaza", prefix: "来源：广场热榜｜" },
+  { id: "okx", prefix: "来源：OKX｜" },
+  { id: "macro", prefix: "来源：宏观日历｜" },
+  { id: "reheat", prefix: "来源：旧帖翻炒｜" },
+];
+
+const LAB_SUPPLEMENT_CHIP_DEFS = [
+  { id: "1000u", text: "1000U对照（10x/100x）" },
+  { id: "hook18", text: "第一句≤18字可截图" },
+  { id: "number", text: "必须有一个具体费率/价格" },
+  { id: "cta", text: "结尾二选一逼评" },
+  { id: "no_research", text: "分账号：不要写成投研口吻（C线）" },
+  { id: "no_predict", text: "禁止预测涨跌" },
+];
 
 const LAB_PROFILES_FALLBACK = [
   {
     id: "general",
     label: "通用短贴",
     emoji: "📝",
-    blurb: "归纳可复用提示词 + A/B/C 三版短贴",
+    blurb: "默认 · 广场/动态",
     variant_hint: "A 刺眼 · B 干货 · C 故事",
+    output_role: "primary",
+    lines: ["A", "B", "C"],
   },
   {
     id: "technical",
-    label: "行情/宏观技术分析",
+    label: "宏观快评",
     emoji: "📊",
-    blurb: "技术面 · 宏观 · 交易计划（美联储/数据）",
-    variant_hint: "A 技术面 · B 宏观 · C 交易计划",
+    blurb: "B线 · 带日历/数据",
+    variant_hint: "A 刺眼 · B 干货 · C 故事",
+    output_role: "primary",
+    lines: ["B"],
   },
   {
     id: "longform_video",
-    label: "结构化长文·转视频",
+    label: "口播/长文",
     emoji: "🎬",
-    blurb: "口播大纲 · 分镜 · 完整视频稿",
-    variant_hint: "A 口播大纲 · B 分镜 · C 完整稿",
+    blurb: "短线暂不用",
+    variant_hint: "—",
+    output_role: "disabled",
+    lines: [],
   },
 ];
+
+function labCurrentLine() {
+  return LAB_PRODUCTION_LINES[state.labProductionLine || "A"] || LAB_PRODUCTION_LINES.A;
+}
+
+function labTrayTemplateIds() {
+  const ids = [];
+  if (state.corpusMainId) ids.push(Number(state.corpusMainId));
+  return ids.filter(Boolean);
+}
+
+function syncCorpusSelectionFromTray() {
+  const ids = labTrayTemplateIds();
+  state.corpusSelected = new Set(ids);
+}
+
+function applyProductionLineDefaults({ reload = true } = {}) {
+  const line = labCurrentLine();
+  state.labPersona = line.persona;
+  state.labFormula = line.defaultFormula;
+  state.labFormulaSecondary = "";
+  state.labProfile = line.defaultProfile;
+  if (!line.categories.includes(state.labMaterialCategory)) {
+    state.labMaterialCategory = line.categories[0] || "toolkit";
+  }
+  localStorage.setItem("labProductionLine", state.labProductionLine);
+  localStorage.setItem("labPersona", state.labPersona);
+  localStorage.setItem("labFormula", state.labFormula);
+  localStorage.setItem("labFormulaSecondary", "");
+  localStorage.setItem("labProfile", state.labProfile);
+  localStorage.setItem("labMaterialCategory", state.labMaterialCategory);
+  renderLabProductionLines();
+  renderLabPersonaBar();
+  renderLabMaterialTabs();
+  renderLabContentMix();
+  renderLabFormulas(LAB_FORMULAS_FALLBACK);
+  renderLabProfiles(LAB_PROFILES_FALLBACK);
+  syncLabSupplementPrompt();
+  if (reload) loadCorpus();
+}
+
+function labBuildSupplementPrompt() {
+  const chips = LAB_SUPPLEMENT_CHIP_DEFS.filter((c) => (state.labSupplementChips || new Set()).has(c.id));
+  const manual = $("#regenPrompt")?.value.trim() || "";
+  const parts = chips.map((c) => c.text);
+  if (manual && !parts.includes(manual)) parts.push(manual);
+  return parts.join("；");
+}
+
+function syncLabSupplementPrompt() {
+  const chips = LAB_SUPPLEMENT_CHIP_DEFS.filter((c) => (state.labSupplementChips || new Set()).has(c.id));
+  const hidden = chips.map((c) => c.text).join("；");
+  const manual = ($("#regenPrompt")?.value || "").replace(/^(默认：)?.*$/, "").trim();
+  /* keep manual extra in regenPrompt input; chips merged at generate time */
+  void hidden;
+  renderLabSupplementChips();
+}
+
+function labBuildCaptureText() {
+  const fact = $("#labCaptureFact")?.value.trim() || "";
+  const pain = $("#labCapturePain")?.value.trim() || "";
+  const stance = $("#labCaptureStance")?.value.trim() || "";
+  const rows = [];
+  if (fact) rows.push(`事实：${fact}`);
+  if (pain) rows.push(`谁痛：${pain}`);
+  if (stance) rows.push(`能站哪边：${stance}`);
+  const text = rows.join("\n");
+  if ($("#labCaptureInput")) $("#labCaptureInput").value = text;
+  return text;
+}
+
+function labParseCapturePaste(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return;
+  const lines = raw.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  let fact = "";
+  let pain = "";
+  let stance = "";
+  for (const line of lines) {
+    if (/^事实[：:]/.test(line)) fact = line.replace(/^事实[：:]\s*/, "");
+    else if (/^谁痛[：:]/.test(line)) pain = line.replace(/^谁痛[：:]\s*/, "");
+    else if (/^(能站哪边|站边)[：:]/.test(line)) stance = line.replace(/^(能站哪边|站边)[：:]\s*/, "");
+    else if (!fact) fact = line;
+    else if (!pain) pain = line;
+    else if (!stance) stance = line.slice(0, 24);
+  }
+  if ($("#labCaptureFact") && fact) $("#labCaptureFact").value = fact;
+  if ($("#labCapturePain") && pain) $("#labCapturePain").value = pain;
+  if ($("#labCaptureStance") && stance) $("#labCaptureStance").value = stance.slice(0, 24);
+  labBuildCaptureText();
+}
+
+function labHookGenerations() {
+  const ids = [...(state.corpusHookGenIds || [])];
+  return ids
+    .map((id) => (state.corpusGenerations || []).find((g) => Number(g.id) === Number(id)))
+    .filter(Boolean);
+}
+
+function labFormulaAllowed(formulaId, asSecondary = false) {
+  const line = state.labProductionLine || "A";
+  const f = LAB_FORMULAS_FALLBACK.find((x) => x.id === formulaId);
+  if (!f) return false;
+  if (f.role === "aux") return asSecondary;
+  if (f.line && f.line !== line) return false;
+  return f.role === "primary";
+}
 
 function updateLabSteps() {
   const steps = document.querySelectorAll("#labSteps [data-step]");
   if (!steps.length) return;
-  const hasCards = (state.corpusSelected || new Set()).size > 0;
+  const hasMain = Boolean(state.corpusMainId);
   const hasTopic = Boolean($("#regenTopic")?.value.trim());
   const hasVariants = Boolean((state.labVariants || []).length);
   const hasPick = Boolean(state.labActiveVariant?.content);
-  const active = hasPick ? 4 : hasVariants ? 4 : hasTopic && hasCards ? 3 : hasTopic || hasCards ? 2 : 1;
+  const active = hasPick ? 4 : hasVariants ? 4 : hasTopic && hasMain ? 3 : hasTopic || hasMain ? 2 : 1;
   steps.forEach((el) => {
     const n = Number(el.getAttribute("data-step"));
     el.classList.toggle("on", n === active);
@@ -964,73 +1183,164 @@ function updateLabSteps() {
 }
 
 function syncCorpusSelectionInput() {
-  const ids = [...(state.corpusSelected || [])].sort((a, b) => a - b);
+  syncCorpusSelectionFromTray();
+  const ids = labTrayTemplateIds();
   const el = $("#regenTemplateIds");
   if (el) el.value = ids.join(", ");
   renderLabBlocks();
+  const hookN = (state.corpusHookGenIds || new Set()).size;
   const badge = $("#labTrayBadge");
-  if (badge) badge.textContent = `已选 ${ids.length}/3`;
+  if (badge) {
+    badge.textContent = state.corpusMainId
+      ? `主料 #${state.corpusMainId} · 旧钩子 ${hookN}/2`
+      : `主料未选 · 旧钩子 ${hookN}/2`;
+    badge.classList.toggle("is-warn", !state.corpusMainId);
+  }
   const meta = $("#corpusMeta");
-  if (meta) meta.textContent = `${(state.corpusItems || []).length} 张语料`;
+  if (meta) {
+    const line = labCurrentLine();
+    meta.textContent = `${line.label} · ${(state.corpusItems || []).length} 张 · 主料 ${state.corpusMainId ? "✓" : "—"}`;
+  }
   if (typeof updateLabSteps === "function") updateLabSteps();
   scheduleLabSessionSave();
 }
 
 function renderLabBlocks() {
   const box = $("#labBlocks");
-  const hint = $("#labBlocksHint");
   if (!box) return;
-  const ids = [...(state.corpusSelected || [])];
-  if (!ids.length) {
-    box.innerHTML = "";
-    if (hint) hint.hidden = false;
-    return;
+  const blocks = [];
+  if (state.corpusMainId) {
+    const it = (state.corpusItems || []).find((x) => Number(x.id) === Number(state.corpusMainId)) || {
+      id: state.corpusMainId,
+    };
+    const factors = it.factors || {};
+    const hook = it.hooks || factors.hook || it.pattern || "";
+    blocks.push(`<div class="lab-block lab-block-main" data-slot="main">
+      <span class="lab-block-badge">主料</span>
+      <p>${escapeHtml(String(hook).slice(0, 72))}</p>
+      <button type="button" class="lab-block-x" data-remove-main="1" title="移除主料">×</button>
+    </div>`);
+  } else {
+    blocks.push(`<div class="lab-block lab-block-empty" data-slot="main"><span class="muted">拖选或点击左侧语料作为主料</span></div>`);
   }
-  if (hint) hint.hidden = true;
-  box.innerHTML = ids
-    .map((id) => {
-      const it = (state.corpusItems || []).find((x) => Number(x.id) === id) || { id };
-      const factors = it.factors || {};
-      const hook = it.hooks || factors.hook || it.pattern || "";
-      const narrative = factors.narrative_type || it.emotion || "灵感";
-      return `<div class="lab-block" data-id="${escapeAttr(String(id))}">
-        <span class="lab-block-badge">${escapeHtml(String(narrative).slice(0, 8))}</span>
-        <p>${escapeHtml(String(hook).slice(0, 72))}</p>
-        <button type="button" class="lab-block-x" data-remove-block="${escapeAttr(String(id))}" title="移除">×</button>
-      </div>`;
-    })
-    .join("");
-  box.querySelectorAll("[data-remove-block]").forEach((btn) => {
+  const hooks = labHookGenerations();
+  hooks.forEach((g, i) => {
+    const el = g.meta?.elements || {};
+    const hook = el.hook || String(g.content || "").split("\n")[0] || "";
+    blocks.push(`<div class="lab-block lab-block-hook" data-gen-id="${escapeAttr(String(g.id))}">
+      <span class="lab-block-badge">旧钩子 ${i + 1}</span>
+      <p>${escapeHtml(hook.slice(0, 72))}</p>
+      <button type="button" class="lab-block-x" data-remove-hook="${escapeAttr(String(g.id))}" title="移除">×</button>
+    </div>`);
+  });
+  while (blocks.filter((b) => b.includes("lab-block-hook")).length < 2) {
+    const n = blocks.filter((b) => b.includes("lab-block-hook")).length + 1;
+    blocks.push(`<div class="lab-block lab-block-hook lab-block-empty" data-slot="hook"><span class="muted">旧钩子槽 ${n}（从精选拖入）</span></div>`);
+  }
+  box.innerHTML = blocks.join("");
+  box.querySelectorAll("[data-remove-main]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.getAttribute("data-remove-block"));
-      state.corpusSelected.delete(id);
+      state.corpusMainId = null;
       renderCorpusItems(state.corpusItems || []);
       syncCorpusSelectionInput();
     });
   });
+  box.querySelectorAll("[data-remove-hook]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-remove-hook"));
+      state.corpusHookGenIds.delete(id);
+      syncCorpusSelectionInput();
+    });
+  });
+  const tray = box.closest(".lab-center");
+  if (tray && !tray.dataset.hookDropBound) {
+    tray.dataset.hookDropBound = "1";
+    tray.addEventListener("dragover", (e) => {
+      if (e.dataTransfer?.types?.includes("application/x-lab-hook")) e.preventDefault();
+    });
+    tray.addEventListener("drop", (e) => {
+      const raw = e.dataTransfer?.getData("application/x-lab-hook");
+      if (!raw) return;
+      e.preventDefault();
+      tryAddFeaturedHook(Number(raw));
+    });
+  }
+}
+
+function tryAddFeaturedHook(genId) {
+  const g = (state.corpusGenerations || []).find((x) => Number(x.id) === Number(genId));
+  if (!g) {
+    toast("仅可从精选留存拖入", "error");
+    return;
+  }
+  const eng = String(g.meta?.elements?.engagement || g.meta?.engagement || "").trim();
+  if (eng && eng !== "撕" && eng !== "问") {
+    toast("仅「撕 / 问」评级的钩子可复用", "error");
+    return;
+  }
+  if ((state.corpusHookGenIds || new Set()).size >= 2) {
+    toast("旧钩子最多 2 条", "error");
+    return;
+  }
+  state.corpusHookGenIds.add(Number(genId));
+  syncCorpusSelectionInput();
+  toast("已加入旧钩子槽", "ok");
 }
 
 function renderLabFormulas(items) {
   const box = $("#labFormulas");
+  const auxWrap = $("#labFormulasSecondary");
+  const auxBox = $("#labFormulasAux");
   if (!box) return;
   const list = items && items.length ? items : LAB_FORMULAS_FALLBACK;
-  if (!state.labFormula) state.labFormula = list[0].id;
-  box.innerHTML = list
+  const line = state.labProductionLine || "A";
+  if (!state.labFormula || !labFormulaAllowed(state.labFormula)) {
+    state.labFormula = labCurrentLine().defaultFormula;
+  }
+  const primaries = list.filter((f) => f.role !== "aux");
+  box.innerHTML = primaries
     .map((f) => {
+      const allowed = labFormulaAllowed(f.id);
       const on = state.labFormula === f.id ? " on" : "";
-      return `<button type="button" class="lab-formula${on}" data-formula="${escapeAttr(f.id)}">
+      const dis = allowed ? "" : " is-disabled";
+      const forbid = f.line && f.line !== line ? "（非本产线）" : "";
+      return `<button type="button" class="lab-formula${on}${dis}" data-formula="${escapeAttr(f.id)}"${allowed ? "" : " disabled"} title="${escapeAttr(f.blurb || "")}">
         <strong>${escapeHtml((f.emoji || "") + " " + (f.label || f.id))}</strong>
-        <span>${escapeHtml(f.blurb || "")}</span>
+        <span>${escapeHtml((f.blurb || "") + forbid)}</span>
       </button>`;
     })
     .join("");
   box.querySelectorAll("[data-formula]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      state.labFormula = btn.getAttribute("data-formula");
+      const id = btn.getAttribute("data-formula");
+      if (!labFormulaAllowed(id)) return;
+      state.labFormula = id;
+      localStorage.setItem("labFormula", id);
       box.querySelectorAll(".lab-formula").forEach((b) => b.classList.toggle("on", b === btn));
       scheduleLabSessionSave();
     });
   });
+  const auxList = list.filter((f) => f.role === "aux");
+  if (auxWrap && auxBox) {
+    auxWrap.hidden = !auxList.length;
+    auxBox.innerHTML = auxList
+      .map((f) => {
+        const on = state.labFormulaSecondary === f.id ? " on" : "";
+        return `<button type="button" class="lab-formula lab-formula-aux${on}" data-formula-aux="${escapeAttr(f.id)}" title="辅配方：配图/加数据附件">
+          <strong>${escapeHtml((f.emoji || "") + " " + (f.label || f.id))}</strong>
+        </button>`;
+      })
+      .join("");
+    auxBox.querySelectorAll("[data-formula-aux]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-formula-aux");
+        state.labFormulaSecondary = state.labFormulaSecondary === id ? "" : id;
+        localStorage.setItem("labFormulaSecondary", state.labFormulaSecondary || "");
+        renderLabFormulas(list);
+        scheduleLabSessionSave();
+      });
+    });
+  }
 }
 
 async function loadLabFormulas() {
@@ -1048,34 +1358,23 @@ async function loadLabFormulas() {
   }
 }
 
-function labProfileMaterialCategory(profileId) {
-  return LAB_PROFILE_MATERIAL_MAP[String(profileId || "").trim()] || "all";
-}
-
-function applyLabProfileMaterialFilter({ reload = true } = {}) {
-  const cat = labProfileMaterialCategory(state.labProfile);
-  const prev = state.labMaterialCategory || "all";
-  if (cat === prev) {
-    if (reload) loadCategoryTemplates();
-    return false;
-  }
-  state.labMaterialCategory = cat;
-  localStorage.setItem("labMaterialCategory", cat);
-  state.corpusSelected = new Set();
-  renderLabMaterialTabs();
-  if (reload) loadCorpus();
-  return true;
-}
-
 function renderLabProfiles(items) {
   const box = $("#labProfiles");
+  const attach = $("#labProfileAttachments");
   if (!box) return;
   const list = items && items.length ? items : LAB_PROFILES_FALLBACK;
-  if (!state.labProfile) state.labProfile = list[0].id;
+  const line = state.labProductionLine || "A";
+  const lineDef = labCurrentLine();
+  if (!state.labProfile || !list.find((x) => x.id === state.labProfile && x.output_role !== "disabled")) {
+    state.labProfile = lineDef.defaultProfile;
+  }
   box.innerHTML = list
     .map((p) => {
+      const disabled = p.output_role === "disabled";
+      const allowed = !disabled && (!p.lines?.length || p.lines.includes(line));
       const on = state.labProfile === p.id ? " on" : "";
-      return `<button type="button" class="lab-profile${on}" data-profile="${escapeAttr(p.id)}" title="${escapeAttr(p.blurb || "")}">
+      const dis = allowed && !disabled ? "" : " is-disabled";
+      return `<button type="button" class="lab-profile${on}${dis}" data-profile="${escapeAttr(p.id)}"${allowed && !disabled ? "" : " disabled"} title="${escapeAttr(p.blurb || "")}">
         <strong>${escapeHtml((p.emoji || "") + " " + (p.label || p.id))}</strong>
         <span>${escapeHtml(p.blurb || "")}</span>
       </button>`;
@@ -1083,14 +1382,20 @@ function renderLabProfiles(items) {
     .join("");
   box.querySelectorAll("[data-profile]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (btn.disabled) return;
       state.labProfile = btn.getAttribute("data-profile");
       localStorage.setItem("labProfile", state.labProfile || "general");
       box.querySelectorAll(".lab-profile").forEach((b) => b.classList.toggle("on", b === btn));
       syncLabProfileHint(list);
-      applyLabProfileMaterialFilter({ reload: true });
       scheduleLabSessionSave();
     });
   });
+  if (attach) {
+    const others = list.filter((p) => p.id !== state.labProfile && p.output_role !== "disabled");
+    attach.textContent = others.length
+      ? `可拆附件：${others.map((p) => p.label).join(" · ")}（本轮不主用）`
+      : "";
+  }
   syncLabProfileHint(list);
 }
 
@@ -1099,14 +1404,97 @@ function syncLabProfileHint(list) {
   const variantHint = $("#labVariantHint");
   const profiles = list || LAB_PROFILES_FALLBACK;
   const p = profiles.find((x) => x.id === state.labProfile) || profiles[0];
-  const mat = labProfileMaterialCategory(state.labProfile);
-  const matLabel = mat !== "all" ? materialCategoryLabel(mat) : "";
+  const line = labCurrentLine();
   if (hint && p) {
-    hint.textContent = matLabel
-      ? `${p.blurb || ""} · 左侧语料：${matLabel}`
-      : p.blurb || "";
+    hint.textContent = `${line.personaLabel} · ${p.blurb || ""} · ${line.accountType}`;
   }
-  if (variantHint && p?.variant_hint) variantHint.textContent = p.variant_hint;
+  if (variantHint) variantHint.textContent = line.variantHint || p?.variant_hint || "A 刺眼 · B 干货 · C 故事";
+}
+
+function renderLabProductionLines() {
+  const box = $("#labProductionLines");
+  if (!box) return;
+  const cur = state.labProductionLine || "A";
+  box.innerHTML = Object.values(LAB_PRODUCTION_LINES)
+    .map((line) => {
+      const on = cur === line.id ? " on" : "";
+      return `<button type="button" class="lab-production-line${on}" data-line="${escapeAttr(line.id)}" title="${escapeAttr(line.categories.map(materialCategoryLabel).join(" · "))}">
+        ${escapeHtml(line.emoji)} ${escapeHtml(line.label)}
+      </button>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-line]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-line");
+      if (!id || id === state.labProductionLine) return;
+      state.labProductionLine = id;
+      state.corpusMainId = null;
+      state.corpusHookGenIds = new Set();
+      applyProductionLineDefaults({ reload: true });
+      scheduleLabSessionSave();
+    });
+  });
+}
+
+function renderLabPersonaBar() {
+  const box = $("#labPersonaBar");
+  if (!box) return;
+  const cur = state.labPersona || "ledger";
+  box.innerHTML = LAB_PERSONAS.map((p) => {
+    const on = cur === p.id ? " on" : "";
+    return `<label class="lab-persona${on}"><input type="radio" name="labPersona" value="${escapeAttr(p.id)}"${on ? " checked" : ""} /> ${escapeHtml(p.label)}</label>`;
+  }).join("");
+  box.querySelectorAll('input[name="labPersona"]').forEach((inp) => {
+    inp.addEventListener("change", () => {
+      const persona = inp.value;
+      const hit = LAB_PERSONAS.find((p) => p.id === persona);
+      if (!hit) return;
+      state.labProductionLine = hit.line;
+      state.labPersona = persona;
+      applyProductionLineDefaults({ reload: true });
+      scheduleLabSessionSave();
+    });
+  });
+}
+
+function renderLabTopicChips() {
+  const box = $("#labTopicChips");
+  if (!box) return;
+  box.innerHTML = LAB_TOPIC_SOURCE_CHIPS.map((c) =>
+    `<button type="button" class="lab-topic-chip" data-topic-prefix="${escapeAttr(c.prefix)}">${escapeHtml(c.prefix.replace(/来源：|｜$/g, "").replace("｜", ""))}</button>`
+  ).join("");
+  box.querySelectorAll("[data-topic-prefix]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const prefix = btn.getAttribute("data-topic-prefix") || "";
+      const el = $("#regenTopic");
+      if (!el) return;
+      const cur = el.value.trim();
+      if (cur && !cur.startsWith("来源：")) el.value = prefix + cur;
+      else if (!cur) el.value = prefix;
+      else el.value = cur.replace(/^来源：[^｜]+｜/, prefix);
+      scheduleLabSessionSave();
+    });
+  });
+}
+
+function renderLabSupplementChips() {
+  const box = $("#labSupplementChips");
+  if (!box) return;
+  const active = state.labSupplementChips || new Set();
+  box.innerHTML = LAB_SUPPLEMENT_CHIP_DEFS.map((c) => {
+    const on = active.has(c.id) ? " on" : "";
+    return `<button type="button" class="lab-sup-chip${on}" data-sup="${escapeAttr(c.id)}">${escapeHtml(c.text)}</button>`;
+  }).join("");
+  box.querySelectorAll("[data-sup]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-sup");
+      if (active.has(id)) active.delete(id);
+      else active.add(id);
+      state.labSupplementChips = active;
+      btn.classList.toggle("on");
+      scheduleLabSessionSave();
+    });
+  });
 }
 
 function syncLabConfigCustomHint(customized) {
@@ -1400,34 +1788,27 @@ async function loadLabMaterials() {
 function renderLabContentMix() {
   const box = $("#labContentMix");
   if (!box) return;
-  const mix = state.labContentMix || [];
-  const cat = state.labMaterialCategory || "all";
-  if (!mix.length || (cat && cat !== "all")) {
-    box.hidden = true;
-    box.innerHTML = "";
-    return;
-  }
+  const cur = state.labQuotaPreset || "cold";
   box.hidden = false;
   box.innerHTML =
-    `<div class="lab-mix-head"><span>内容配比建议</span><em class="muted">立体交易员/投研人设</em></div>` +
-    `<div class="lab-mix-bars">` +
-    mix
-      .map((row) => {
-        const pct = Number(row.pct || 0);
-        return `<button type="button" class="lab-mix-row" data-lab-mix="${escapeAttr(row.category || "")}" title="${escapeAttr(row.role || "")}">
-          <span class="lab-mix-label">${escapeHtml(row.emoji || "")} ${escapeHtml(row.label || row.category || "")}</span>
-          <span class="lab-mix-track"><i style="width:${pct}%"></i></span>
-          <span class="lab-mix-pct">${pct}%</span>
+    `<div class="lab-mix-head"><span>日配额</span><em class="muted">点选后按产线自动配配方</em></div>` +
+    `<div class="lab-quota-presets">` +
+    Object.entries(LAB_QUOTA_PRESETS)
+      .map(([key, q]) => {
+        const on = cur === key ? " on" : "";
+        return `<button type="button" class="lab-quota-btn${on}" data-quota="${escapeAttr(key)}">
+          ${escapeHtml(q.label)}：A ${q.A} / B ${q.B} / C ${q.C}
         </button>`;
       })
       .join("") +
     `</div>`;
-  box.querySelectorAll("[data-lab-mix]").forEach((btn) => {
+  box.querySelectorAll("[data-quota]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-lab-mix") || "";
-      if (!id) return;
-      const tab = $(`#labMaterialTabs [data-lab-material="${CSS.escape(id)}"]`);
-      if (tab) tab.click();
+      state.labQuotaPreset = btn.getAttribute("data-quota") || "cold";
+      localStorage.setItem("labQuotaPreset", state.labQuotaPreset);
+      applyProductionLineDefaults({ reload: false });
+      renderLabContentMix();
+      scheduleLabSessionSave();
     });
   });
 }
@@ -1435,12 +1816,16 @@ function renderLabContentMix() {
 function renderLabMaterialTabs() {
   const box = $("#labMaterialTabs");
   if (!box) return;
-  const cur = state.labMaterialCategory || "all";
+  const cur = state.labMaterialCategory || "toolkit";
+  const line = labCurrentLine();
   const cats = state.labMaterialCategories || [];
-  const tabs = [
-    { id: "all", label: "全部", emoji: "📚", count: cats.reduce((s, c) => s + Number(c.count || 0), 0) },
-    ...cats.filter((c) => c.id !== "uncategorized" || Number(c.count || 0) > 0),
-  ];
+  const tabs = cats.filter(
+    (c) => line.categories.includes(c.id) && (c.id !== "uncategorized" || Number(c.count || 0) > 0)
+  );
+  if (!tabs.find((c) => c.id === cur) && tabs.length) {
+    state.labMaterialCategory = tabs[0].id;
+    localStorage.setItem("labMaterialCategory", state.labMaterialCategory);
+  }
   box.innerHTML = tabs
     .map((c) => {
       const on = cur === c.id ? " on" : "";
@@ -1451,16 +1836,13 @@ function renderLabMaterialTabs() {
     .join("");
   box.querySelectorAll("[data-lab-material]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-lab-material") || "all";
-      if (state.labMaterialCategory === id) return;
+      const id = btn.getAttribute("data-lab-material") || "";
+      if (!id || state.labMaterialCategory === id) return;
       state.labMaterialCategory = id;
       localStorage.setItem("labMaterialCategory", id);
-      state.corpusSelected = new Set();
       state.labTagFilter = "";
       if ($("#corpusKeyword")) $("#corpusKeyword").value = "";
       renderLabMaterialTabs();
-      renderLabContentMix();
-      syncLabProfileHint();
       loadCorpus();
       scheduleLabSessionSave();
     });
@@ -1487,7 +1869,7 @@ async function loadCategoryTemplates() {
   const wrap = $("#labCategoryTemplates");
   const list = $("#labCategoryTemplateList");
   if (!wrap || !list) return;
-  if (!cat || cat === "all") {
+  if (!cat) {
     wrap.hidden = true;
     state.labCategoryTemplates = [];
     return;
@@ -1548,13 +1930,13 @@ function renderCorpusItems(items) {
   if (!box) return;
   if (!state.corpusSelected) state.corpusSelected = new Set();
   let list = items || [];
-  const cat = state.labMaterialCategory || "all";
-  if (cat && cat !== "all") {
-    list = list.filter((it) => {
-      const mc = corpusMaterialCategory(it) || "uncategorized";
-      return mc === cat;
-    });
-  }
+  const cat = state.labMaterialCategory || "toolkit";
+  const lineCats = labCurrentLine().categories;
+  list = list.filter((it) => {
+    const mc = corpusMaterialCategory(it) || "uncategorized";
+    if (cat && mc !== cat) return false;
+    return lineCats.includes(mc) || mc === "uncategorized";
+  });
   if (state.labTagFilter) {
     const tag = state.labTagFilter.toLowerCase();
     list = list.filter((it) => (it.tags || []).some((t) => String(t).toLowerCase() === tag));
@@ -1568,7 +1950,7 @@ function renderCorpusItems(items) {
   box.innerHTML = list
     .map((it) => {
       const factors = it.factors || {};
-      const selected = state.corpusSelected.has(Number(it.id));
+      const selected = Number(state.corpusMainId) === Number(it.id);
       const hook = it.hooks || factors.hook || it.pattern || it.source_title || "";
       const narrative = narrativeBadge(it);
       const mat = corpusMaterialCategory(it);
@@ -1604,14 +1986,8 @@ function renderCorpusItems(items) {
 
   const toggleCard = (id) => {
     if (!id) return;
-    if (state.corpusSelected.has(id)) state.corpusSelected.delete(id);
-    else {
-      if (state.corpusSelected.size >= 3) {
-        toast("最多选 3 张", "error");
-        return;
-      }
-      state.corpusSelected.add(id);
-    }
+    if (Number(state.corpusMainId) === id) state.corpusMainId = null;
+    else state.corpusMainId = id;
     renderCorpusItems(state.corpusItems || []);
     syncCorpusSelectionInput();
   };
@@ -1635,8 +2011,8 @@ function renderCorpusItems(items) {
       }
       if (action === "set_template") {
         const cat = state.labMaterialCategory;
-        if (!cat || cat === "all") {
-          toast("请先选择具体素材类目", "error");
+        if (!cat) {
+          toast("请先选择具体模板类目", "error");
           return;
         }
         await api(`/api/corpus/templates/${id}`, {
@@ -1668,7 +2044,7 @@ function renderCorpusItems(items) {
           method: "POST",
           body: JSON.stringify({ action: "delete" }),
         });
-        state.corpusSelected.delete(id);
+        if (Number(state.corpusMainId) === id) state.corpusMainId = null;
         toast("已删除", "ok");
         await loadCorpus();
       }
@@ -1763,25 +2139,32 @@ async function createManualCorpus() {
 
 async function runLabCapture(ev) {
   if (ev) ev.preventDefault();
-  const input = $("#labCaptureInput");
-  const text = input?.value.trim() || "";
-  if (!text) return;
-  input.disabled = true;
+  const text = labBuildCaptureText();
+  if (!text) {
+    toast("请填写事实 / 谁痛 / 站边", "error");
+    return;
+  }
+  const form = $("#labCaptureForm");
+  if (form) form.classList.add("is-busy");
   try {
     const data = await api("/api/corpus/capture", {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, structured: true }),
     });
     if (!data.success) {
       toast(data.error || "快捕失败", "error");
       return;
     }
     toast(data.message || "已入库", "ok");
-    input.value = "";
+    ["labCaptureFact", "labCapturePain", "labCaptureStance"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    if ($("#labCaptureInput")) $("#labCaptureInput").value = "";
     if (data.template) {
       const tid = Number(data.template.id);
       const cat = state.labMaterialCategory;
-      if (tid && cat && cat !== "all") {
+      if (tid && cat) {
         try {
           await api(`/api/corpus/templates/${tid}`, {
             method: "POST",
@@ -1793,10 +2176,7 @@ async function runLabCapture(ev) {
         }
       }
       state.corpusItems = [data.template, ...(state.corpusItems || [])];
-      state.corpusSelected.add(Number(data.template.id));
-      // 保持最多 3 张选中
-      const sel = [...state.corpusSelected];
-      if (sel.length > 3) state.corpusSelected = new Set(sel.slice(0, 3));
+      state.corpusMainId = Number(data.template.id);
       renderCorpusItems(state.corpusItems);
       syncCorpusSelectionInput();
       refreshCorpusStats();
@@ -1806,8 +2186,8 @@ async function runLabCapture(ev) {
   } catch (e) {
     toast(String(e), "error");
   } finally {
-    input.disabled = false;
-    input.focus();
+    if (form) form.classList.remove("is-busy");
+    $("#labCaptureFact")?.focus();
   }
 }
 
@@ -1886,11 +2266,11 @@ async function loadCorpus() {
   if (kw.startsWith("#")) kw = kw.slice(1);
   const quality = $("#corpusQuality")?.value || "";
   const status = $("#corpusStatus")?.value ?? "active";
-  const cat = state.labMaterialCategory || "all";
+  const cat = state.labMaterialCategory || "toolkit";
   if (kw) qs.set("keyword", kw);
   if (quality) qs.set("quality", quality);
   if (status) qs.set("status", status);
-  if (cat && cat !== "all") qs.set("material_category", cat);
+  if (cat) qs.set("material_category", cat);
   qs.set("limit", "100");
   try {
     const data = await api(`/api/corpus/templates?${qs.toString()}`);
@@ -1900,14 +2280,10 @@ async function loadCorpus() {
     }
     state.corpusItems = data.items || [];
     const alive = new Set(state.corpusItems.map((x) => Number(x.id)));
-    state.corpusSelected = new Set([...(state.corpusSelected || [])].filter((id) => alive.has(id)));
+    if (state.corpusMainId && !alive.has(Number(state.corpusMainId))) state.corpusMainId = null;
+    syncCorpusSelectionFromTray();
     renderCorpusItems(state.corpusItems);
-    const meta = $("#corpusMeta");
-    if (meta) {
-      const catLabel =
-        cat && cat !== "all" ? materialCategoryLabel(cat) : "全部素材";
-      meta.textContent = `${catLabel} · ${(state.corpusItems || []).length} 张语料 · 已选 ${(state.corpusSelected || new Set()).size}/3`;
-    }
+    syncCorpusSelectionInput();
     await loadCategoryTemplates();
     await refreshCorpusStats();
     await loadGenerations();
@@ -1925,86 +2301,60 @@ async function loadGenerations() {
     const items = data.items || [];
     state.corpusGenerations = items;
     if (!items.length) {
-      box.innerHTML = `<p class="lab-hist-empty muted">还没有精选。在版本预览点「★ 精选留存」可保存完整正文与要素细节。</p>`;
+      box.innerHTML = `<p class="lab-hist-empty muted">还没有精选零件。生成后点 ★ 留存钩子原句，可拖回复用。</p>`;
       return;
     }
     box.innerHTML = items
       .map((g) => {
         const el = g.meta?.elements || {};
-        const label =
-          g.meta?.variant_label || el.variant_label || g.meta?.variant_id || "精选";
         const hook = el.hook || String(g.content || "").split("\n")[0] || "";
-        const cards = Array.isArray(el.source_cards) ? el.source_cards : [];
-        const chips = [];
-        if (el.formula) chips.push(`配方:${el.formula}`);
-        if (g.meta?.variant_id) chips.push(`变体${g.meta.variant_id}`);
-        cards.slice(0, 3).forEach((c) => {
-          if (c.emotion) chips.push(c.emotion);
-          if (c.tension) chips.push(String(c.tension).slice(0, 16));
-          (c.keywords || []).slice(0, 2).forEach((k) => chips.push(k));
-        });
-        const uniqChips = [...new Set(chips)].slice(0, 8);
-        const cardBits = cards
-          .slice(0, 3)
-          .map(
-            (c) =>
-              `<div class="lab-hist-card">
-                <strong>${escapeHtml(c.title || c.hook || `#${c.id}`)}</strong>
-                <span>${escapeHtml((c.pattern || c.raw_text || "").slice(0, 120))}</span>
-                <em>${escapeHtml([c.emotion, c.tension].filter(Boolean).join(" · "))}</em>
-              </div>`
-          )
-          .join("");
-        return `<article class="lab-hist-item" data-gen-id="${escapeAttr(String(g.id))}">
-          <button type="button" class="lab-hist-sum" data-gen-toggle="${escapeAttr(String(g.id))}">
-            <span class="lab-hist-badge">★ ${escapeHtml(String(label))}</span>
-            <strong>${escapeHtml((g.topic || "").slice(0, 28))}</strong>
-            <span class="lab-hist-hook">${escapeHtml(hook.slice(0, 80))}</span>
-            <span class="lab-hist-meta muted">#${g.id} · ${(g.created_at || "").slice(0, 16)}</span>
-          </button>
-          <div class="lab-hist-detail" hidden data-gen-detail="${escapeAttr(String(g.id))}">
-            <div class="lab-hist-chips">${uniqChips
-              .map((c) => `<span class="chip">${escapeHtml(String(c))}</span>`)
-              .join("")}</div>
-            ${cardBits ? `<div class="lab-hist-cards">${cardBits}</div>` : ""}
-            <pre class="lab-hist-body">${escapeHtml(g.content || "")}</pre>
-            <div class="lab-hist-actions">
-              <button type="button" class="btn ghost xs" data-gen-use="${escapeAttr(String(g.id))}">载入预览</button>
-              <button type="button" class="btn ghost xs" data-gen-copy="${escapeAttr(String(g.id))}">复制全文</button>
-            </div>
+        const structure = el.structure_name || el.formula || g.meta?.formula || "—";
+        const prodLine = el.production_line || g.meta?.production_line || "—";
+        const numberPart = el.number_part || "—";
+        const engagement = el.engagement || g.meta?.engagement || "静";
+        const canHook = engagement === "撕" || engagement === "问";
+        return `<article class="lab-hist-item${canHook ? " is-hookable" : ""}" data-gen-id="${escapeAttr(String(g.id))}" draggable="${canHook ? "true" : "false"}">
+          <div class="lab-hist-parts">
+            <span class="lab-hist-part" title="钩子原句"><strong>钩</strong>${escapeHtml(hook.slice(0, 48))}</span>
+            <span class="lab-hist-part"><strong>构</strong>${escapeHtml(String(structure).slice(0, 12))}</span>
+            <span class="lab-hist-part"><strong>线</strong>${escapeHtml(String(prodLine))}</span>
+            <span class="lab-hist-part"><strong>数</strong>${escapeHtml(String(numberPart).slice(0, 16))}</span>
+            <span class="lab-hist-part lab-hist-eng" data-eng="${escapeAttr(String(engagement))}"><strong>评</strong>${escapeHtml(String(engagement))}</span>
+          </div>
+          <div class="lab-hist-actions">
+            ${canHook ? `<button type="button" class="btn ghost xs" data-gen-hook="${escapeAttr(String(g.id))}">作旧钩子</button>` : ""}
+            <button type="button" class="btn ghost xs" data-gen-eng="${escapeAttr(String(g.id))}" title="手填评论率">评</button>
+            <button type="button" class="btn ghost xs" data-gen-copy="${escapeAttr(String(g.id))}">复制</button>
           </div>
         </article>`;
       })
       .join("");
 
-    box.querySelectorAll("[data-gen-toggle]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-gen-toggle");
-        const detail = box.querySelector(`[data-gen-detail="${id}"]`);
-        if (!detail) return;
-        detail.hidden = !detail.hidden;
-        btn.classList.toggle("open", !detail.hidden);
+    box.querySelectorAll(".lab-hist-item[draggable=true]").forEach((el) => {
+      el.addEventListener("dragstart", (e) => {
+        const id = el.getAttribute("data-gen-id");
+        e.dataTransfer?.setData("application/x-lab-hook", id || "");
       });
     });
-    box.querySelectorAll("[data-gen-use]").forEach((btn) => {
+    box.querySelectorAll("[data-gen-hook]").forEach((btn) => {
       btn.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        const g = (state.corpusGenerations || []).find(
-          (x) => Number(x.id) === Number(btn.getAttribute("data-gen-use"))
-        );
+        tryAddFeaturedHook(Number(btn.getAttribute("data-gen-hook")));
+      });
+    });
+    box.querySelectorAll("[data-gen-eng]").forEach((btn) => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = Number(btn.getAttribute("data-gen-eng"));
+        const g = (state.corpusGenerations || []).find((x) => Number(x.id) === id);
         if (!g) return;
-        const el = g.meta?.elements || {};
-        state.labActiveVariant = {
-          id: g.meta?.variant_id || "★",
-          label: g.meta?.variant_label || el.variant_label || "精选历史",
-          content: g.content,
-          hook: el.hook || String(g.content || "").split("\n")[0],
-          generation_id: g.id,
-          featured: true,
-        };
-        state.lastCreate = { title: g.topic || "", content: g.content || "", path: "" };
-        renderLabVariants([state.labActiveVariant], 0);
-        toast("已载入精选全文", "ok");
+        const cur = g.meta?.elements?.engagement || "静";
+        const next = window.prompt("评论率：撕 / 问 / 静", cur);
+        if (!next || !["撕", "问", "静"].includes(next.trim())) return;
+        g.meta = g.meta || {};
+        g.meta.elements = { ...(g.meta.elements || {}), engagement: next.trim() };
+        g.meta.engagement = next.trim();
+        await loadGenerations();
       });
     });
     box.querySelectorAll("[data-gen-copy]").forEach((btn) => {
@@ -2028,7 +2378,7 @@ async function loadGenerations() {
 }
 
 function collectTrayElements() {
-  const ids = new Set([...(state.corpusSelected || [])].map(Number));
+  const ids = new Set(labTrayTemplateIds());
   return (state.corpusItems || [])
     .filter((t) => ids.has(Number(t.id)))
     .map((t) => {
@@ -2083,6 +2433,17 @@ function syncLabImagePickAll() {
   all.checked = variants.length > 0 && picked.length === variants.length;
 }
 
+function labVariantMetaHtml(v, i) {
+  const line = labCurrentLine();
+  const m = v.meta || {};
+  return `<div class="lab-vmeta">
+    <label><input type="checkbox" data-vmeta="line" data-vidx="${i}"${m.lineOk !== false ? " checked" : ""} /> 产线 ${escapeHtml(line.id)}</label>
+    <label><input type="checkbox" data-vmeta="persona" data-vidx="${i}"${m.personaOk !== false ? " checked" : ""} /> ${escapeHtml(line.personaLabel)}</label>
+    <label><input type="checkbox" data-vmeta="account" data-vidx="${i}"${m.accountOk !== false ? " checked" : ""} /> ${escapeHtml(line.accountType)}</label>
+    <label><input type="checkbox" data-vmeta="image" data-vidx="${i}"${m.imageOk !== false ? " checked" : ""} /> ${escapeHtml(line.imageTemplate)}</label>
+  </div>`;
+}
+
 function renderLabVariants(variants, activeIdx) {
   const box = $("#labVariants");
   if (!box) return;
@@ -2099,11 +2460,13 @@ function renderLabVariants(variants, activeIdx) {
   }
   const idx = activeIdx == null ? 0 : activeIdx;
   state.labActiveVariant = variants[idx];
+  const hookLabels = ["A 刺眼", "B 干货", "C 故事"];
   box.innerHTML = variants
     .map((v, i) => {
       const on = i === idx ? " on" : "";
       const starred = v.featured ? " starred" : "";
       const checked = state.labImagePick.has(i) ? " checked" : "";
+      const hookTask = hookLabels[i] || v.label || "变体";
       const imgs = (v.images || [])
         .map(
           (im) =>
@@ -2116,9 +2479,10 @@ function renderLabVariants(variants, activeIdx) {
             <input type="checkbox" class="lab-vpick-cb" data-vpick="${i}"${checked} />
           </label>
           <span class="lab-vid">${escapeHtml(v.id || String.fromCharCode(65 + i))}</span>
-          <strong>${escapeHtml(v.label || "变体")}</strong>
-          <button type="button" class="lab-vstar" data-feature-idx="${i}" title="精选留存完整正文与要素">★</button>
+          <strong>${escapeHtml(hookTask)}</strong>
+          <button type="button" class="lab-vstar" data-feature-idx="${i}" title="精选留存钩子零件">★</button>
         </header>
+        ${labVariantMetaHtml(v, i)}
         <p class="lab-vhook">${escapeHtml(v.hook || "")}</p>
         <pre class="lab-vbody">${escapeHtml(v.content || "")}</pre>
         ${imgs ? `<div class="lab-vimgs">${imgs}</div>` : ""}
@@ -2179,19 +2543,84 @@ function renderLabCot(steps) {
   list.innerHTML = arr.map((s) => `<li>${escapeHtml(String(s))}</li>`).join("");
 }
 
+function labBuildExtraPrompt() {
+  const parts = [];
+  const capture = labBuildCaptureText();
+  if (capture) parts.push(`进料结构：\n${capture}`);
+  const hooks = labHookGenerations();
+  if (hooks.length) {
+    parts.push(
+      "旧钩子参考（仅复用第一句，勿引入新主题）：\n" +
+        hooks
+          .map((g, i) => {
+            const el = g.meta?.elements || {};
+            const h = el.hook || String(g.content || "").split("\n")[0] || "";
+            return `${i + 1}. ${h}`;
+          })
+          .join("\n")
+    );
+  }
+  const line = labCurrentLine();
+  parts.push(`产线：${line.label}（${line.personaLabel}）· 账号：${line.accountType}`);
+  parts.push(`人设约束：${line.id === "C" ? "禁止写成投研长文/资金费科普" : line.id === "A" ? "数字+对立选择，禁止喊单" : "热榜复盘，单事件"}`);
+  if (state.labFormulaSecondary) {
+    const aux = LAB_FORMULAS_FALLBACK.find((f) => f.id === state.labFormulaSecondary);
+    if (aux) parts.push(`辅配方附件：${aux.label}（仅用于配图/数据卡，不当主文）`);
+  }
+  const sup = labBuildSupplementPrompt();
+  const manual = $("#regenPrompt")?.value.trim() || "";
+  if (sup) parts.push(`补充要求：${sup}`);
+  if (manual && !sup.includes(manual)) parts.push(`手填：${manual}`);
+  parts.push("三个变体必须是同一件事的三种钩子（A刺眼/B干货/C故事），不要三个不同主题。");
+  return parts.join("\n\n");
+}
+
+function labPublishChecklist(draft) {
+  const content = String(draft?.content || "");
+  const line = state.labProductionLine || "A";
+  const hasNumber = /\d+(\.\d+)?%?|\d+[Uu万]/u.test(content);
+  const hasStance = /站|认为|其实|不是|而是|别|应该|结论/u.test(content) || Boolean($("#labCaptureStance")?.value.trim());
+  const noPredict = !/(必涨|必跌|一定涨|一定跌|稳赚|包赚|看涨到|看跌到)/u.test(content);
+  const lineOk = line !== "C" || !/(资金费|展期|杠杆原理|投研报告)/u.test(content.slice(0, 80));
+  return [
+    { id: "number", label: "有数字", ok: hasNumber },
+    { id: "stance", label: "有站边", ok: hasStance },
+    { id: "predict", label: "未预测涨跌", ok: noPredict },
+    { id: "line", label: "C线未混进认知号口吻", ok: lineOk },
+  ];
+}
+
+function renderLabPublishChecklist(draft) {
+  const list = $("#labPublishChecklist");
+  const btn = $("#btnLabPublishConfirm");
+  if (!list) return false;
+  const checks = labPublishChecklist(draft);
+  list.innerHTML = checks
+    .map((c) => `<li class="lab-check${c.ok ? " ok" : " fail"}">${c.ok ? "✓" : "✗"} ${escapeHtml(c.label)}</li>`)
+    .join("");
+  const allOk = checks.every((c) => c.ok);
+  if (btn) btn.disabled = !allOk;
+  return allOk;
+}
+
 async function runCorpusRegen({ explicit = false } = {}) {
   if (!explicit) return;
-  const ids = [...(state.corpusSelected || [])];
+  const ids = labTrayTemplateIds();
   const topic = $("#regenTopic")?.value.trim() || "";
   if (!topic) {
-    setStatus($("#corpusRegenStatus"), "先填热点主题（选卡可选）", "error");
+    setStatus($("#corpusRegenStatus"), "先填「本轮只写这一件事」", "error");
+    return;
+  }
+  if (!state.corpusMainId) {
+    setStatus($("#corpusRegenStatus"), "请先选 1 条主料（左侧语料）", "error");
     return;
   }
   $("#btnCorpusRegen").disabled = true;
   setStatus($("#corpusRegenStatus"), "生成中…");
   showLabSkeleton(true);
   const prof = LAB_PROFILES_FALLBACK.find((x) => x.id === state.labProfile) || LAB_PROFILES_FALLBACK[0];
-  renderLabCot(["读取灵感卡骨架…", "注入热点变量…", `后处理：${prof.label}…`]);
+  const line = labCurrentLine();
+  renderLabCot([`产线 ${line.label} · ${line.personaLabel}`, "读取主料骨架…", "注入单事件变量…", `出货：${prof.label}…`]);
   try {
     const data = await api("/api/corpus/generate", {
       method: "POST",
@@ -2200,16 +2629,15 @@ async function runCorpusRegen({ explicit = false } = {}) {
         template_ids: ids,
         topic,
         formula: state.labFormula || "contrarian",
+        formula_secondary: state.labFormulaSecondary || "",
         prompt_profile: state.labProfile || "general",
+        production_line: state.labProductionLine || "A",
+        persona: state.labPersona || "ledger",
         platform_style: $("#regenStyle")?.value.trim() || "X/Twitter",
-        prompt: $("#regenPrompt")?.value.trim() || "",
+        prompt: labBuildExtraPrompt(),
         variant_count: 3,
-        material_category:
-          state.labMaterialCategory && state.labMaterialCategory !== "all"
-            ? state.labMaterialCategory
-            : labProfileMaterialCategory(state.labProfile) !== "all"
-              ? labProfileMaterialCategory(state.labProfile)
-              : "",
+        material_category: state.labMaterialCategory || "toolkit",
+        hook_generation_ids: [...(state.corpusHookGenIds || [])],
       }),
     });
     if (!data.success) {
@@ -2370,19 +2798,25 @@ function labOpenPublishPreview() {
   }
   const dlg = $("#labPublishPreviewDialog");
   if (!dlg) {
+    if (!renderLabPublishChecklist(draft)) {
+      toast("出厂检查未通过", "error");
+      return;
+    }
     labSendToPublish(draft);
     return;
   }
   const meta = $("#labPublishPreviewMeta");
   const hook = $("#labPublishPreviewHook");
   const body = $("#labPublishPreviewBody");
-  if (meta) meta.textContent = `${draft.title} · ${draft.style}`;
+  const line = labCurrentLine();
+  if (meta) meta.textContent = `${draft.title} · ${line.accountType} · ${line.imageTemplate}`;
   if (hook) {
     hook.textContent = draft.hook || "";
     hook.hidden = !draft.hook;
   }
   if (body) body.textContent = draft.content;
   state.labPublishDraft = draft;
+  renderLabPublishChecklist(draft);
   dlg.showModal();
 }
 
@@ -2479,15 +2913,19 @@ async function runLabBatchImages() {
   if (statusEl) statusEl.textContent = "提交配图任务…";
   setStatus($("#corpusRegenStatus"), `配图 0/${indices.length}…`);
   try {
+    const line = labCurrentLine();
     const payload = {
       indices,
       topic: $("#regenTopic")?.value.trim() || "",
       debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+      production_line: state.labProductionLine || "A",
+      image_template: line.imageTemplate || "",
       variants: variants.map((v) => ({
         id: v.id,
         label: v.label,
         hook: v.hook,
         content: v.content,
+        image_mode: line.id === "C" ? "quote_only" : "default",
       })),
     };
     const data = await api("/api/corpus/lab/images", {
@@ -3373,6 +3811,11 @@ async function syncMemosImagesBack() {
   }
 }
 
+function labExtractNumberPart(text) {
+  const m = String(text || "").match(/-?\d+(?:\.\d+)?%?|\d+[Uu万]/u);
+  return m ? m[0] : "";
+}
+
 async function labSaveFeatured(variantIdx) {
   const variants = state.labVariants || [];
   let v = state.labActiveVariant;
@@ -3384,20 +3827,30 @@ async function labSaveFeatured(variantIdx) {
     toast("请先选一个变体", "error");
     return;
   }
+  const hook = v.hook || String(v.content || "").split("\n")[0] || "";
+  const line = labCurrentLine();
+  const engagement = window.prompt("评论率：撕 / 问 / 静", "问");
+  if (!engagement || !["撕", "问", "静"].includes(engagement.trim())) return;
   const data = await api("/api/corpus/lab/feature", {
     method: "POST",
     body: JSON.stringify({
       content: v.content,
-      hook: v.hook || "",
+      hook,
       topic: $("#regenTopic")?.value.trim() || v.label || "精选变体",
       variant_id: v.id || "",
       variant_label: v.label || "",
       formula: state.labFormula || "",
+      structure_name: state.labFormula || "",
+      production_line: state.labProductionLine || "A",
+      number_part: labExtractNumberPart(v.content),
+      engagement: engagement.trim(),
       generation_id: v.generation_id || null,
-      template_ids: [...(state.corpusSelected || [])],
+      template_ids: labTrayTemplateIds(),
       source_cards: collectTrayElements(),
       platform_style: $("#regenStyle")?.value.trim() || "X/Twitter",
       cot: state.labCot || [],
+      persona: state.labPersona || "",
+      account_type: line.accountType || "",
     }),
   });
   if (data.success) {
@@ -5148,7 +5601,7 @@ function bind() {
   document.querySelectorAll("#labTweaks [data-tweak]").forEach((btn) => {
     btn.addEventListener("click", () => runLabTweak(btn.getAttribute("data-tweak")));
   });
-  $("#btnLabPublishPreview")?.addEventListener("click", () => labPublishViaCdp());
+  $("#btnLabPublishPreview")?.addEventListener("click", () => labOpenPublishPreview());
   $("#btnLabProfileConfig")?.addEventListener("click", () => openLabProfileConfig());
   $("#labProfileConfigForm")?.addEventListener("submit", (e) => {
     if (e.submitter?.value === "save") saveLabProfileConfig(e);
@@ -5189,8 +5642,21 @@ function bind() {
     updateLabSteps();
     scheduleLabSessionSave();
   });
+  ["labCaptureFact", "labCapturePain", "labCaptureStance"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      labBuildCaptureText();
+      scheduleLabSessionSave();
+    });
+    el.addEventListener("paste", (e) => {
+      setTimeout(() => {
+        const combined = [$("#labCaptureFact")?.value, $("#labCapturePain")?.value, $("#labCaptureStance")?.value].join("\n");
+        if (combined.includes("事实：") || combined.includes("谁痛：")) labParseCapturePaste(combined);
+      }, 0);
+    });
+  });
   $("#regenPrompt")?.addEventListener("input", () => scheduleLabSessionSave());
-  $("#labCaptureInput")?.addEventListener("input", () => scheduleLabSessionSave());
   ["xgrowthLimit", "xgrowthMinVel", "xgrowthPotential", "xgrowthOpenTweet"].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
