@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import time
 from contextlib import contextmanager
@@ -784,6 +785,141 @@ def multiline_content_preserved(got: str, expected: str) -> bool:
     return True
 
 
+def _split_x_compose_chunks(text: str) -> List[str]:
+    """把一段正文拆成 X 发帖用的句/段块（不含空串）。"""
+    t = (text or "").strip()
+    if not t:
+        return []
+    lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+    if len(lines) > 1:
+        return lines
+    parts = re.split(r"(?<=[。！？!?…])\s*", t)
+    parts = [p.strip() for p in parts if p.strip()]
+    return parts if len(parts) > 1 else [t]
+
+
+def prepare_x_compose_text(text: str) -> str:
+    """
+    X 发帖正文：段间仅单换行 \\n（X 会吃掉连续空行）。
+    多行原文保留行序；单行多句按句号拆行；连续空行压成单 \\n。
+    """
+    body = sanitize_typed_text(text or "").strip()
+    if not body:
+        return ""
+    body = re.sub(r"\n\s*\n+", "\n", body)
+    body = re.sub(r"\n{2,}", "\n", body)
+    lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
+    if len(lines) > 1:
+        return "\n".join(lines)
+    chunks = _split_x_compose_chunks(body)
+    return "\n".join(chunks)
+
+
+def read_x_compose_inner_text(driver) -> str:
+    """读 X 编辑器 innerText（提交前以它为准，不是肉眼 DOM）。"""
+    try:
+        return str(
+            driver.execute_script(
+                """
+const el = document.querySelector('[data-testid="tweetTextarea_0"] [contenteditable="true"]')
+  || document.querySelector('div[role="textbox"][data-testid^="tweetTextarea"] [contenteditable="true"]')
+  || document.querySelector('[data-testid="tweetTextarea_0"]');
+return el ? String(el.innerText || el.textContent || '').replace(/\\u200b/g, '') : '';
+"""
+            )
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def _norm_editor_newlines(s: str) -> str:
+    return sanitize_typed_text(s or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def x_editor_line_structure_ok(got: str, expected: str) -> bool:
+    """核对 innerText：多行预期时编辑区须含 \\n，且非空行顺序一致。"""
+    exp = _norm_editor_newlines(expected)
+    got_s = _norm_editor_newlines(got)
+    if not exp:
+        return True
+    exp_lines = [ln.strip() for ln in exp.split("\n") if ln.strip()]
+    got_lines = [ln.strip() for ln in got_s.split("\n") if ln.strip()]
+    if not multiline_content_preserved(got_s, exp):
+        return False
+    if len(exp_lines) <= 1:
+        return True
+    if "\n" not in got_s:
+        return False
+    if got_lines != exp_lines:
+        return False
+    return True
+
+
+def type_x_compose_via_cdp_insert_text(
+    driver,
+    element,
+    text: str,
+    *,
+    clear_first: bool = True,
+) -> str:
+    """
+    X 发帖：焦点处 CDP Input.insertText 一次写入（含真实 \\n）。
+    不用 value 赋值；写后读 tweetTextarea innerText 核对。
+    """
+    body = prepare_x_compose_text(text)
+    if not body:
+        return ""
+    if clear_first:
+        try:
+            driver.execute_script(_CLEAR_EDITOR_JS, element)
+        except Exception:
+            pass
+        human_pause(0.12, 0.25)
+    try:
+        element.click()
+    except Exception:
+        driver.execute_script("arguments[0].click(); arguments[0].focus();", element)
+    human_pause(0.08, 0.18)
+    try:
+        driver.execute_script(
+            "const el=arguments[0]; if(el&&el.focus) el.focus();", element
+        )
+    except Exception:
+        pass
+    human_pause(0.05, 0.12)
+    inserted = False
+    try:
+        driver.execute_cdp_cmd("Input.insertText", {"text": body})
+        inserted = True
+    except Exception as exc:
+        logger.warning("CDP Input.insertText 失败，回退 execCommand insertText: %s", exc)
+    if not inserted:
+        try:
+            driver.execute_script(_INSERT_TEXT_JS, element, body, False)
+        except Exception as exc:
+            raise RuntimeError(f"X 正文写入失败: {exc}") from exc
+    human_pause(0.1, 0.22)
+    got = _norm_editor_newlines(
+        read_x_compose_inner_text(driver) or read_editor_text(driver, element)
+    )
+    if not x_editor_line_structure_ok(got, body):
+        logger.warning(
+            "X innerText 与预期不符。期望=%r innerText=%r",
+            body[:80],
+            (got or "")[:120],
+        )
+        try:
+            driver.execute_script(_CLEAR_EDITOR_JS, element)
+        except Exception:
+            pass
+        raise RuntimeError(
+            "X 正文写入异常（innerText 未保留换行），已中止。"
+            f" 期望前40={body[:40]!r} innerText前60={(got or '')[:60]!r}"
+        )
+    return got
+
+
 def type_text_multiline_soft_breaks(
     driver,
     element,
@@ -792,10 +928,12 @@ def type_text_multiline_soft_breaks(
     clear_first: bool = True,
     line_pause: Tuple[float, float] = (0.03, 0.09),
     break_pause: Tuple[float, float] = (0.05, 0.12),
+    newline_via_insert: bool = False,
+    min_breaks_between_blocks: int = 1,
 ) -> str:
     """
-    逐行 insertText + Shift+Enter，避免 X/Twitter 整段粘贴吞掉空行与行首空格。
-    空行：连续 Shift+Enter；有内容的行：在光标处追加后再换行。
+    逐块 insertText 写入；换行用 insertText 插入 \\n（X Draft 比 Shift+Enter 更稳）。
+    newline_via_insert=True 时按 min_breaks_between_blocks 在块之间插入至少 N 个换行（2=空一行）。
     """
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.webdriver.common.keys import Keys
@@ -815,18 +953,37 @@ def type_text_multiline_soft_breaks(
         driver.execute_script("arguments[0].click(); arguments[0].focus();", element)
     human_pause(0.08, 0.18)
 
-    lines = body.split("\n")
     got = ""
-    for i, line in enumerate(lines):
-        if line:
-            got = append_text_at_caret(driver, element, line)
-            human_pause(*line_pause)
-        if i < len(lines) - 1:
-            ActionChains(driver).click(element).key_down(Keys.SHIFT).send_keys(
-                Keys.ENTER
-            ).key_up(Keys.SHIFT).perform()
-            human_pause(*break_pause)
-            got = read_editor_text(driver, element)
+    if newline_via_insert:
+        segments = body.split("\n")
+        idx = 0
+        while idx < len(segments):
+            seg = segments[idx]
+            if seg:
+                got = append_text_at_caret(driver, element, seg)
+                human_pause(*line_pause)
+            nxt = idx + 1
+            while nxt < len(segments) and not segments[nxt]:
+                nxt += 1
+            if nxt < len(segments):
+                nl = max(1, nxt - idx)
+                if seg and min_breaks_between_blocks > nl:
+                    nl = min_breaks_between_blocks
+                got = append_text_at_caret(driver, element, "\n" * nl)
+                human_pause(*break_pause)
+            idx = nxt if nxt > idx else idx + 1
+    else:
+        lines = body.split("\n")
+        for i, line in enumerate(lines):
+            if line:
+                got = append_text_at_caret(driver, element, line)
+                human_pause(*line_pause)
+            if i < len(lines) - 1:
+                ActionChains(driver).click(element).key_down(Keys.SHIFT).send_keys(
+                    Keys.ENTER
+                ).key_up(Keys.SHIFT).perform()
+                human_pause(*break_pause)
+                got = read_editor_text(driver, element)
 
     got = read_editor_text(driver, element)
     if multiline_content_preserved(got, body):

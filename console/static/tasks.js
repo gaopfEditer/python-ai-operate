@@ -8,6 +8,7 @@
   const LS_MODE = "tr_tasks_mode_v1";
   const LS_BOARD = "tr_tasks_board_v4";
   const LS_TPL_CFG = "tr_tasks_tpl_cfg";
+  const LS_TPL_CUSTOM = "tr_tasks_tpl_custom_v1";
   const LS_NOTES = "tr_tasks_week_notes";
   const LS_MONTHS = "tr_tasks_month_plans_v1";
 
@@ -608,11 +609,14 @@
     const planCls = draggable ? " tsk-plan-card" : "";
     const catCls = isCatalog ? " tsk-catalog-card" : "";
     const typeCls = opts.exec ? " tsk-exec-card" : opts.backlog ? " tsk-backlog-card" : "";
+    const showCatBadge = opts.backlog || opts.plan;
+    const catBadge = showCatBadge ? renderCardCatBadge(t) : "";
     return `<article class="tsk-card tsk-task-card tsk-hover-card${typeCls}${planCls}${catCls}${done ? " is-done" : ""}${compact ? " is-compact" : ""}${extraClass || ""}"
       ${dragAttr} data-task-id="${escapeAttr(t.id)}"${isCatalog ? ' data-template-catalog="1"' : ""}>
       <div class="tsk-card-pri-bar" style="background:${priColor}"></div>
       <div class="tsk-card-inner">
         <div class="tsk-card-body is-openable" data-task-open="${escapeAttr(t.id)}" role="button" tabindex="0">
+          ${catBadge}
           <span class="tsk-card-title">${escapeHtml(t.title)}</span>
           <span class="meta tsk-card-source">${escapeHtml(taskSourceLine(t))}</span>
           <div class="tsk-card-footline">
@@ -626,6 +630,12 @@
 
   function catTagClass(categoryId) {
     return TD().CAT_COLORS?.[categoryId] || "misc";
+  }
+
+  function renderCardCatBadge(t) {
+    const name = TD().catLabel(t.categoryId);
+    const cls = catTagClass(t.categoryId);
+    return `<span class="tsk-card-cat tsk-tag cat-${escapeAttr(cls)}">${escapeHtml(name)}</span>`;
   }
 
   function loadWeekNote(wk) {
@@ -851,11 +861,157 @@
     } else if (!["todo", "doing", "done", "deferred"].includes(x.status)) {
       x.status = x.status === "done" ? "done" : "todo";
     }
+    const so = Number(x.sortOrder);
+    x.sortOrder = Number.isFinite(so) ? so : Date.parse(x.createdAt || "") || Date.now();
     return x;
   }
 
+  function taskSortKey(t) {
+    const o = Number(t?.sortOrder);
+    return Number.isFinite(o) ? o : Date.parse(t?.createdAt || "") || 0;
+  }
+
+  function sortTasksByOrder(tasks) {
+    return [...tasks].sort(
+      (a, b) => taskSortKey(a) - taskSortKey(b) || String(a.id).localeCompare(String(b.id))
+    );
+  }
+
+  /** 待排区固定顺序：模板池按模板定义序，自定义待排按创建时间。不可拖拽排序。 */
+  function backlogTasks(wk) {
+    const catalog = templateCatalogTasks(wk);
+    const custom = tasksForWeek(wk)
+      .filter((t) => isBacklog(t) && !isTemplateCatalog(t) && t.status !== "cancelled")
+      .sort((a, b) => {
+        const ca = Date.parse(a.createdAt || "") || 0;
+        const cb = Date.parse(b.createdAt || "") || 0;
+        return ca - cb || String(a.id).localeCompare(String(b.id));
+      });
+    return [...catalog, ...custom];
+  }
+
+  function columnTasks(wk, daySlot) {
+    const day = Number(daySlot);
+    if (day === 0) return backlogTasks(wk);
+    return sortTasksByOrder(
+      tasksForWeek(wk).filter((t) => t.status !== "cancelled" && isScheduled(t) && t.daySlot === day)
+    );
+  }
+
+  function applyColumnSortOrders(wk, daySlot, orderedIds) {
+    const store = loadStore();
+    orderedIds.forEach((id, i) => {
+      const row = store.tasks.find((t) => t.id === id);
+      if (row) {
+        row.sortOrder = (i + 1) * 1000;
+        row.updatedAt = new Date().toISOString();
+      }
+    });
+    saveStore(store);
+  }
+
+  function reorderTaskInColumn(taskId, daySlot, insertBeforeId, wk = activeWeekKey()) {
+    const t = taskById(taskId);
+    if (!t) return false;
+    const day = Number(daySlot);
+    if (isTemplateCatalog(t) && day > 0) return spawnFromCatalog(taskId, day);
+
+    // 待排区：顺序固定，仅允许从日程列拖回（不插入指定位置）
+    if (day === 0) {
+      if (isTemplateCatalog(t) || t.daySlot === 0) return false;
+      return moveTaskDay(taskId, 0, { force: true });
+    }
+
+    const sameCol = t.weekKey === wk && t.daySlot === day;
+    if (!sameCol) {
+      if (isTemplateCatalog(t)) return false;
+      if (!moveTaskDay(taskId, day, { force: true })) return false;
+    }
+
+    const moved = taskById(taskId);
+    if (!moved) return false;
+    let column = columnTasks(wk, day).filter((x) => x.id !== taskId);
+    let idx = insertBeforeId ? column.findIndex((x) => x.id === insertBeforeId) : column.length;
+    if (idx < 0) idx = column.length;
+    column.splice(idx, 0, moved);
+    applyColumnSortOrders(
+      wk,
+      day,
+      column.map((x) => x.id)
+    );
+    return true;
+  }
+
+  function dropInsertBeforeId(body, clientY, dragId) {
+    const cards = [...body.querySelectorAll(".tsk-plan-card, .tsk-backlog-card")].filter(
+      (c) => !c.classList.contains("is-dragging") && c.getAttribute("data-task-id") !== dragId
+    );
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return card.getAttribute("data-task-id");
+    }
+    return null;
+  }
+
+  function clearDropIndicators(root) {
+    root?.querySelectorAll(".tsk-drop-indicator").forEach((el) => el.remove());
+    root?.querySelectorAll(".tsk-kcol-body.is-drag-over").forEach((el) => el.classList.remove("is-drag-over"));
+  }
+
+  function showDropIndicator(body, beforeId) {
+    const root = body.closest(".tsk-kanban") || body;
+    clearDropIndicators(root);
+    body.classList.add("is-drag-over");
+    const line = document.createElement("div");
+    line.className = "tsk-drop-indicator";
+    if (beforeId) {
+      const target = [...body.querySelectorAll("[data-task-id]")].find(
+        (el) => el.getAttribute("data-task-id") === beforeId
+      );
+      if (target) body.insertBefore(line, target);
+      else body.appendChild(line);
+    } else {
+      body.appendChild(line);
+    }
+  }
+
   function emptyStore() {
-    return { tasks: [], templateApplied: {} };
+    return { tasks: [], templateApplied: {}, catalogDismissed: {}, instanceDismissed: {} };
+  }
+
+  function ensureDismissed(store) {
+    if (!store.catalogDismissed) store.catalogDismissed = {};
+    if (!store.instanceDismissed) store.instanceDismissed = {};
+    return store;
+  }
+
+  function dismissedCatalogKeys(store, wk) {
+    ensureDismissed(store);
+    return new Set(store.catalogDismissed[wk] || []);
+  }
+
+  function dismissCatalog(store, wk, templateKey) {
+    if (!templateKey) return;
+    ensureDismissed(store);
+    const set = new Set(store.catalogDismissed[wk] || []);
+    set.add(templateKey);
+    store.catalogDismissed[wk] = [...set];
+  }
+
+  function dismissInstance(store, wk, instanceKey) {
+    if (!instanceKey) return;
+    ensureDismissed(store);
+    const set = new Set(store.instanceDismissed[wk] || []);
+    set.add(instanceKey);
+    store.instanceDismissed[wk] = [...set];
+  }
+
+  function clearInstanceDismissed(store, wk, instanceKey) {
+    if (!instanceKey) return;
+    ensureDismissed(store);
+    const list = store.instanceDismissed[wk];
+    if (!list?.length) return;
+    store.instanceDismissed[wk] = list.filter((k) => k !== instanceKey);
   }
 
   function loadStore() {
@@ -866,6 +1022,7 @@
       if (!data?.tasks) return emptyStore();
       data.tasks = data.tasks.map(migrateTask);
       if (!data.templateApplied) data.templateApplied = {};
+      ensureDismissed(data);
       return data;
     } catch (_) {
       return emptyStore();
@@ -896,6 +1053,15 @@
 
   function deleteTask(id) {
     const store = loadStore();
+    const task = store.tasks.find((t) => t.id === id);
+    if (task) {
+      const wk = task.weekKey;
+      if (isTemplateCatalog(task) && task.templateKey) {
+        dismissCatalog(store, wk, task.templateKey);
+      } else if (task.instanceKey) {
+        dismissInstance(store, wk, task.instanceKey);
+      }
+    }
     store.tasks = store.tasks.filter((t) => t.id !== id);
     saveStore(store);
   }
@@ -939,21 +1105,124 @@
     localStorage.setItem(LS_TPL_CFG, JSON.stringify(cfg));
   }
 
+  function loadCustomTemplates() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LS_TPL_CUSTOM) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveCustomTemplates(list) {
+    localStorage.setItem(LS_TPL_CUSTOM, JSON.stringify(list));
+  }
+
+  function isBuiltinTemplateKey(key) {
+    return TD().WEEKLY_TEMPLATES.some((t) => t.key === key);
+  }
+
+  function isCustomTemplateKey(key) {
+    return loadCustomTemplates().some((t) => t.key === key);
+  }
+
+  function mergeTemplateOverride(tpl, ov) {
+    const o = ov[tpl.key];
+    if (!o) return { ...tpl };
+    return {
+      ...tpl,
+      title: o.title !== undefined ? o.title : tpl.title,
+      notes: o.notes !== undefined ? o.notes : tpl.notes || "",
+      priority: o.priority || tpl.priority,
+      slot: o.slot !== undefined ? o.slot : tpl.slot || "",
+      scheduleKind: o.scheduleKind || tpl.scheduleKind,
+      weekdays: Array.isArray(o.weekdays) ? o.weekdays : tpl.weekdays,
+    };
+  }
+
   function getEffectiveTemplates() {
     const ov = loadTemplateOverrides();
-    return TD().WEEKLY_TEMPLATES.map((tpl) => {
-      const o = ov[tpl.key];
-      if (!o) return { ...tpl };
-      return {
-        ...tpl,
-        title: o.title !== undefined ? o.title : tpl.title,
-        notes: o.notes !== undefined ? o.notes : tpl.notes || "",
-        priority: o.priority || tpl.priority,
-        slot: o.slot !== undefined ? o.slot : tpl.slot || "",
-        scheduleKind: o.scheduleKind || tpl.scheduleKind,
-        weekdays: Array.isArray(o.weekdays) ? o.weekdays : tpl.weekdays,
-      };
+    const seen = new Set();
+    const merged = [];
+    [...TD().WEEKLY_TEMPLATES, ...loadCustomTemplates()].forEach((tpl) => {
+      if (seen.has(tpl.key) || ov[tpl.key]?.hidden) return;
+      seen.add(tpl.key);
+      merged.push(mergeTemplateOverride(tpl, ov));
     });
+    return merged;
+  }
+
+  function activeTemplateKeys() {
+    return new Set(getEffectiveTemplates().map((t) => t.key));
+  }
+
+  function addTemplateFromSubcategory(subcategoryId) {
+    const key = TD().templateKeyForSub(subcategoryId);
+    if (activeTemplateKeys().has(key)) {
+      if (typeof toast === "function") toast("该小类已在模板池中", "error");
+      return false;
+    }
+    const tpl = TD().makeWeeklyTemplateBySubId(subcategoryId);
+    if (!tpl) {
+      if (typeof toast === "function") toast("小类不存在", "error");
+      return false;
+    }
+    if (!isBuiltinTemplateKey(key)) {
+      const list = loadCustomTemplates();
+      if (!list.some((t) => t.key === key)) {
+        list.push(tpl);
+        saveCustomTemplates(list);
+      }
+    }
+    saveTemplateOverride(key, { hidden: false });
+    if (typeof toast === "function") toast(`已加入模板：${tpl.title}`, "ok");
+    return true;
+  }
+
+  function removeTemplateFromPool(key) {
+    if (isCustomTemplateKey(key)) {
+      saveCustomTemplates(loadCustomTemplates().filter((t) => t.key !== key));
+    } else if (isBuiltinTemplateKey(key)) {
+      saveTemplateOverride(key, { hidden: true });
+    }
+  }
+
+  function renderTemplateRow(tpl) {
+    const days = TD().formatTemplateDays(tpl);
+    const kind = TD().SCHEDULE_KIND_LABEL[tpl.scheduleKind] || tpl.scheduleKind;
+    const custom = isCustomTemplateKey(tpl.key);
+    return `<div class="tsk-tpl-row" data-tpl-key="${escapeAttr(tpl.key)}">
+      <div>
+        <strong>${escapeHtml(tpl.title)}</strong>
+        <span class="muted">${escapeHtml(TD().subLabel(tpl.subcategoryId))} · ${escapeHtml(kind)} · ${escapeHtml(days)}${custom ? " · 自定义" : ""}</span>
+      </div>
+      <label class="field" style="margin:0;min-width:160px"><span>默认周几（1-6 逗号，6=周末）</span>
+        <input type="text" class="tsk-tpl-days" value="${escapeAttr((tpl.weekdays || []).join(","))}" />
+      </label>
+      <div class="tsk-tpl-row-actions">
+        <select class="tsk-tpl-kind">
+          <option value="once"${tpl.scheduleKind === "once" ? " selected" : ""}>只做一次</option>
+          <option value="weekdays"${tpl.scheduleKind === "weekdays" ? " selected" : ""}>工作日</option>
+          <option value="days"${tpl.scheduleKind === "days" ? " selected" : ""}>指定几天</option>
+        </select>
+        <button type="button" class="btn-link xs" data-tpl-remove="${escapeAttr(tpl.key)}">移除</button>
+      </div>
+    </div>`;
+  }
+
+  function refreshTplSubOptions() {
+    const catSel = $("#tplAddCategory");
+    const subSel = $("#tplAddSub");
+    if (!catSel || !subSel) return;
+    const cat = TD().getCategory(catSel.value);
+    const inPool = activeTemplateKeys();
+    subSel.innerHTML = (cat?.subs || [])
+      .map((s) => {
+        const key = TD().templateKeyForSub(s.id);
+        const has = inPool.has(key);
+        return `<option value="${escapeAttr(s.id)}"${has ? " disabled" : ""}>${escapeHtml(s.name)}${has ? " · 已有" : ""}</option>`;
+      })
+      .join("");
   }
 
   function syncTaskToTemplate(task) {
@@ -1054,6 +1323,7 @@
       repeatable: !!partial.repeatable,
       templateCatalog: !!partial.templateCatalog,
       aiGenerated: !!partial.aiGenerated,
+      sortOrder: partial.sortOrder ?? Date.now(),
       createdAt: partial.createdAt || now,
       updatedAt: now,
       completedAt: partial.completedAt || null,
@@ -1065,8 +1335,10 @@
     const existingKeys = new Set(
       store.tasks.filter((t) => t.weekKey === wk && t.instanceKey).map((t) => t.instanceKey)
     );
+    const dismissed = dismissedCatalogKeys(store, wk);
     let added = 0;
     getEffectiveTemplates().forEach((tpl) => {
+      if (dismissed.has(tpl.key)) return;
       const ckey = catalogInstanceKey(wk, tpl.key);
       if (existingKeys.has(ckey)) return;
       store.tasks.unshift(
@@ -1095,8 +1367,20 @@
   function templateCatalogTasks(wk) {
     const order = new Map(getEffectiveTemplates().map((t, i) => [t.key, i]));
     return tasksForWeek(wk)
-      .filter((t) => isTemplateCatalog(t) && t.status !== "cancelled")
+      .filter((t) => isTemplateCatalog(t) && t.status !== "cancelled" && order.has(t.templateKey))
       .sort((a, b) => (order.get(a.templateKey) ?? 99) - (order.get(b.templateKey) ?? 99));
+  }
+
+  function pruneOrphanCatalog(wk) {
+    const valid = new Set(getEffectiveTemplates().map((t) => t.key));
+    const store = loadStore();
+    const next = store.tasks.filter(
+      (t) => !(t.weekKey === wk && isTemplateCatalog(t) && t.templateKey && !valid.has(t.templateKey))
+    );
+    if (next.length !== store.tasks.length) {
+      store.tasks = next;
+      saveStore(store);
+    }
   }
 
   function spawnFromCatalog(catalogId, daySlot) {
@@ -1111,6 +1395,9 @@
       return false;
     }
     const tpl = getEffectiveTemplates().find((x) => x.key === cat.templateKey);
+    const store = loadStore();
+    clearInstanceDismissed(store, wk, ikey);
+    saveStore(store);
     upsertTask(
       makeTask({
         title: cat.title || tpl?.title || "",
@@ -1143,12 +1430,14 @@
     const existingKeys = new Set(
       store.tasks.filter((t) => t.weekKey === wk && t.instanceKey).map((t) => t.instanceKey)
     );
+    const instanceDismissed = new Set(store.instanceDismissed[wk] || []);
     let added = 0;
     getEffectiveTemplates().forEach((tpl) => {
       TD().expandTemplateSlots(tpl).forEach((slot) => {
         if (!slot.daySlot) return;
         const ikey = TD().instanceDedupKey(wk, tpl.key, slot.daySlot);
         if (existingKeys.has(ikey)) return;
+        if (instanceDismissed.has(ikey)) return;
         const task = makeTask({
           title: tpl.title,
           notes: tpl.notes || "",
@@ -1373,6 +1662,10 @@
     const opts = [{ slot: 0, label: "待排" }];
     planColumnSlots().forEach((d) => opts.push({ slot: d, label: TD().DAY_NAME[d] || "周末" }));
     return opts;
+  }
+
+  function renderDeleteBtn(taskId) {
+    return `<button type="button" class="btn-link xs tsk-card-del" data-task-del="${escapeAttr(taskId)}">删除</button>`;
   }
 
   function renderDayMenu(taskId, kind) {
@@ -1657,9 +1950,9 @@
     const catalog = isTemplateCatalog(t);
     let actions = "";
     if (catalog && planCatalog) {
-      actions = `<span class="muted tsk-drag-hint">拖入日程</span>`;
+      actions = `<span class="muted tsk-drag-hint">拖入日程</span>${renderDeleteBtn(t.id)}`;
     } else {
-      actions = `${renderDayMenu(t.id, "move")}${renderDayMenu(t.id, "copy")}`;
+      actions = `${renderDayMenu(t.id, "move")}${renderDayMenu(t.id, "copy")}${renderDeleteBtn(t.id)}`;
     }
     return renderKanbanTaskCard(t, { backlog: true, draggable, catalog, actionsHtml: actions });
   }
@@ -1679,8 +1972,8 @@
   }
 
   function renderPlanCard(t) {
-    const actions = `${renderDayMenu(t.id, "move")}${renderDayMenu(t.id, "copy")}`;
-    return renderKanbanTaskCard(t, { draggable: true, actionsHtml: actions });
+    const actions = `${renderDayMenu(t.id, "move")}${renderDayMenu(t.id, "copy")}${renderDeleteBtn(t.id)}`;
+    return renderKanbanTaskCard(t, { draggable: true, plan: true, actionsHtml: actions });
   }
 
   function renderWeekEmpty(wk) {
@@ -1724,6 +2017,15 @@
         btn.closest("details")?.removeAttribute("open");
         copyTaskToDay(btn.getAttribute("data-task-id"), btn.getAttribute("data-copy-day"));
         renderAll();
+      });
+    });
+    root?.querySelectorAll("[data-task-del]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (confirm("删除这一条？")) {
+          deleteTask(btn.getAttribute("data-task-del"));
+          renderAll();
+        }
       });
     });
     root?.querySelectorAll("[data-gen-week]").forEach((btn) => {
@@ -1823,17 +2125,12 @@
       return;
     }
 
+    pruneOrphanCatalog(wk);
     ensureTemplateCatalog(wk);
-    const weekTasks = tasksForWeek(wk).filter((t) => t.status !== "cancelled");
-    const catalog = templateCatalogTasks(wk);
-    const customBacklog = weekTasks.filter((t) => isBacklog(t) && !isTemplateCatalog(t));
-    const backlogAll = [...catalog, ...customBacklog];
+    const backlogAll = backlogTasks(wk);
     const byDay = {};
     planColumnSlots().forEach((d) => {
-      byDay[d] = [];
-    });
-    weekTasks.filter(isScheduled).forEach((t) => {
-      if (byDay[t.daySlot] !== undefined) byDay[t.daySlot].push(t);
+      byDay[d] = columnTasks(wk, d);
     });
     const curToday = isCurWeek ? todayDaySlot() : 0;
     const weekendSlot = TD().WEEKEND_SLOT || 6;
@@ -1878,27 +2175,48 @@
       card.addEventListener("dragstart", (e) => {
         state.dragTaskId = card.getAttribute("data-task-id");
         e.dataTransfer?.setData("text/plain", state.dragTaskId);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
         card.classList.add("is-dragging");
       });
-      card.addEventListener("dragend", () => card.classList.remove("is-dragging"));
+      card.addEventListener("dragend", () => {
+        card.classList.remove("is-dragging");
+        clearDropIndicators(root);
+        state.dragTaskId = null;
+      });
     });
     root.querySelectorAll(".tsk-kcol[data-drop-day]").forEach((col) => {
-      col.addEventListener("dragover", (e) => {
+      const body = col.querySelector(".tsk-kcol-body");
+      if (!body) return;
+      const day = Number(col.getAttribute("data-drop-day"));
+      const isBacklogCol = day === 0;
+      body.addEventListener("dragover", (e) => {
         e.preventDefault();
-        col.classList.add("is-drag-over");
+        const dragId = e.dataTransfer?.getData("text/plain") || state.dragTaskId;
+        const dragTask = dragId ? taskById(dragId) : null;
+        if (isBacklogCol) {
+          if (dragTask && dragTask.daySlot > 0 && !isTemplateCatalog(dragTask)) {
+            if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+            body.classList.add("is-drag-over");
+          }
+          return;
+        }
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        const beforeId = dropInsertBeforeId(body, e.clientY, dragId);
+        showDropIndicator(body, beforeId);
       });
-      col.addEventListener("dragleave", () => col.classList.remove("is-drag-over"));
-      col.addEventListener("drop", (e) => {
+      body.addEventListener("dragleave", (e) => {
+        if (!body.contains(e.relatedTarget)) {
+          body.classList.remove("is-drag-over");
+          body.querySelectorAll(".tsk-drop-indicator").forEach((el) => el.remove());
+        }
+      });
+      body.addEventListener("drop", (e) => {
         e.preventDefault();
-        col.classList.remove("is-drag-over");
+        clearDropIndicators(root);
         const id = e.dataTransfer?.getData("text/plain") || state.dragTaskId;
-        const day = Number(col.getAttribute("data-drop-day"));
         if (!id) return;
-        const t = taskById(id);
-        let ok = false;
-        if (isTemplateCatalog(t) && day) ok = spawnFromCatalog(id, day);
-        else ok = moveTaskDay(id, day);
-        if (ok) renderAll();
+        const beforeId = isBacklogCol ? null : dropInsertBeforeId(body, e.clientY, id);
+        if (reorderTaskInColumn(id, day, beforeId, activeWeekKey())) renderAll();
       });
     });
   }
@@ -2123,28 +2441,35 @@
     });
   }
 
+  function ensureTplCategorySelect() {
+    const catSel = $("#tplAddCategory");
+    if (!catSel || catSel.options.length) return;
+    catSel.innerHTML = TD()
+      .CATEGORIES.map((c) => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)}</option>`)
+      .join("");
+  }
+
   function openTemplateDrawer() {
     const dlg = $("#taskTemplateDialog");
     const box = $("#taskTemplateList");
     if (!dlg || !box) return;
-    const ov = loadTemplateOverrides();
-    box.innerHTML = getEffectiveTemplates()
-      .map((tpl) => {
-        const days = TD().formatTemplateDays(tpl);
-        const kind = TD().SCHEDULE_KIND_LABEL[tpl.scheduleKind] || tpl.scheduleKind;
-        return `<div class="tsk-tpl-row" data-tpl-key="${escapeAttr(tpl.key)}">
-          <div><strong>${escapeHtml(tpl.title)}</strong><span class="muted">${escapeHtml(kind)} · ${escapeHtml(days)}</span></div>
-          <label class="field" style="margin:0;min-width:160px"><span>默认周几（1-6 逗号，6=周末）</span>
-            <input type="text" class="tsk-tpl-days" value="${escapeAttr((tpl.weekdays || []).join(","))}" />
-          </label>
-          <select class="tsk-tpl-kind">
-            <option value="once"${tpl.scheduleKind === "once" ? " selected" : ""}>只做一次</option>
-            <option value="weekdays"${tpl.scheduleKind === "weekdays" ? " selected" : ""}>工作日</option>
-            <option value="days"${tpl.scheduleKind === "days" ? " selected" : ""}>指定几天</option>
-          </select>
-        </div>`;
+    ensureTplCategorySelect();
+    const byCat = new Map();
+    getEffectiveTemplates().forEach((tpl) => {
+      if (!byCat.has(tpl.categoryId)) byCat.set(tpl.categoryId, []);
+      byCat.get(tpl.categoryId).push(tpl);
+    });
+    box.innerHTML = TD()
+      .CATEGORIES.map((cat) => {
+        const items = byCat.get(cat.id);
+        if (!items?.length) return "";
+        return `<section class="tsk-tpl-group">
+          <h4 class="tsk-tpl-group-title">${escapeHtml(cat.name)}</h4>
+          ${items.map(renderTemplateRow).join("")}
+        </section>`;
       })
       .join("");
+    refreshTplSubOptions();
     dlg.showModal();
   }
 
@@ -2633,6 +2958,23 @@
     return m ? `${m[1]}-W${m[2]}` : weekKey();
   }
 
+  function isTasksFocusMode(mode = state.mode) {
+    return mode === "board" || mode === "stats";
+  }
+
+  function updateTasksFocusUi() {
+    const focus = isTasksFocusMode();
+    document.body.classList.toggle("tasks-focus", focus);
+    const back = $("#btnTasksFocusBack");
+    if (back) back.hidden = !focus;
+  }
+
+  function clearTasksFocusUi() {
+    document.body.classList.remove("tasks-focus");
+    const back = $("#btnTasksFocusBack");
+    if (back) back.hidden = true;
+  }
+
   function switchMode(mode) {
     state.mode = mode;
     localStorage.setItem(LS_MODE, mode);
@@ -2645,6 +2987,7 @@
     $("#tasksModeBoard").hidden = mode !== "board";
     $("#tasksModeMonths").hidden = mode !== "months";
     $("#tasksModeStats").hidden = mode !== "stats";
+    updateTasksFocusUi();
     renderAll();
   }
 
@@ -2701,6 +3044,7 @@
     document.querySelectorAll(".tsk-mode-tab[data-task-mode]").forEach((btn) => {
       btn.addEventListener("click", () => switchMode(btn.dataset.taskMode));
     });
+    $("#btnTasksFocusBack")?.addEventListener("click", () => switchMode("home"));
     $("#taskDrawerForm")?.addEventListener("submit", (e) => {
       e.preventDefault();
       saveTaskFromDrawer();
@@ -2761,6 +3105,20 @@
       e.preventDefault();
       $("#taskTemplateDialog")?.close();
     });
+    $("#tplAddCategory")?.addEventListener("change", refreshTplSubOptions);
+    $("#btnTplAdd")?.addEventListener("click", () => {
+      const subId = $("#tplAddSub")?.value;
+      if (!subId) return;
+      if (addTemplateFromSubcategory(subId)) openTemplateDrawer();
+    });
+    $("#taskTemplateList")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-tpl-remove]");
+      if (!btn) return;
+      const key = btn.getAttribute("data-tpl-remove");
+      if (!key || !confirm("从模板池移除此项？已生成本周的任务需手动删。")) return;
+      removeTemplateFromPool(key);
+      openTemplateDrawer();
+    });
   }
 
   function init() {
@@ -2777,6 +3135,7 @@
   global.TasksPage = {
     init,
     onTabEnter,
+    clearTasksFocusUi,
     switchMode,
     weekKey,
     monthKey,

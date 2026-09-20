@@ -37,6 +37,7 @@
   };
 
   const CAT_COLORS = {
+    flow: "flow",
     dev: "dev",
     work: "work",
     trade: "trade",
@@ -45,175 +46,155 @@
     misc: "misc",
   };
 
-  const CATEGORIES = [
-    {
-      id: "dev",
-      name: "软件开发",
-      subs: [
-        { id: "dev.ui", name: "前端 UI/交互" },
-        { id: "dev.ds", name: "组件与设计系统" },
-        { id: "dev.api", name: "接口联调" },
-        { id: "dev.perf", name: "性能与体验" },
-        { id: "dev.bug", name: "Bug 修复" },
-        { id: "dev.tool", name: "工程化/工具链" },
-        { id: "dev.review", name: "代码评审与重构" },
-        { id: "dev.release", name: "发版与验收" },
-      ],
-    },
-    {
-      id: "work",
-      name: "工作内容",
-      subs: [
-        { id: "work.meet", name: "会议与对齐" },
-        { id: "work.doc", name: "文档与方案" },
-        { id: "work.track", name: "进度跟进" },
-        { id: "work.xteam", name: "跨部门协作" },
-        { id: "work.report", name: "周报/复盘" },
-        { id: "work.hire", name: "招聘/面试" },
-        { id: "work.admin", name: "行政事务" },
-      ],
-    },
-    {
-      id: "trade",
-      name: "web3操盘",
-      subs: [
-        { id: "trade.watch", name: "行情观察" },
-        { id: "trade.pos", name: "仓位管理" },
-        { id: "trade.onchain", name: "链上数据" },
-        { id: "trade.risk", name: "风险控制" },
-        { id: "trade.review", name: "交易复盘" },
-        { id: "trade.macro", name: "宏观/事件驱动" },
-        { id: "trade.exp", name: "策略实验" },
-      ],
-    },
-    {
-      id: "ops",
-      name: "web3运营",
-      subs: [
-        { id: "ops.content", name: "内容策划" },
-        { id: "ops.community", name: "社区运营" },
-        { id: "ops.kol", name: "KOL/合作" },
-        { id: "ops.event", name: "活动与空投" },
-        { id: "ops.dashboard", name: "数据看板" },
-        { id: "ops.brand", name: "品牌与叙事" },
-        { id: "ops.growth", name: "用户增长" },
-      ],
-    },
-    {
-      id: "global_ops",
-      name: "海外运营",
-      subs: [
-        { id: "global.i18n", name: "多语言内容" },
-        { id: "global.social", name: "海外社媒" },
-        { id: "global.growth", name: "增长实验" },
-        { id: "global.l10n", name: "本地化适配" },
-        { id: "global.ads", name: "渠道投放" },
-        { id: "global.feedback", name: "用户反馈" },
-        { id: "global.partner", name: "合作拓展" },
-      ],
-    },
-    {
-      id: "misc",
-      name: "其他思路",
-      subs: [
-        { id: "misc.inspire", name: "灵感收集" },
-        { id: "misc.learn", name: "学习笔记" },
-        { id: "misc.lab", name: "实验想法" },
-        { id: "misc.long", name: "长期项目" },
-        { id: "misc.adhoc", name: "临时插入" },
-      ],
-    },
+  const CATEGORIES = [{
+    id: "flow",
+    name: "流控",
+    subs: [
+      { id: "flow.plan", name: "任务制定" },
+      { id: "flow.coord", name: "任务协调" },
+      { id: "flow.prio", name: "优先级与取舍" },
+      { id: "flow.review", name: "评估复盘" },
+      { id: "flow.brain", name: "头脑风暴" },
+      { id: "flow.link", name: "灵感串联" },
+      { id: "flow.template", name: "周模板 / 日清单" },
+      { id: "flow.block", name: "卡点与阻塞" },
+    ],
+  },
+  {
+    id: "work",
+    name: "工作内容",
+    subs: [
+      { id: "work.skill.agent", name: "AI Agent / 工作流自动化" },
+      { id: "work.skill.scrape", name: "数据采集与监控告警" },
+      { id: "work.skill.dash", name: "交易/运营数据看板" },
+      { id: "work.skill.ext", name: "浏览器插件与油猴脚本" },
+      { id: "work.skill.indiehack", name: "产品 / 小工具之流" },
+      { id: "work.skill.template", name: "模板与脚手架" },
+      { id: "work.skill.quantui", name: "行情可视化 / 微结构工具" },
+      { id: "work.skill.promptops", name: "可复用 Prompt / 技能库" },
+      { id: "work.skill.rare", name: "冷门栈（WebGL、音频、本地模型）" },
+    ],
+  },
+  {
+    id: "dev",
+    name: "软件开发",
+    // 接外包、做效率产品、从外网挖需求
+    subs: [
+      { id: "dev.upwork", name: "Upwork / 海外接单" },
+      { id: "dev.demand", name: "外网需求挖掘" },
+      { id: "dev.template", name: "网站/SaaS 模板交付" },
+      { id: "dev.plugin", name: "效率插件 / 扩展" },
+      { id: "dev.internal", name: "自己用的效率工具" },
+      { id: "dev.landing", name: "落地页 / 演示站" },
+      { id: "dev.maintain", name: "改版、修摊、长期维护" },
+      { id: "dev.portfolio", name: "作品集与案例包装" },
+      { id: "dev.pricing", name: "报价、范围、合同" },
+    ],
+  },
+  {
+    id: "ops",
+    name: "web3运营",
+    // 广场发优质内容引流，资讯 + K 线技术
+    subs: [
+      { id: "ops.square", name: "交易所广场分发" },
+      { id: "ops.kolcurate", name: "优质 KOL 单拆解转推" },
+      { id: "ops.thread", name: "结构向长帖（费率/OI/多空）" },
+      { id: "ops.kline", name: "K 线技术解读" },
+      { id: "ops.news", name: "币圈资讯快评" },
+      { id: "ops.visual", name: "配图 / 情景卡" },
+      { id: "ops.engage", name: "评论区互动引流" },
+      { id: "ops.calendar", name: "事件日历选题" },
+      { id: "ops.repurpose", name: "一稿多发（X/广场/短视频）" },
+    ],
+  },
+  {
+    id: "trade",
+    name: "web3操盘",
+    // 对 KOL/推荐做布局，用技术分析管仓
+    subs: [
+      { id: "trade.kolplan", name: "KOL/推荐单落地计划" },
+      { id: "trade.setup", name: "入场结构（价/OI/费率）" },
+      { id: "trade.pos", name: "仓位与杠杆" },
+      { id: "trade.invalid", name: "失效条件 / 止损" },
+      { id: "trade.watch", name: "盯盘清单" },
+      { id: "trade.event", name: "事件驱动单" },
+      { id: "trade.arb", name: "价差 / 拥挤反转" },
+      { id: "trade.review", name: "复盘（对错在结构还是执行）" },
+    ],
+  },
+  {
+    id: "global_ops",
+    name: "海外内容",
+    // 海外资讯与可变现渠道，尽量产品化/自动化
+    subs: [
+      { id: "global.source", name: "海外资讯源监控" },
+      { id: "global.auto", name: "资讯采集自动化" },
+      { id: "global.dist", name: "海外渠道分发（X/Reddit/IH）" },
+      { id: "global.product", name: "可售工具 / 信息产品" },
+      { id: "global.freelance", name: "海外客户开发" },
+      { id: "global.seo", name: "英文关键词 / 趋势验证" },
+      { id: "global.pay", name: "收款与上架（模板/插件）" },
+      { id: "global.niche", name: "垂直海外场景（Shopify/booking）" },
+    ],
+  },
+  {
+    id: "misc",
+    name: "其他内容",
+    subs: [
+      { id: "misc.inspire", name: "灵感收集" },
+      { id: "misc.learn", name: "学习笔记" },
+      { id: "misc.life", name: "生活事务" },
+      { id: "misc.lab", name: "未验证想法" },
+      { id: "misc.long", name: "长期项目" },
+    ],
+  },
   ];
 
-  /**
-   * 验收标准（生成本周后）：
-   * 一：会议对齐、前端主块、行情观察
-   * 二：内容策划、行情观察
-   * 三：前端主块、行情观察
-   * 四：海外/社区、行情观察
-   * 五：复盘、发版与验收、行情观察
-   * 待排期：灵感 ≤1
-   */
-  const WEEKLY_TEMPLATES = [
-    {
-      key: "wt.meet",
-      title: "会议与对齐",
-      categoryId: "work",
-      subcategoryId: "work.meet",
-      priority: "must",
-      scheduleKind: "once",
-      weekdays: [1],
-      slot: "morning",
-    },
-    {
-      key: "wt.ui",
-      title: "前端主块",
-      categoryId: "dev",
-      subcategoryId: "dev.ui",
-      priority: "must",
-      scheduleKind: "days",
-      weekdays: [1, 3],
-      slot: "focus",
-    },
-    {
-      key: "wt.content",
-      title: "内容策划",
-      categoryId: "ops",
-      subcategoryId: "ops.content",
-      priority: "must",
-      scheduleKind: "once",
-      weekdays: [2],
-      slot: "focus",
-    },
-    {
-      key: "wt.social",
-      title: "海外/社区",
-      categoryId: "global_ops",
-      subcategoryId: "global.social",
-      priority: "defer",
-      scheduleKind: "once",
-      weekdays: [4],
-    },
-    {
-      key: "wt.review",
-      title: "复盘",
-      categoryId: "trade",
-      subcategoryId: "trade.review",
-      priority: "must",
-      scheduleKind: "once",
-      weekdays: [5],
-      slot: "wrap",
-    },
-    {
-      key: "wt.release",
-      title: "发版与验收",
-      categoryId: "dev",
-      subcategoryId: "dev.release",
-      priority: "must",
-      scheduleKind: "once",
-      weekdays: [5],
-      slot: "wrap",
-    },
-    {
-      key: "wt.watch",
-      title: "行情观察",
-      categoryId: "trade",
-      subcategoryId: "trade.watch",
-      priority: "defer",
-      scheduleKind: "weekdays",
-      weekdays: [1, 2, 3, 4, 5],
-      slot: "morning",
-    },
-    {
-      key: "wt.inspire",
-      title: "灵感收集",
-      categoryId: "misc",
-      subcategoryId: "misc.inspire",
-      priority: "inspiration",
+  /** 各大类默认入选模板池的小类（可在「模板」里继续添加同大类其它小类） */
+  const DEFAULT_TEMPLATE_SUBIDS = {
+    flow: ["flow.plan", "flow.review", "flow.prio"],
+    work: ["work.skill.agent", "work.skill.dash", "work.skill.promptops"],
+    dev: ["dev.upwork", "dev.demand", "dev.internal"],
+    ops: ["ops.square", "ops.thread", "ops.kline"],
+    trade: ["trade.kolplan", "trade.setup", "trade.review"],
+    global_ops: ["global.source", "global.dist", "global.product"],
+    misc: ["misc.inspire", "misc.lab"],
+  };
+
+  function templateKeyForSub(subcategoryId) {
+    return `wt.${subcategoryId}`;
+  }
+
+  function makeWeeklyTemplate(sub, categoryId) {
+    return {
+      key: templateKeyForSub(sub.id),
+      title: sub.name,
+      categoryId,
+      subcategoryId: sub.id,
+      priority: sub.id === "misc.inspire" ? "inspiration" : "defer",
       scheduleKind: "once",
       weekdays: [],
-    },
-  ];
+    };
+  }
+
+  function makeWeeklyTemplateBySubId(subcategoryId) {
+    const sub = subById.get(subcategoryId);
+    if (!sub) return null;
+    return makeWeeklyTemplate(sub, sub.categoryId);
+  }
+
+  /**
+   * 内置默认模板池：每大类精选 2–3 个小类，默认待排期（weekdays 空）。
+   * 用户可在「模板默认落点」按大类追加小类；自定义项存 localStorage。
+   */
+  const WEEKLY_TEMPLATES = CATEGORIES.flatMap((cat) =>
+    (DEFAULT_TEMPLATE_SUBIDS[cat.id] || [])
+      .map((subId) => {
+        const sub = cat.subs.find((s) => s.id === subId);
+        return sub ? makeWeeklyTemplate(sub, cat.id) : null;
+      })
+      .filter(Boolean)
+  );
 
   const catById = new Map(CATEGORIES.map((c) => [c.id, c]));
   const subById = new Map();
@@ -280,7 +261,11 @@
 
   global.TasksData = {
     CATEGORIES,
+    DEFAULT_TEMPLATE_SUBIDS,
     WEEKLY_TEMPLATES,
+    templateKeyForSub,
+    makeWeeklyTemplate,
+    makeWeeklyTemplateBySubId,
     WEEKDAY_SLOTS,
     WEEKEND_SLOT,
     PLAN_SLOTS,

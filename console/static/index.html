@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260920t" />
+  <link rel="stylesheet" href="/app.css?v=20260921a" />
 </head>
 <body>
   <div class="shell">
@@ -519,7 +519,10 @@
 
       <section id="panel-tasks" class="panel tsk-panel" role="tabpanel" hidden>
         <header class="tsk-head">
-          <h2>周任务台</h2>
+          <div class="tsk-head-main">
+            <button type="button" class="btn ghost xs tsk-focus-back" id="btnTasksFocusBack" hidden aria-label="返回任务首页">← 返回</button>
+            <h2>周任务台</h2>
+          </div>
           <span id="tasksWeekChip" class="tsk-week-chip"></span>
         </header>
         <div class="tsk-mode-tabs" role="tablist" aria-label="任务分区">
@@ -627,7 +630,12 @@
         </dialog>
         <dialog id="taskTemplateDialog" class="corpus-dialog tsk-dialog tsk-tpl-dialog">
           <h3 style="margin:0 0 8px">模板默认落点</h3>
-          <p class="muted" style="margin:0 0 12px;font-size:.82rem">改默认星期后点保存；下次「生成本周」按此填格。1=周一 … 5=周五，6=周末，空=待排期。</p>
+          <p class="muted" style="margin:0 0 12px;font-size:.82rem">内置每大类 2–3 个常用小类；可按大类追加小类。改默认星期后保存，下次「生成本周」按此填格。1=周一 … 5=周五，6=周末，空=待排期。</p>
+          <div class="tsk-tpl-add">
+            <label class="field"><span>大类</span><select id="tplAddCategory"></select></label>
+            <label class="field"><span>小类</span><select id="tplAddSub"></select></label>
+            <button type="button" class="btn ghost" id="btnTplAdd">加入模板池</button>
+          </div>
           <div id="taskTemplateList" class="tsk-tpl-list"></div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
             <button id="btnTplClose" class="btn ghost" type="button">关闭</button>
@@ -1134,8 +1142,8 @@
   </div>
   <script src="/taxonomy.js?v=20260921i"></script>
   <script src="/taxonomy-page.js?v=20260921a"></script>
-  <script src="/tasks-data.js?v=20260920k"></script>
-  <script src="/tasks.js?v=20260920t"></script>
-  <script src="/app.js?v=20260921b"></script>
+  <script src="/tasks-data.js?v=20260920n"></script>
+  <script src="/tasks.js?v=20260921b"></script>
+  <script src="/app.js?v=20260921c"></script>
 </body>
 </html>

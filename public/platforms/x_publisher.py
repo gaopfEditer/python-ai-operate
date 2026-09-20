@@ -10,15 +10,17 @@ from typing import Dict, List, Optional, Sequence
 from public.platforms.cdp_common import (
     connect_cdp,
     human_pause,
-    multiline_content_preserved,
     navigate_or_activate,
     normalize_media_paths,
     open_url_new_tab,
+    prepare_x_compose_text,
+    read_x_compose_inner_text,
     sanitize_typed_text,
     split_media,
-    type_text_multiline_soft_breaks,
+    type_x_compose_via_cdp_insert_text,
     upload_files,
     wait_landed,
+    x_editor_line_structure_ok,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,6 +128,21 @@ class XPublisher:
                     "platform_name": "X / Twitter",
                 }
 
+            if body:
+                prepared = prepare_x_compose_text(body)
+                inner = read_x_compose_inner_text(driver)
+                if not x_editor_line_structure_ok(inner, prepared):
+                    return {
+                        "success": False,
+                        "error": (
+                            "发帖前 innerText 未保留换行，已中止。"
+                            f" innerText={(inner or '')[:80]!r}"
+                        ),
+                        "steps": steps,
+                        "platform": "x",
+                    }
+                logger.info("X 发帖前 innerText 校验通过（%s 行）", inner.count("\n") + 1)
+
             if not self._click_tweet(driver):
                 return {
                     "success": False,
@@ -212,15 +229,8 @@ class XPublisher:
         return False
 
     def _fill_text(self, driver, editor, text: str) -> None:
-        """逐行模拟输入 + Shift+Enter，避免 X 整段粘贴吞空行/空格。"""
-        text = sanitize_typed_text(text)
-        if not text:
-            return
-        got = type_text_multiline_soft_breaks(driver, editor, text, clear_first=True)
-        if not multiline_content_preserved(got, text):
-            raise RuntimeError(
-                f"X 正文写入异常（空行/格式丢失），已中止: 期望前20={text[:20]!r} 实际={(got or '')[:40]!r}"
-            )
+        """CDP Input.insertText 一次写入；段间单 \\n；写后读 innerText 校验。"""
+        type_x_compose_via_cdp_insert_text(driver, editor, text, clear_first=True)
 
     def _ensure_media_input(self, driver) -> None:
         """若尚无 file input，点媒体按钮唤出。"""

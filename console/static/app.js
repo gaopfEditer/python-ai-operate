@@ -796,6 +796,8 @@ function switchTab(name) {
         TasksPage.onTabEnter();
       }
     }
+  } else if (typeof TasksPage !== "undefined" && TasksPage.clearTasksFocusUi) {
+    TasksPage.clearTasksFocusUi();
   }
   if (name === "taxonomy") {
     if (typeof TaxonomyPage !== "undefined") {
