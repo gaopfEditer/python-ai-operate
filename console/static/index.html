@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260918a" />
+  <link rel="stylesheet" href="/app.css?v=20260921a" />
 </head>
 <body>
   <div class="shell">
@@ -15,12 +15,13 @@
       <div>
         <p class="eyebrow">TRENDRADAR</p>
         <h1 class="brand">Console</h1>
-        <p class="brand-sub">列表信号 · 资讯预警 · 推文卡片 · 灵感碰撞 · CDP 发布</p>
+        <p class="brand-sub">列表信号 · 资讯预警 · 内容模板 · 推文卡片 · 灵感碰撞 · CDP 发布</p>
         <div class="signal" aria-hidden="true"></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="功能分区">
         <button class="tab active" type="button" role="tab" data-tab="signals" aria-selected="true">列表信号 <span class="tab-count" id="countSignals">0</span><span id="sigCycleDot" class="tab-live" hidden title="周期抓取未开启"></span></button>
         <button class="tab" type="button" role="tab" data-tab="realtime" aria-selected="false">资讯预警 <span class="tab-count" id="countRealtime">0</span></button>
+        <button class="tab" type="button" role="tab" data-tab="taxonomy" aria-selected="false">内容模板</button>
         <button class="tab" type="button" role="tab" data-tab="tweetcards" aria-selected="false">推文卡片 <span class="tab-count" id="countTweetCards">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="corpus" aria-selected="false">灵感碰撞 <span class="tab-count" id="countCorpus">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
@@ -843,6 +844,48 @@
         </dialog>
       </section>
 
+      <section id="panel-taxonomy" class="panel tax-panel" role="tabpanel" hidden>
+        <header class="tax-head">
+          <div>
+            <h2>内容模板 · 类目词典</h2>
+            <p class="muted">大类 → 小类 → 模板；悬停小类查看说明，数据来自 taxonomy.js</p>
+          </div>
+        </header>
+        <div class="tax-workbench">
+          <aside class="tax-col tax-col-cat" aria-label="叙事大类">
+            <h3 class="tax-col-title">大类</h3>
+            <div id="taxonomyCategories" class="tax-cat-list"></div>
+          </aside>
+          <section class="tax-col tax-col-topic" aria-label="小类列表">
+            <div class="tax-mid-head">
+              <h3 class="tax-col-title" id="taxonomyMidTitle">小类</h3>
+              <input id="taxonomyTopicSearch" type="search" class="tax-search" placeholder="过滤小类…" autocomplete="off" />
+              <div id="taxonomyImportanceFilters" class="tax-importance-filters" aria-label="按内容权重筛选"></div>
+            </div>
+            <div id="taxonomyTopics" class="tax-topic-list"></div>
+          </section>
+          <section class="tax-col tax-col-tpl" aria-label="模板列表">
+            <div class="tax-right-head">
+              <h3 class="tax-col-title" id="taxonomyRightTitle">模板</h3>
+              <div id="taxonomyImpactRow" class="tax-impact-row" hidden></div>
+              <div id="taxonomyScenarioRow" class="tax-scenario-row" hidden></div>
+              <div id="taxonomyTplFilters" class="tax-tpl-filters"></div>
+            </div>
+            <div id="taxonomyTemplates" class="tax-tpl-grid"></div>
+          </section>
+        </div>
+        <dialog id="taxonomyTemplateDialog" class="corpus-dialog tax-dialog">
+          <form method="dialog" class="tax-dialog-form">
+            <h3 id="taxonomyDialogTitle">模板</h3>
+            <p class="muted" id="taxonomyDialogMeta"></p>
+            <pre id="taxonomyDialogBody" class="tax-dialog-body"></pre>
+            <div class="field full" style="flex-direction:row;gap:8px;justify-content:flex-end">
+              <button value="close" class="btn primary" type="submit">关闭</button>
+            </div>
+          </form>
+        </dialog>
+      </section>
+
       <section id="panel-tweetcards" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>推文卡片</h2>
@@ -969,6 +1012,8 @@
 
     </main>
   </div>
-  <script src="/app.js?v=20260918a"></script>
+  <script src="/taxonomy.js?v=20260921i"></script>
+  <script src="/taxonomy-page.js?v=20260921a"></script>
+  <script src="/app.js?v=20260919a"></script>
 </body>
 </html>

@@ -274,6 +274,7 @@ function hydrateLabSessionOnEnter() {
 const APP_MAIN_TABS = [
   "signals",
   "realtime",
+  "taxonomy",
   "tweetcards",
   "corpus",
   "create",
@@ -785,6 +786,15 @@ function switchTab(name) {
     localStorage.setItem(APP_MAIN_TAB_LS, name);
   } catch (_) {
     /* ignore quota */
+  }
+  if (name === "taxonomy") {
+    if (typeof TaxonomyPage !== "undefined") {
+      if (!document.getElementById("taxonomyCategories")?.childElementCount) {
+        TaxonomyPage.init();
+      } else {
+        TaxonomyPage.onTabEnter();
+      }
+    }
   }
   if (name === "corpus") {
     const cached = hydrateLabSessionOnEnter();
@@ -8998,7 +9008,12 @@ async function runTweetCardIngest() {
 
 async function boot() {
   bind();
-  restoreMainTabFromStorage();
+  const path = location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/taxonomy") {
+    switchTab("taxonomy");
+  } else {
+    restoreMainTabFromStorage();
+  }
   initPublishScheduleDefault();
   restorePublishPrefsFields();
   await refreshHealth();

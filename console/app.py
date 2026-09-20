@@ -4520,7 +4520,7 @@ class ConsoleHandler(SimpleHTTPRequestHandler):
             )
             self._send(body, status, ctype)
             return
-        if parsed.path in ("/", "/index.html"):
+        if parsed.path in ("/", "/index.html", "/taxonomy"):
             index = STATIC_DIR / "index.html"
             data = index.read_bytes()
             self._send(data, 200, "text/html; charset=utf-8")
