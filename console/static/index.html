@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260921a" />
+  <link rel="stylesheet" href="/app.css?v=20260920t" />
 </head>
 <body>
   <div class="shell">
@@ -15,10 +15,11 @@
       <div>
         <p class="eyebrow">TRENDRADAR</p>
         <h1 class="brand">Console</h1>
-        <p class="brand-sub">列表信号 · 资讯预警 · 内容模板 · 推文卡片 · 灵感碰撞 · CDP 发布</p>
+        <p class="brand-sub">任务统计 · 列表信号 · 资讯预警 · 内容模板 · 推文卡片 · 灵感碰撞 · CDP 发布</p>
         <div class="signal" aria-hidden="true"></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="功能分区">
+        <button class="tab" type="button" role="tab" data-tab="tasks" aria-selected="false">任务统计 <span class="tab-count" id="countTasks">0</span></button>
         <button class="tab active" type="button" role="tab" data-tab="signals" aria-selected="true">列表信号 <span class="tab-count" id="countSignals">0</span><span id="sigCycleDot" class="tab-live" hidden title="周期抓取未开启"></span></button>
         <button class="tab" type="button" role="tab" data-tab="realtime" aria-selected="false">资讯预警 <span class="tab-count" id="countRealtime">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="taxonomy" aria-selected="false">内容模板</button>
@@ -514,6 +515,125 @@
         <p id="rtMeta" class="lab-meta muted"></p>
         <p id="rtStatusMsg" class="status"></p>
         <div id="rtEventList" class="rt-event-list"></div>
+      </section>
+
+      <section id="panel-tasks" class="panel tsk-panel" role="tabpanel" hidden>
+        <header class="tsk-head">
+          <h2>周任务台</h2>
+          <span id="tasksWeekChip" class="tsk-week-chip"></span>
+        </header>
+        <div class="tsk-mode-tabs" role="tablist" aria-label="任务分区">
+          <button type="button" class="tsk-mode-tab on" data-task-mode="home" role="tab" aria-selected="true">首页</button>
+          <button type="button" class="tsk-mode-tab" data-task-mode="board" role="tab" aria-selected="false">任务预览与编辑</button>
+          <button type="button" class="tsk-mode-tab" data-task-mode="months" role="tab" aria-selected="false">月度 / 历史</button>
+          <button type="button" class="tsk-mode-tab" data-task-mode="stats" role="tab" aria-selected="false">数据统计</button>
+        </div>
+        <div id="tasksModeHome" class="tsk-mode-panel">
+          <div id="tasksHome" class="tsk-home"></div>
+        </div>
+        <div id="tasksModeBoard" class="tsk-mode-panel tsk-board-stage" hidden>
+          <div class="tsk-board-body">
+            <div id="tasksBoardMain" class="tsk-schedule-root"></div>
+            <div id="tasksCategoryView" hidden></div>
+          </div>
+        </div>
+        <div id="tasksModeMonths" class="tsk-mode-panel" hidden>
+          <div id="tasksMonths" class="tsk-months"></div>
+        </div>
+        <div id="tasksModeStats" class="tsk-mode-panel" hidden>
+          <div id="tasksStats" class="tsk-stats"></div>
+        </div>
+        <dialog id="taskEditDrawer" class="corpus-dialog tsk-dialog tsk-task-dialog">
+          <form id="taskDrawerForm" class="tsk-drawer-form form-grid">
+            <header class="tsk-drawer-head" style="grid-column:1/-1">
+              <h3 id="taskDrawerTitle">编辑任务</h3>
+              <button type="button" class="btn ghost xs" id="btnTaskDrawerClose" aria-label="关闭">×</button>
+            </header>
+            <p id="taskDrawerWeekHint" class="muted tsk-drawer-week" style="grid-column:1/-1"></p>
+            <label class="field full"><span>标题</span><input id="taskDrawerTitleInput" type="text" required /></label>
+            <div class="tsk-drawer-text-grid" style="grid-column:1/-1">
+              <label class="field full"><span>要点</span><textarea id="taskDrawerNotes" rows="10" placeholder="步骤、检查项、验收标准…"></textarea></label>
+              <label class="field full"><span>执行结果</span><textarea id="taskDrawerExecResult" rows="10" placeholder="完成后记录产出、链接、数据、结论…便于后续查验"></textarea></label>
+            </div>
+            <label class="field"><span>优先级</span>
+              <select id="taskDrawerPriority">
+                <option value="must">P0 必须</option>
+                <option value="defer" selected>可延后</option>
+                <option value="inspiration">待排期/灵感</option>
+              </select>
+            </label>
+            <label class="field"><span>星期</span>
+              <select id="taskDrawerDaySlot">
+                <option value="0">待排期</option>
+                <option value="1">周一</option>
+                <option value="2">周二</option>
+                <option value="3">周三</option>
+                <option value="4">周四</option>
+                <option value="5">周五</option>
+                <option value="6">周末</option>
+              </select>
+            </label>
+            <label class="field"><span>时段</span>
+              <select id="taskDrawerSlot">
+                <option value="">—</option>
+                <option value="morning">上午</option>
+                <option value="focus">高能</option>
+                <option value="wrap">收尾</option>
+              </select>
+            </label>
+            <p class="muted tsk-drawer-hint" style="grid-column:1/-1">默认只改这一天这一条；模板任务需点「同步回模板」才会影响之后新生成的周。</p>
+            <div class="tsk-drawer-actions" style="grid-column:1/-1">
+              <button type="button" class="btn ghost" id="btnTaskDrawerDelete">删除</button>
+              <button type="button" class="btn ghost" id="btnTaskSyncTemplate" hidden>同步回模板</button>
+              <button type="submit" class="btn primary">保存</button>
+            </div>
+          </form>
+        </dialog>
+        <dialog id="taskEditDialog" class="corpus-dialog tsk-dialog">
+          <form method="dialog" id="taskEditForm" class="form-grid">
+            <h3 id="taskEditTitle" style="grid-column:1/-1;margin:0">编辑任务</h3>
+            <label class="field full"><span>标题</span><input id="taskTitle" type="text" required placeholder="任务标题" /></label>
+            <label class="field full"><span>细则 / 备注</span><textarea id="taskNotes" rows="3" placeholder="步骤、检查项、链接… 待排期任务建议写清楚"></textarea></label>
+            <label class="field"><span>大类</span><select id="taskCategory"></select></label>
+            <label class="field"><span>子类</span><select id="taskSubcategory"></select></label>
+            <label class="field"><span>优先级</span>
+              <select id="taskPriority">
+                <option value="must">P0 必须</option>
+                <option value="defer" selected>可延后</option>
+                <option value="inspiration">待排期/灵感</option>
+              </select>
+            </label>
+            <label class="field"><span>落在</span>
+              <select id="taskDaySlot">
+                <option value="0">待排期</option>
+                <option value="1">周一</option>
+                <option value="2">周二</option>
+                <option value="3">周三</option>
+                <option value="4">周四</option>
+                <option value="5">周五</option>
+                <option value="6">周末（六日）</option>
+              </select>
+            </label>
+            <label class="field check"><input id="taskRepeatable" type="checkbox" /><span>可重复（完成后自动回待排期）</span></label>
+            <label class="field check"><input id="taskMonthlyMainline" type="checkbox" /><span>本月主线</span></label>
+            <div class="field full" style="flex-direction:row;gap:8px;justify-content:space-between">
+              <button id="btnTaskDelete" class="btn ghost" type="button">删除</button>
+              <div style="display:flex;gap:8px">
+                <button id="btnTaskCancel" class="btn ghost" type="button">取消</button>
+                <button class="btn primary" type="submit">保存</button>
+              </div>
+            </div>
+          </form>
+        </dialog>
+        <dialog id="taskTemplateDialog" class="corpus-dialog tsk-dialog tsk-tpl-dialog">
+          <h3 style="margin:0 0 8px">模板默认落点</h3>
+          <p class="muted" style="margin:0 0 12px;font-size:.82rem">改默认星期后点保存；下次「生成本周」按此填格。1=周一 … 5=周五，6=周末，空=待排期。</p>
+          <div id="taskTemplateList" class="tsk-tpl-list"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+            <button id="btnTplClose" class="btn ghost" type="button">关闭</button>
+            <button id="btnTplSave" class="btn primary" type="button">保存默认</button>
+          </div>
+        </dialog>
       </section>
 
       <section id="panel-signals" class="panel active" role="tabpanel">
@@ -1014,6 +1134,8 @@
   </div>
   <script src="/taxonomy.js?v=20260921i"></script>
   <script src="/taxonomy-page.js?v=20260921a"></script>
-  <script src="/app.js?v=20260919a"></script>
+  <script src="/tasks-data.js?v=20260920k"></script>
+  <script src="/tasks.js?v=20260920t"></script>
+  <script src="/app.js?v=20260921b"></script>
 </body>
 </html>

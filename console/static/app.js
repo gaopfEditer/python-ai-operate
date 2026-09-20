@@ -272,6 +272,7 @@ function hydrateLabSessionOnEnter() {
 }
 
 const APP_MAIN_TABS = [
+  "tasks",
   "signals",
   "realtime",
   "taxonomy",
@@ -786,6 +787,15 @@ function switchTab(name) {
     localStorage.setItem(APP_MAIN_TAB_LS, name);
   } catch (_) {
     /* ignore quota */
+  }
+  if (name === "tasks") {
+    if (typeof TasksPage !== "undefined") {
+      if (!document.getElementById("tasksHome")?.childElementCount) {
+        TasksPage.init();
+      } else {
+        TasksPage.onTabEnter();
+      }
+    }
   }
   if (name === "taxonomy") {
     if (typeof TaxonomyPage !== "undefined") {
