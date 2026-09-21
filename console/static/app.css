@@ -16,8 +16,9 @@
 
 * { box-sizing: border-box; }
 html, body {
+  height: 100%;
   margin: 0;
-  min-height: 100%;
+  overflow: hidden; /* 只锁最外层，列内/主舞台内部滚动 */
   background:
     radial-gradient(1200px 500px at 10% -10%, rgba(217, 119, 6, 0.16), transparent 55%),
     linear-gradient(160deg, #e8e1d0 0%, var(--paper) 45%, #e4eee9 100%);
@@ -36,7 +37,8 @@ code {
 .shell {
   display: grid;
   grid-template-columns: 280px 1fr;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .brand-rail {
@@ -144,6 +146,9 @@ code {
 
 .stage {
   padding: 28px clamp(18px, 3vw, 40px) 48px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 .stage:has(#panel-corpus:not([hidden])) {
   padding-top: 16px;
@@ -4793,8 +4798,7 @@ label.publish-media-add {
 }
 body.tasks-focus .shell {
   grid-template-columns: 1fr;
-  height: 100vh;
-  max-height: 100vh;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -5072,114 +5076,60 @@ body.tasks-focus .tsk-mode-tabs {
   flex-wrap: wrap;
   flex-shrink: 0;
 }
-.tsk-period-brief {
-  border: 1px solid #e4d8c8;
-  border-radius: 10px;
-  background: #fffdf8;
+.tsk-board-head .tsk-period-grid {
+  width: 100%;
+}
+.tsk-period-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   font-size: 0.82rem;
 }
-.tsk-period-brief-summary {
+.tsk-period-col {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
+  flex-direction: column;
+  min-width: 0;
 }
-.tsk-period-brief-summary::-webkit-details-marker { display: none; }
-.tsk-period-brief-summary span { font-weight: 600; color: #6a5420; }
-.tsk-period-brief-summary em { font-size: 0.72rem; font-style: normal; }
-.tsk-period-panel {
-  padding: 0 10px 10px;
-  display: grid;
-  gap: 10px;
-}
-.tsk-period-section {
-  padding-top: 8px;
-  border-top: 1px dashed #e4d8c8;
-}
-.tsk-period-section:first-child { border-top: 0; padding-top: 0; }
-.tsk-period-h {
+.tsk-period-col-h {
   margin: 0 0 6px;
   font-size: 0.76rem;
   font-weight: 650;
   color: #6f675f;
+  flex-shrink: 0;
 }
-.tsk-period-h .muted { font-weight: 500; }
-.tsk-period-intent-edit { display: grid; gap: 4px; }
-.tsk-period-intent-input,
-.tsk-period-line-input {
+.tsk-period-col-h .muted { font-weight: 500; }
+.tsk-period-area {
   width: 100%;
+  min-height: 15em;
+  resize: vertical;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   font-size: 0.82rem;
-  background: #fff;
-}
-.tsk-period-hint {
-  margin: 2px 0 0;
-  font-size: 0.68rem;
-  line-height: 1.3;
-}
-.tsk-period-intent-read {
-  margin: 0;
-  padding-left: 1.1em;
   line-height: 1.45;
-}
-.tsk-period-intent-read li { margin: 2px 0; }
-.tsk-period-review-edit { display: grid; gap: 4px; }
-.tsk-period-review-read p {
-  margin: 0 0 4px;
-  line-height: 1.4;
-  font-size: 0.8rem;
-}
-.tsk-period-scores { display: grid; gap: 4px; }
-.tsk-period-score-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  align-items: center;
-  font-size: 0.78rem;
-}
-.tsk-period-score-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #57534e;
-}
-.tsk-period-score-row select {
-  font-size: 0.76rem;
-  padding: 3px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
   background: #fff;
+  font-family: inherit;
 }
-.tsk-period-score-read {
-  display: block;
-  font-size: 0.78rem;
-  line-height: 1.35;
+.tsk-period-read {
+  margin: 0;
+  min-height: 15em;
+  padding: 8px 10px;
+  border: 1px solid #ece7df;
+  border-radius: 8px;
+  background: #faf8f5;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
 }
-.tsk-period-workload {
-  margin: 8px 0 4px;
-  font-size: 0.72rem;
-  font-family: var(--mono);
-  color: #78716c;
+.tsk-month-period .tsk-period-grid {
+  margin-top: 2px;
 }
-.tsk-period-violation {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.74rem;
-  color: #78716c;
-}
-.tsk-month-period .tsk-period-brief {
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-.tsk-month-period .tsk-period-brief-summary {
-  padding: 0 0 6px;
+@media (max-width: 720px) {
+  .tsk-period-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .tsk-board-bar-week {
   display: inline-flex;
@@ -6037,21 +5987,14 @@ body.tasks-focus .tsk-mode-tabs {
   .tsk-pri-cols { grid-template-columns: 1fr; }
 }
 
-/* 日程 Kanban — 任务预览占满视口，列内滚动 */
-html:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])),
-body:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
-  overflow: hidden;
-  height: 100%;
-}
+/* 日程 Kanban — 任务预览占满主舞台，列内滚动 */
 .shell:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
-  height: 100vh;
-  max-height: 100vh;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 .stage:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
-  height: 100vh;
-  max-height: 100vh;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -6271,6 +6214,12 @@ body.tasks-focus .tsk-kanban-week .tsk-kcol-backlog {
   flex-direction: column;
   gap: 8px;
 }
+.tsk-kcol-body > .tsk-task-card {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  width: 100%;
+  min-height: min-content;
+}
 .tsk-kcol-backlog .tsk-kcol-body {
   flex: 1 1 0;
   min-height: 0;
@@ -6391,77 +6340,156 @@ body.tasks-focus .tsk-kanban-week .tsk-kcol-backlog {
   font-size: 0.88rem;
   min-width: 0;
 }
-.tsk-kcol-backlog .tsk-task-card .tsk-card-inner {
+.tsk-kanban-card {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+.tsk-kanban-card .tsk-card-inner {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0;
+  width: 100%;
+  min-width: 1px;
+  max-width: 100%;
+  overflow: visible;
+}
+.tsk-kanban-card .tsk-card-body {
+  flex: 0 0 auto;
+  display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  padding: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 8px 6px;
+  overflow: visible;
 }
-.tsk-kcol-backlog .tsk-card-body,
-.tsk-plan-card .tsk-card-body {
-  position: relative;
+.tsk-kanban-card .tsk-card-actions {
+  flex: 0 0 auto;
+  opacity: 1;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 2px 6px;
+  padding: 4px 8px 6px;
+  border-top: 1px solid #ece7df;
+  background: #faf8f5;
+  width: 100%;
+  box-sizing: border-box;
+}
+.tsk-kanban-card-head {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 4px;
+  min-width: 0;
 }
-.tsk-kcol-backlog .tsk-card-cat,
-.tsk-plan-card .tsk-card-cat {
-  display: inline-block;
-  font-size: 0.62rem;
+.tsk-kanban-card .tsk-card-tax-row {
+  width: 100%;
+}
+.tsk-kanban-card .tsk-card-title {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #57534e;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.tsk-kanban-card.is-done .tsk-card-title {
+  color: #8a8175;
+  font-weight: 500;
+}
+.tsk-day-note-wrap {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+.tsk-kanban-day .tsk-day-note {
+  width: 100%;
+  min-height: 12.6em;
+  resize: vertical;
+  border: 1px solid #e8dfd3;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  background: #fffefb;
+  font-family: inherit;
+  color: var(--ink);
+  box-sizing: border-box;
+}
+.tsk-kanban-day .tsk-day-note:focus {
+  outline: none;
+  border-color: #c9b896;
+  background: #fff;
+}
+.tsk-kanban-card .tsk-card-tax-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 0.66rem;
   line-height: 1.2;
-  padding: 2px 6px;
+}
+.tsk-kanban-card .tsk-card-cat {
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  line-height: 1.2;
+  padding: 1px 5px;
   border-radius: 4px;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  max-width: 100%;
+  max-width: 46%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tsk-plan-card .tsk-card-inner {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  padding: 8px;
+.tsk-kanban-card .tsk-card-tax-sep {
+  flex-shrink: 0;
+  color: #a8a29e;
 }
-.tsk-plan-card .tsk-card-actions {
-  opacity: 1;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 2px 6px;
+.tsk-kanban-card .tsk-card-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #78716c;
 }
-.tsk-plan-card .tsk-card-title {
+.tsk-kanban-card .tsk-card-notes {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  max-height: 4.4em;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: #f8f6f2;
+  border: 1px solid #ece7df;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: #57534e;
+  overflow: hidden;
+}
+.tsk-kanban-card .tsk-card-note-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.tsk-kanban-card .tsk-card-note-line.is-more {
   white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
-  word-break: break-word;
-  line-height: 1.35;
-  font-size: 0.82rem;
+  font-size: 0.64rem;
 }
-.tsk-plan-card .tsk-card-source,
-.tsk-plan-card .tsk-card-footline,
-.tsk-plan-card .tsk-card-summary {
+.tsk-kanban-card .tsk-card-source,
+.tsk-kanban-card .tsk-card-footline,
+.tsk-kanban-card .tsk-card-summary {
   display: none;
-}
-.tsk-kcol-backlog .tsk-card-title {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
-  word-break: break-word;
-  line-height: 1.35;
-  font-size: 0.82rem;
-}
-.tsk-kcol-backlog .tsk-card-source,
-.tsk-kcol-backlog .tsk-card-footline,
-.tsk-kcol-backlog .tsk-card-summary {
-  display: none;
-}
-.tsk-kcol-backlog .tsk-card-actions {
-  opacity: 1;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 2px 6px;
 }
 .tsk-kcol-backlog .tsk-drag-hint {
   font-size: 0.68rem;

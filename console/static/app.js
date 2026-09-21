@@ -791,7 +791,7 @@ function switchTab(name) {
   if (name === "tasks") {
     if (typeof TasksPage !== "undefined") {
       if (!document.getElementById("tasksHome")?.childElementCount) {
-        TasksPage.init();
+        void TasksPage.init();
       } else {
         TasksPage.onTabEnter();
       }

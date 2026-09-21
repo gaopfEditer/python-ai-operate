@@ -1319,6 +1319,11 @@ def handle_api(
 
         return handle_trade_signal_v1(method, path, query, body or {}, headers)
 
+    if path.startswith("/api/tasks"):
+        from console.tasks_api import handle as handle_tasks_api
+
+        return handle_tasks_api(method, path, query, body or {})
+
     # ── 文件代理：/api/file/<safe-path> 避免浏览器 file:// 限制 ──────
     import urllib.parse
     if path.startswith("/api/file/"):

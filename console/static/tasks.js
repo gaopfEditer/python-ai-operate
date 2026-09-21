@@ -12,8 +12,10 @@
   const LS_NOTES = "tr_tasks_week_notes";
   const LS_MONTHS = "tr_tasks_month_plans_v1";
   const LS_PERIOD = "tr_tasks_period_v1";
-  const PERIOD_INTENT_MAX = 56;
-  const PERIOD_LINE_MAX = 72;
+  const LS_DAY_NOTES = "tr_tasks_day_notes_v1";
+  const LS_DRAFT_TS = "tr_tasks_draft_ts_v1";
+  const PERIOD_FIELD_MAX = 2000;
+  const PERSIST_DEBOUNCE_MS = 800;
 
   const $ = (sel) => document.querySelector(sel);
   const TD = () => global.TasksData;
@@ -114,15 +116,13 @@
   }
 
   function loadAllMonthPlans() {
-    try {
-      return JSON.parse(localStorage.getItem(LS_MONTHS) || "{}") || {};
-    } catch (_) {
-      return {};
-    }
+    return stateCache?.months || {};
   }
 
   function saveAllMonthPlans(all) {
-    localStorage.setItem(LS_MONTHS, JSON.stringify(all));
+    if (!stateCache) return;
+    stateCache.months = all || {};
+    markDirty("months");
   }
 
   function ensureMonthPlan(mk) {
@@ -153,7 +153,7 @@
 
   function monthHasContent(plan) {
     if (!plan) return false;
-    return (plan.goals || []).some((g) => String(g).trim()) || (plan.items || []).length > 0;
+    return (plan.items || []).length > 0;
   }
 
   function priFromMonth(p) {
@@ -612,19 +612,21 @@
     const planCls = draggable ? " tsk-plan-card" : "";
     const catCls = isCatalog ? " tsk-catalog-card" : "";
     const typeCls = opts.exec ? " tsk-exec-card" : opts.backlog ? " tsk-backlog-card" : "";
-    const showCatBadge = opts.backlog || opts.plan;
-    const catBadge = showCatBadge ? renderCardCatBadge(t) : "";
-    return `<article class="tsk-card tsk-task-card tsk-hover-card${typeCls}${planCls}${catCls}${done ? " is-done" : ""}${compact ? " is-compact" : ""}${extraClass || ""}"
+    const kanbanLayout = opts.plan || opts.backlog;
+    const kanbanCls = kanbanLayout ? " tsk-kanban-card" : "";
+    const planBody = kanbanLayout
+      ? renderKanbanCardBody(t)
+      : `<span class="tsk-card-title">${escapeHtml(t.title)}</span>
+          <span class="meta tsk-card-source">${escapeHtml(taskSourceLine(t))}</span>
+          <div class="tsk-card-footline">
+            ${renderTaskStatusBadge(t)}${summary ? `<span class="tsk-card-summary">${escapeHtml(summary)}</span>` : ""}
+          </div>`;
+    return `<article class="tsk-card tsk-task-card tsk-hover-card${typeCls}${planCls}${kanbanCls}${catCls}${done ? " is-done" : ""}${compact ? " is-compact" : ""}${extraClass || ""}"
       ${dragAttr} data-task-id="${escapeAttr(t.id)}"${isCatalog ? ' data-template-catalog="1"' : ""}>
       <div class="tsk-card-pri-bar" style="background:${priColor}"></div>
       <div class="tsk-card-inner">
         <div class="tsk-card-body is-openable" data-task-open="${escapeAttr(t.id)}" role="button" tabindex="0">
-          ${catBadge}
-          <span class="tsk-card-title">${escapeHtml(t.title)}</span>
-          <span class="meta tsk-card-source">${escapeHtml(taskSourceLine(t))}</span>
-          <div class="tsk-card-footline">
-            ${renderTaskStatusBadge(t)}${summary ? `<span class="tsk-card-summary">${escapeHtml(summary)}</span>` : ""}
-          </div>
+          ${planBody}
         </div>
         ${actionsHtml ? `<div class="tsk-card-actions">${actionsHtml}</div>` : ""}
       </div>
@@ -641,32 +643,109 @@
     return `<span class="tsk-card-cat tsk-tag cat-${escapeAttr(cls)}">${escapeHtml(name)}</span>`;
   }
 
+  function renderCardTaxRow(t) {
+    const cat = TD().catLabel(t.categoryId);
+    const sub = TD().subLabel(t.subcategoryId);
+    const cls = catTagClass(t.categoryId);
+    return `<div class="tsk-card-tax-row">
+      <span class="tsk-card-cat tsk-tag cat-${escapeAttr(cls)}">${escapeHtml(cat)}</span>
+      <span class="tsk-card-tax-sep">·</span>
+      <span class="tsk-card-sub">${escapeHtml(sub)}</span>
+    </div>`;
+  }
+
+  function cardTitleDiffersFromSub(t) {
+    const title = String(t.title || "").trim();
+    const sub = TD().subLabel(t.subcategoryId).trim();
+    if (!title) return false;
+    return title.toLowerCase() !== sub.toLowerCase();
+  }
+
+  function renderKanbanCardBody(t) {
+    const notesHtml = renderCardNotesPreview(t, { maxLines: 3, hideEmpty: true });
+    const titleHtml = cardTitleDiffersFromSub(t)
+      ? `<span class="tsk-card-title">${escapeHtml(t.title)}</span>`
+      : "";
+    return `<div class="tsk-kanban-card-head">
+        ${renderCardTaxRow(t)}
+        ${titleHtml}
+      </div>
+      ${notesHtml}`;
+  }
+
+  function renderCardNotesPreview(t, { maxLines = 3, hideEmpty = false } = {}) {
+    const text = String(t.notes || "").trim();
+    if (!text) return hideEmpty ? "" : `<div class="tsk-card-notes is-empty muted">—</div>`;
+    const { show, more } = textToBulletLines(text, maxLines);
+    return `<div class="tsk-card-notes">${show
+      .map((line) => `<div class="tsk-card-note-line">${escapeHtml(line)}</div>`)
+      .join("")}${more ? `<div class="tsk-card-note-line is-more muted">…</div>` : ""}</div>`;
+  }
+
+  function dayNoteKey(wk, daySlot) {
+    return `${wk}|${daySlot}`;
+  }
+
+  function loadDayNote(wk, daySlot) {
+    return String(stateCache?.day_notes?.[dayNoteKey(wk, daySlot)] || "").trim();
+  }
+
+  function saveDayNoteByKey(key, text) {
+    if (!stateCache || !key) return;
+    if (!stateCache.day_notes) stateCache.day_notes = {};
+    const val = String(text ?? "");
+    if (val.trim()) stateCache.day_notes[key] = val;
+    else delete stateCache.day_notes[key];
+    markDirty("day_notes");
+  }
+
+  function saveDayNote(wk, daySlot, text) {
+    saveDayNoteByKey(dayNoteKey(wk, daySlot), text);
+  }
+
+  function renderDayColNote(wk, daySlot) {
+    const text = loadDayNote(wk, daySlot);
+    const key = dayNoteKey(wk, daySlot);
+    return `<div class="tsk-day-note-wrap">
+      <textarea class="tsk-day-note" data-day-note="${escapeAttr(key)}" rows="9" placeholder="今日执行记录（当日变化、偏差、临时调整）">${escapeHtml(text)}</textarea>
+    </div>`;
+  }
+
+  function migrateTaskDailyNotesToDayNotes() {
+    if (!stateCache?.store?.tasks?.length) return;
+    if (!stateCache.day_notes) stateCache.day_notes = {};
+    let changed = false;
+    stateCache.store.tasks.forEach((t) => {
+      const note = String(t.dailyNote || "").trim();
+      if (!note || !isScheduled(t)) return;
+      const key = dayNoteKey(t.weekKey, t.daySlot);
+      if (!stateCache.day_notes[key]) {
+        stateCache.day_notes[key] = note;
+        changed = true;
+      }
+    });
+    if (changed) markDirty("day_notes");
+  }
+
   function loadWeekNote(wk) {
-    try {
-      const all = JSON.parse(localStorage.getItem(LS_NOTES) || "{}") || {};
-      return (
-        all[wk] || {
-          highlights: [
-            { text: "先做工作台，再做统计", tone: "must" },
-            { text: "模板不要超过 8 条", tone: "must" },
-            { text: "操盘观察可降为自定义", tone: "defer" },
-          ],
-          monthGoals: [],
-        }
-      );
-    } catch (_) {
-      return { highlights: [], monthGoals: [] };
-    }
+    const all = stateCache?.notes || {};
+    return (
+      all[wk] || {
+        highlights: [
+          { text: "先做工作台，再做统计", tone: "must" },
+          { text: "模板不要超过 8 条", tone: "must" },
+          { text: "操盘观察可降为自定义", tone: "defer" },
+        ],
+        monthGoals: [],
+      }
+    );
   }
 
   function saveWeekNote(wk, note) {
-    try {
-      const all = JSON.parse(localStorage.getItem(LS_NOTES) || "{}") || {};
-      all[wk] = note;
-      localStorage.setItem(LS_NOTES, JSON.stringify(all));
-    } catch (_) {
-      /* ignore */
-    }
+    if (!stateCache) return;
+    if (!stateCache.notes) stateCache.notes = {};
+    stateCache.notes[wk] = note;
+    markDirty("notes");
   }
 
   function periodStoreKey(scope, key) {
@@ -674,241 +753,157 @@
   }
 
   function emptyPeriodReview() {
+    return { plan: "", exec: "", eval: "" };
+  }
+
+  function migrateOldPeriodReview(raw) {
+    if (!raw || typeof raw !== "object") return emptyPeriodReview();
+    if ("plan" in raw || "exec" in raw || "eval" in raw) return raw;
+    const intent = (raw.intent || []).map((s) => String(s || "").trim()).filter(Boolean);
+    const pro = String(raw.pro || "").trim();
+    const con = String(raw.con || "").trim();
+    const scoreLabels = { done: "做到", partial: "半做到", none: "没做" };
+    const evalParts = [];
+    (raw.intent || []).forEach((line, i) => {
+      const t = String(line || "").trim();
+      const sc = scoreLabels[raw.scores?.[i]] || "";
+      if (t && sc) evalParts.push(`${t}：${sc}`);
+      else if (t) evalParts.push(t);
+      else if (sc) evalParts.push(sc);
+    });
+    if (raw.violation) evalParts.push("问题卡违规入日：有");
     return {
-      intent: ["", "", ""],
-      pro: "",
-      con: "",
-      scores: ["", "", ""],
-      violation: false,
+      plan: intent.join("\n"),
+      exec: [pro && `优：${pro}`, con && `劣：${con}`].filter(Boolean).join("\n"),
+      eval: evalParts.join("\n"),
     };
   }
 
   function normalizePeriodReview(raw) {
-    const intent = [...(raw?.intent || ["", "", ""])].slice(0, 3);
-    const scores = [...(raw?.scores || ["", "", ""])].slice(0, 3);
-    while (intent.length < 3) intent.push("");
-    while (scores.length < 3) scores.push("");
+    const migrated = migrateOldPeriodReview(raw);
     return {
-      intent: intent.map((s) => String(s || "").slice(0, PERIOD_INTENT_MAX)),
-      pro: String(raw?.pro || "").slice(0, PERIOD_LINE_MAX),
-      con: String(raw?.con || "").slice(0, PERIOD_LINE_MAX),
-      scores: scores.map((s) => (["done", "partial", "none"].includes(s) ? s : "")),
-      violation: !!raw?.violation,
+      plan: String(migrated.plan || "").slice(0, PERIOD_FIELD_MAX),
+      exec: String(migrated.exec || "").slice(0, PERIOD_FIELD_MAX),
+      eval: String(migrated.eval || "").slice(0, PERIOD_FIELD_MAX),
     };
   }
 
   function loadPeriodReview(scope, key) {
-    try {
-      const all = JSON.parse(localStorage.getItem(LS_PERIOD) || "{}") || {};
-      return normalizePeriodReview(all[periodStoreKey(scope, key)] || emptyPeriodReview());
-    } catch (_) {
-      return emptyPeriodReview();
-    }
+    const all = stateCache?.period || {};
+    return normalizePeriodReview(all[periodStoreKey(scope, key)] || emptyPeriodReview());
   }
 
   function savePeriodReview(scope, key, data) {
-    try {
-      const all = JSON.parse(localStorage.getItem(LS_PERIOD) || "{}") || {};
-      all[periodStoreKey(scope, key)] = normalizePeriodReview(data);
-      localStorage.setItem(LS_PERIOD, JSON.stringify(all));
-    } catch (_) {
-      /* ignore */
-    }
-  }
-
-  function dedupeIntentLines(lines, goals) {
-    const norm = (s) => String(s || "").trim().toLowerCase();
-    const goalSet = new Set((goals || []).map(norm).filter(Boolean));
-    const out = [];
-    (lines || []).forEach((line) => {
-      const t = String(line || "").trim().slice(0, PERIOD_INTENT_MAX);
-      if (!t || goalSet.has(norm(t))) return;
-      if (out.some((x) => norm(x) === norm(t))) return;
-      out.push(t);
-    });
-    while (out.length < 3) out.push("");
-    return out.slice(0, 3);
-  }
-
-  function goalsForPeriodDedupe(scope, key) {
-    if (scope === "month") {
-      return (ensureMonthPlan(key).goals || []).filter((g) => String(g).trim());
-    }
-    return (ensureMonthPlan(monthKeyForWeek(key)).goals || []).filter((g) => String(g).trim());
-  }
-
-  function hardTasksDoneForWeek(wk) {
-    return tasksForWeek(wk).filter(
-      (t) =>
-        isScheduled(t) &&
-        t.status === "done" &&
-        !isTemplateCatalog(t) &&
-        (t.kind === "custom" || t.priority === "must" || t.weeklyMain)
-    ).length;
-  }
-
-  function hardTasksDoneForMonth(mk) {
-    return weeksInMonth(mk).reduce((n, wk) => n + hardTasksDoneForWeek(wk), 0);
-  }
-
-  function periodWorkloadSummary(review, hardN) {
-    const scores = review.scores || [];
-    const done = scores.filter((s) => s === "done").length;
-    const partial = scores.filter((s) => s === "partial").length;
-    const none = scores.filter((s) => s === "none").length;
-    const viol = review.violation ? "有" : "无";
-    return `做到 ${done} · 半做到 ${partial} · 没做 ${none} · 硬任务 ${hardN} · 问题卡入日 ${viol}`;
-  }
-
-  function periodBriefSummary(review) {
-    const n = (review.intent || []).filter((s) => String(s).trim()).length;
-    if (!n) return "待写";
-    const scored = (review.scores || []).filter(Boolean).length;
-    if (scored) return `${n} 条 · 已评 ${scored}`;
-    return `${n} 条`;
-  }
-
-  function renderPeriodScoreSelect(idx, value, { readOnly, label }) {
-    if (readOnly) {
-      const map = { done: "做到", partial: "半做到", none: "没做" };
-      return `<span class="tsk-period-score-read">${escapeHtml(label)}：${escapeHtml(map[value] || "—")}</span>`;
-    }
-    return `<label class="tsk-period-score-row">
-      <span class="tsk-period-score-label">${escapeHtml(label)}</span>
-      <select data-period-score="${idx}">
-        <option value=""${!value ? " selected" : ""}>—</option>
-        <option value="done"${value === "done" ? " selected" : ""}>做到</option>
-        <option value="partial"${value === "partial" ? " selected" : ""}>半做到</option>
-        <option value="none"${value === "none" ? " selected" : ""}>没做</option>
-      </select>
-    </label>`;
+    if (!stateCache) return;
+    if (!stateCache.period) stateCache.period = {};
+    stateCache.period[periodStoreKey(scope, key)] = normalizePeriodReview(data);
+    markDirty("period");
   }
 
   function renderPeriodReviewBlock(scope, key, { readOnly = false } = {}) {
     const isWeek = scope === "week";
-    const label = isWeek ? "本周" : "本月";
-    const briefLabel = isWeek ? "本周要旨" : "本月要旨";
-    const goals = goalsForPeriodDedupe(scope, key);
+    const periodLabel = isWeek ? "周" : "月";
     const review = loadPeriodReview(scope, key);
-    review.intent = dedupeIntentLines(review.intent, goals);
-    const hardN = isWeek ? hardTasksDoneForWeek(key) : hardTasksDoneForMonth(key);
-    const summary = periodBriefSummary(review);
-    const workload = periodWorkloadSummary(review, hardN);
-    const openAttr = scope === "month" && !readOnly ? " open" : "";
-
-    const intentBlock = readOnly
-      ? `<ol class="tsk-period-intent-read">${review.intent
-          .map((line) => (line ? `<li>${escapeHtml(line)}</li>` : ""))
-          .join("") || `<li class="muted">尚未填写</li>`}</ol>`
-      : `<div class="tsk-period-intent-edit">
-          ${[0, 1, 2]
-            .map(
-              (i) =>
-                `<input type="text" class="tsk-period-intent-input" data-period-intent="${i}" maxlength="${PERIOD_INTENT_MAX}" value="${escapeAttr(review.intent[i] || "")}" placeholder="${i + 1}. 这${isWeek ? "周" : "月"}要证明什么（非任务清单）" />`
-            )
-            .join("")}
-          <p class="muted tsk-period-hint">与主线重复句会自动去掉 · 最多 3 条 · 各 ${PERIOD_INTENT_MAX} 字</p>
+    const cols = [
+      {
+        field: "plan",
+        title: "计划",
+        hint: "要证明什么、重点与边界",
+        placeholder: `这${periodLabel}计划：重点、边界、要证明什么`,
+      },
+      {
+        field: "exec",
+        title: "执行",
+        hint: "实际推进与占用",
+        placeholder: `这${periodLabel}执行：有效动作、无效占用、意外收获`,
+      },
+      {
+        field: "eval",
+        title: "评价",
+        hint: "达成、偏差与改法",
+        placeholder: `这${periodLabel}评价：达成度、偏差原因、下次改法`,
+      },
+    ];
+    const colsHtml = cols
+      .map(({ field, title, hint, placeholder }) => {
+        const val = review[field] || "";
+        const body = readOnly
+          ? val.trim()
+            ? `<pre class="tsk-period-read">${escapeHtml(val)}</pre>`
+            : `<pre class="tsk-period-read muted">尚未填写</pre>`
+          : `<textarea class="tsk-period-area" data-period-field="${field}" rows="13" maxlength="${PERIOD_FIELD_MAX}" placeholder="${escapeAttr(placeholder)}">${escapeHtml(val)}</textarea>`;
+        return `<div class="tsk-period-col">
+          <h4 class="tsk-period-col-h">${title} <span class="muted">${hint}</span></h4>
+          ${body}
         </div>`;
-
-    const reviewBlock = readOnly
-      ? `<div class="tsk-period-review-read">
-          <p><strong>优</strong> ${escapeHtml(review.pro || "—")}</p>
-          <p><strong>劣</strong> ${escapeHtml(review.con || "—")}</p>
-        </div>`
-      : `<div class="tsk-period-review-edit">
-          <input type="text" class="tsk-period-line-input" data-period-pro maxlength="${PERIOD_LINE_MAX}" value="${escapeAttr(review.pro)}" placeholder="优：哪件事按预期推进，或意外有效" />
-          <input type="text" class="tsk-period-line-input" data-period-con maxlength="${PERIOD_LINE_MAX}" value="${escapeAttr(review.con)}" placeholder="劣：哪件事占了格子却没产出" />
-        </div>`;
-
-    const resultRows = [0, 1, 2]
-      .map((i) => {
-        const lineLabel = review.intent[i]?.trim() || `要旨 ${i + 1}`;
-        return renderPeriodScoreSelect(i, review.scores[i], { readOnly, label: lineLabel });
       })
       .join("");
-
-    const violationBlock = readOnly
-      ? review.violation
-        ? `<p class="tsk-period-violation-read muted">问题卡违规入日：有</p>`
-        : ""
-      : `<label class="tsk-period-violation"><input type="checkbox" data-period-violation ${review.violation ? "checked" : ""} />问题卡违规入日</label>`;
-
-    return `<details class="tsk-period-brief" data-period-scope="${escapeAttr(scope)}" data-period-key="${escapeAttr(key)}"${openAttr}>
-      <summary class="tsk-period-brief-summary"><span>${escapeHtml(briefLabel)}</span><em class="muted">${escapeHtml(summary)}</em></summary>
-      <div class="tsk-period-panel">
-        <section class="tsk-period-section">
-          <h4 class="tsk-period-h">${label}要旨 <span class="muted">预期</span></h4>
-          ${intentBlock}
-        </section>
-        <section class="tsk-period-section">
-          <h4 class="tsk-period-h">${label}进程 <span class="muted">优劣各一句</span></h4>
-          ${reviewBlock}
-        </section>
-        <section class="tsk-period-section">
-          <h4 class="tsk-period-h">${label}结果 <span class="muted">只评要旨</span></h4>
-          <div class="tsk-period-scores">${resultRows}</div>
-          <p class="tsk-period-workload" data-period-workload>${escapeHtml(workload)}</p>
-          ${violationBlock}
-        </section>
-      </div>
-    </details>`;
+    return `<div class="tsk-period-grid" data-period-scope="${escapeAttr(scope)}" data-period-key="${escapeAttr(key)}">${colsHtml}</div>`;
   }
 
   function collectPeriodFromEl(el) {
     if (!el) return emptyPeriodReview();
-    return {
-      intent: [0, 1, 2].map((i) => el.querySelector(`[data-period-intent="${i}"]`)?.value || ""),
-      pro: el.querySelector("[data-period-pro]")?.value || "",
-      con: el.querySelector("[data-period-con]")?.value || "",
-      scores: [0, 1, 2].map((i) => el.querySelector(`[data-period-score="${i}"]`)?.value || ""),
-      violation: !!el.querySelector("[data-period-violation]")?.checked,
-    };
-  }
-
-  function refreshPeriodWorkloadEl(el) {
-    const scope = el.getAttribute("data-period-scope");
-    const key = el.getAttribute("data-period-key");
-    const review = collectPeriodFromEl(el);
-    const hardN = scope === "week" ? hardTasksDoneForWeek(key) : hardTasksDoneForMonth(key);
-    const node = el.querySelector("[data-period-workload]");
-    if (node) node.textContent = periodWorkloadSummary(review, hardN);
-    const em = el.querySelector(".tsk-period-brief-summary em");
-    if (em) em.textContent = periodBriefSummary(review);
+    const pick = (field) => el.querySelector(`[data-period-field="${field}"]`)?.value || "";
+    return { plan: pick("plan"), exec: pick("exec"), eval: pick("eval") };
   }
 
   function persistPeriodEl(el) {
     const scope = el.getAttribute("data-period-scope");
     const key = el.getAttribute("data-period-key");
     if (!scope || !key) return;
-    let data = collectPeriodFromEl(el);
-    data.intent = dedupeIntentLines(data.intent, goalsForPeriodDedupe(scope, key));
-    savePeriodReview(scope, key, data);
-    if (scope === "week") {
-      [0, 1, 2].forEach((i) => {
-        const inp = el.querySelector(`[data-period-intent="${i}"]`);
-        if (inp) inp.value = data.intent[i] || "";
-      });
-    }
-    refreshPeriodWorkloadEl(el);
+    savePeriodReview(scope, key, collectPeriodFromEl(el));
   }
 
   function bindPeriodReview(root) {
-    root?.querySelectorAll(".tsk-period-brief[data-period-scope]").forEach((el) => {
+    root?.querySelectorAll(".tsk-period-grid[data-period-scope]").forEach((el) => {
       if (el.dataset.periodBound) return;
       el.dataset.periodBound = "1";
-      el.querySelectorAll("[data-period-intent]").forEach((inp) => {
-        inp.addEventListener("blur", () => persistPeriodEl(el));
-        inp.addEventListener("change", () => persistPeriodEl(el));
+      el.querySelectorAll("[data-period-field]").forEach((ta) => {
+        ta.addEventListener("input", () => persistPeriodEl(el));
+        ta.addEventListener("blur", () => persistPeriodEl(el));
       });
-      el.querySelectorAll("[data-period-pro], [data-period-con]").forEach((inp) => {
-        inp.addEventListener("blur", () => persistPeriodEl(el));
-        inp.addEventListener("change", () => persistPeriodEl(el));
-      });
-      el.querySelectorAll("[data-period-score]").forEach((sel) => {
-        sel.addEventListener("change", () => persistPeriodEl(el));
-      });
-      el.querySelector("[data-period-violation]")?.addEventListener("change", () => persistPeriodEl(el));
     });
+  }
+
+  function syncEditorsToCache(root) {
+    if (!stateCache) return;
+    const scope = root || document;
+    let dirtyDay = false;
+    let dirtyPeriod = false;
+
+    scope.querySelectorAll("[data-day-note]").forEach((ta) => {
+      const key = ta.getAttribute("data-day-note");
+      if (!key) return;
+      if (!stateCache.day_notes) stateCache.day_notes = {};
+      const val = String(ta.value ?? "");
+      const prev = String(stateCache.day_notes[key] ?? "");
+      if (val.trim()) {
+        if (prev !== val) {
+          stateCache.day_notes[key] = val;
+          dirtyDay = true;
+        }
+      } else if (stateCache.day_notes[key] !== undefined) {
+        delete stateCache.day_notes[key];
+        dirtyDay = true;
+      }
+    });
+
+    scope.querySelectorAll(".tsk-period-grid[data-period-scope]").forEach((el) => {
+      const pScope = el.getAttribute("data-period-scope");
+      const pKey = el.getAttribute("data-period-key");
+      if (!pScope || !pKey) return;
+      const storeKey = periodStoreKey(pScope, pKey);
+      const next = normalizePeriodReview(collectPeriodFromEl(el));
+      const prev = normalizePeriodReview(stateCache.period?.[storeKey] || emptyPeriodReview());
+      if (JSON.stringify(next) !== JSON.stringify(prev)) {
+        if (!stateCache.period) stateCache.period = {};
+        stateCache.period[storeKey] = next;
+        dirtyPeriod = true;
+      }
+    });
+
+    if (dirtyDay) markDirty("day_notes");
+    if (dirtyPeriod) markDirty("period");
   }
 
   function weekProgressDetail(wk) {
@@ -960,10 +955,6 @@
     }
   }
 
-  function monthGoalsCount(plan) {
-    return (plan?.goals || []).filter((g) => String(g).trim()).length;
-  }
-
   function weekShortRange(wk) {
     const r = weekDateRange(wk);
     const f = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
@@ -971,11 +962,10 @@
   }
 
   function monthSummaryStats(mk, plan) {
-    const goals = monthGoalsCount(plan);
     const pool = (plan.items || []).filter((i) => i.status === "planned" && !i.targetWeekId).length;
     const weekCount = weeksInMonth(mk).length;
     const completed = scheduledTasks(tasksForMonth(mk)).filter((t) => t.status === "done").length;
-    return { goals, pool, weekCount, completed };
+    return { pool, weekCount, completed };
   }
 
   function monthIsFullyEmpty(mk, plan) {
@@ -995,10 +985,9 @@
   function monthNavHint(mk) {
     const phase = monthPhase(mk);
     const plan = getMonthPlan(mk);
-    const goalsN = monthGoalsCount(plan);
     const hasContent = monthHasContent(plan);
     if (phase === "past") return "历史";
-    if (phase === "current") return goalsN ? `本月 · ${goalsN} 条主线` : "本月";
+    if (phase === "current") return "本月";
     if (hasContent) return "已规划";
     return "";
   }
@@ -1033,7 +1022,7 @@
   }
 
   function renderMonthSummaryBar(stats) {
-    return `<div class="tsk-month-summary">主线 ${stats.goals} · 月池 ${stats.pool} · ${stats.weekCount} 周 · 完成 ${stats.completed}</div>`;
+    return `<div class="tsk-month-summary">月池 ${stats.pool} · ${stats.weekCount} 周 · 完成 ${stats.completed}</div>`;
   }
 
   function renderWeekRows(weeks, { readOnly } = {}) {
@@ -1099,6 +1088,7 @@
     x.repeatable = !!x.repeatable;
     x.templateCatalog = !!x.templateCatalog;
     x.notes = String(x.notes || "").trim();
+    x.dailyNote = String(x.dailyNote || "").trim();
     x.execResult = String(x.execResult || "").trim();
     x.aiGenerated = !!x.aiGenerated;
     if (x.status === "cancelled") {
@@ -1224,6 +1214,248 @@
     return { tasks: [], templateApplied: {}, catalogDismissed: {}, instanceDismissed: {} };
   }
 
+  const STATE_KEYS = ["store", "months", "notes", "day_notes", "period", "tpl_cfg", "tpl_custom", "prefs"];
+  let stateCache = null;
+  let stateReady = false;
+  let persistTimer = null;
+  const dirtyKeys = new Set();
+
+  function defaultStateCache() {
+    return {
+      store: emptyStore(),
+      months: {},
+      notes: {},
+      day_notes: {},
+      period: {},
+      tpl_cfg: {},
+      tpl_custom: [],
+      prefs: { mode: "home", board: {} },
+    };
+  }
+
+  function normalizeStateCache(raw) {
+    const c = defaultStateCache();
+    if (raw?.store && typeof raw.store === "object") {
+      c.store = { ...emptyStore(), ...raw.store };
+    }
+    if (raw?.months && typeof raw.months === "object") c.months = raw.months;
+    if (raw?.notes && typeof raw.notes === "object") c.notes = raw.notes;
+    if (raw?.day_notes && typeof raw.day_notes === "object") c.day_notes = raw.day_notes;
+    if (raw?.period && typeof raw.period === "object") c.period = raw.period;
+    if (raw?.tpl_cfg && typeof raw.tpl_cfg === "object") c.tpl_cfg = raw.tpl_cfg;
+    if (Array.isArray(raw?.tpl_custom)) c.tpl_custom = raw.tpl_custom;
+    if (raw?.prefs && typeof raw.prefs === "object") {
+      c.prefs = { mode: "home", board: {}, ...raw.prefs };
+      if (raw.prefs.board && typeof raw.prefs.board === "object") {
+        c.prefs.board = { ...raw.prefs.board };
+      }
+    }
+    return c;
+  }
+
+  function readLocalLegacy() {
+    const legacy = defaultStateCache();
+    try {
+      const rawStore = localStorage.getItem(LS_STORE);
+      if (rawStore) legacy.store = JSON.parse(rawStore);
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      legacy.months = JSON.parse(localStorage.getItem(LS_MONTHS) || "{}") || {};
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      legacy.notes = JSON.parse(localStorage.getItem(LS_NOTES) || "{}") || {};
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      legacy.period = JSON.parse(localStorage.getItem(LS_PERIOD) || "{}") || {};
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      legacy.day_notes = JSON.parse(localStorage.getItem(LS_DAY_NOTES) || "{}") || {};
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      legacy.tpl_cfg = JSON.parse(localStorage.getItem(LS_TPL_CFG) || "{}") || {};
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      const rawCustom = JSON.parse(localStorage.getItem(LS_TPL_CUSTOM) || "[]");
+      legacy.tpl_custom = Array.isArray(rawCustom) ? rawCustom : [];
+    } catch (_) {
+      /* ignore */
+    }
+    legacy.prefs.mode = localStorage.getItem(LS_MODE) || legacy.prefs.mode;
+    try {
+      legacy.prefs.board = JSON.parse(localStorage.getItem(LS_BOARD) || "{}") || {};
+    } catch (_) {
+      /* ignore */
+    }
+    return legacy;
+  }
+
+  function legacyHasData(legacy) {
+    if ((legacy.store?.tasks || []).length) return true;
+    if (Object.keys(legacy.months || {}).length) return true;
+    if (Object.keys(legacy.notes || {}).length) return true;
+    if (Object.keys(legacy.day_notes || {}).length) return true;
+    if (Object.keys(legacy.period || {}).length) return true;
+    if (Object.keys(legacy.tpl_cfg || {}).length) return true;
+    if ((legacy.tpl_custom || []).length) return true;
+    return false;
+  }
+
+  function serverStateEmpty(cache) {
+    if ((cache.store?.tasks || []).length) return false;
+    if (Object.keys(cache.months || {}).length) return false;
+    if (Object.keys(cache.notes || {}).length) return false;
+    if (Object.keys(cache.day_notes || {}).length) return false;
+    if (Object.keys(cache.period || {}).length) return false;
+    if (Object.keys(cache.tpl_cfg || {}).length) return false;
+    if ((cache.tpl_custom || []).length) return false;
+    return true;
+  }
+
+  const LS_MIRROR_MAP = {
+    store: LS_STORE,
+    months: LS_MONTHS,
+    notes: LS_NOTES,
+    day_notes: LS_DAY_NOTES,
+    period: LS_PERIOD,
+    tpl_cfg: LS_TPL_CFG,
+    tpl_custom: LS_TPL_CUSTOM,
+  };
+
+  function mirrorStateKeysToLocalStorage(keys) {
+    if (!stateCache) return;
+    const list = keys?.length ? keys : STATE_KEYS;
+    try {
+      list.forEach((k) => {
+        if (k === "prefs") {
+          const p = stateCache.prefs || {};
+          if (p.mode != null) localStorage.setItem(LS_MODE, p.mode);
+          localStorage.setItem(LS_BOARD, JSON.stringify(p.board || {}));
+          return;
+        }
+        const lsKey = LS_MIRROR_MAP[k];
+        if (lsKey && stateCache[k] !== undefined) {
+          localStorage.setItem(lsKey, JSON.stringify(stateCache[k]));
+        }
+      });
+      localStorage.setItem(LS_DRAFT_TS, String(Date.now()));
+    } catch (_) {
+      /* ignore quota */
+    }
+  }
+
+  function mergeDraftOverlay(server, local) {
+    const out = normalizeStateCache(server);
+    const loc = normalizeStateCache(local);
+    ["day_notes", "period", "notes", "months"].forEach((k) => {
+      if (!loc[k] || typeof loc[k] !== "object") return;
+      out[k] = { ...(out[k] || {}), ...loc[k] };
+    });
+    return out;
+  }
+
+  function markDirty(...keys) {
+    const flat = keys.flat().filter((k) => STATE_KEYS.includes(k));
+    flat.forEach((k) => dirtyKeys.add(k));
+    if (flat.length) mirrorStateKeysToLocalStorage(flat);
+    scheduleStatePersist();
+  }
+
+  function scheduleStatePersist() {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      flushStatePersist();
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
+  async function flushStatePersist(force = false) {
+    if (typeof api !== "function") return;
+    if (!dirtyKeys.size && !force) return;
+    const patch = {};
+    const pending = force && !dirtyKeys.size ? [...STATE_KEYS] : [...dirtyKeys];
+    pending.forEach((k) => {
+      patch[k] = stateCache[k];
+    });
+    dirtyKeys.clear();
+    const res = await api("/api/tasks/state", {
+      method: "PUT",
+      body: JSON.stringify({ patch }),
+    });
+    if (!res?.success) {
+      pending.forEach((k) => dirtyKeys.add(k));
+      if (typeof toast === "function") toast(res?.error || "任务数据保存失败", "error");
+    }
+  }
+
+  function flushStatePersistKeepalive() {
+    if (!stateCache || !dirtyKeys.size || typeof fetch !== "function") return;
+    const patch = {};
+    dirtyKeys.forEach((k) => {
+      patch[k] = stateCache[k];
+    });
+    dirtyKeys.clear();
+    try {
+      fetch("/api/tasks/state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patch }),
+        keepalive: true,
+      });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function bindPersistLifecycle() {
+    if (bindPersistLifecycle._bound) return;
+    bindPersistLifecycle._bound = true;
+    window.addEventListener("pagehide", () => {
+      syncEditorsToCache();
+      mirrorStateKeysToLocalStorage([...dirtyKeys]);
+      flushStatePersistKeepalive();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "hidden") return;
+      syncEditorsToCache();
+      void flushStatePersist(true);
+    });
+  }
+
+  async function hydrateStateFromServer() {
+    const res = typeof api === "function" ? await api("/api/tasks/state") : { success: false };
+    const serverState =
+      res?.success && res.state ? normalizeStateCache(res.state) : defaultStateCache();
+    const legacy = readLocalLegacy();
+    stateCache = mergeDraftOverlay(serverState, legacy);
+    if (legacyHasData(legacy) && serverStateEmpty(serverState)) {
+      stateCache = normalizeStateCache({ ...stateCache, ...legacy });
+      await flushStatePersist(true);
+      if (typeof toast === "function") toast("已迁移本地任务数据到数据库", "ok");
+    } else {
+      const draftChanged =
+        JSON.stringify(stateCache.day_notes || {}) !== JSON.stringify(serverState.day_notes || {}) ||
+        JSON.stringify(stateCache.period || {}) !== JSON.stringify(serverState.period || {}) ||
+        JSON.stringify(stateCache.notes || {}) !== JSON.stringify(serverState.notes || {});
+      if (draftChanged) {
+        markDirty("day_notes", "period", "notes");
+        await flushStatePersist(true);
+      }
+    }
+    migrateTaskDailyNotesToDayNotes();
+    stateReady = true;
+  }
+
   function ensureDismissed(store) {
     if (!store.catalogDismissed) store.catalogDismissed = {};
     if (!store.instanceDismissed) store.instanceDismissed = {};
@@ -1260,22 +1492,18 @@
   }
 
   function loadStore() {
-    try {
-      const raw = localStorage.getItem(LS_STORE);
-      if (!raw) return emptyStore();
-      const data = JSON.parse(raw);
-      if (!data?.tasks) return emptyStore();
-      data.tasks = data.tasks.map(migrateTask);
-      if (!data.templateApplied) data.templateApplied = {};
-      ensureDismissed(data);
-      return data;
-    } catch (_) {
-      return emptyStore();
-    }
+    const data = { ...emptyStore(), ...(stateCache?.store || {}) };
+    if (!data.tasks) data.tasks = [];
+    data.tasks = data.tasks.map(migrateTask);
+    if (!data.templateApplied) data.templateApplied = {};
+    ensureDismissed(data);
+    return data;
   }
 
   function saveStore(data) {
-    localStorage.setItem(LS_STORE, JSON.stringify(data));
+    if (!stateCache) return;
+    stateCache.store = data;
+    markDirty("store");
     refreshTabCount();
   }
 
@@ -1337,30 +1565,25 @@
   }
 
   function loadTemplateOverrides() {
-    try {
-      return JSON.parse(localStorage.getItem(LS_TPL_CFG) || "{}") || {};
-    } catch (_) {
-      return {};
-    }
+    return stateCache?.tpl_cfg || {};
   }
 
   function saveTemplateOverride(key, patch) {
+    if (!stateCache) return;
     const cfg = loadTemplateOverrides();
     cfg[key] = { ...(cfg[key] || {}), ...patch };
-    localStorage.setItem(LS_TPL_CFG, JSON.stringify(cfg));
+    stateCache.tpl_cfg = cfg;
+    markDirty("tpl_cfg");
   }
 
   function loadCustomTemplates() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(LS_TPL_CUSTOM) || "[]");
-      return Array.isArray(raw) ? raw : [];
-    } catch (_) {
-      return [];
-    }
+    return stateCache?.tpl_custom || [];
   }
 
   function saveCustomTemplates(list) {
-    localStorage.setItem(LS_TPL_CUSTOM, JSON.stringify(list));
+    if (!stateCache) return;
+    stateCache.tpl_custom = Array.isArray(list) ? list : [];
+    markDirty("tpl_custom");
   }
 
   function isBuiltinTemplateKey(key) {
@@ -1550,6 +1773,7 @@
       id: partial.id || uid(),
       title: String(partial.title || "").trim(),
       notes: String(partial.notes || "").trim(),
+      dailyNote: String(partial.dailyNote || "").trim(),
       execResult: String(partial.execResult || "").trim(),
       categoryId: partial.categoryId || "misc",
       subcategoryId: partial.subcategoryId || "misc.adhoc",
@@ -2049,9 +2273,6 @@
     const weekP0 = weekTasks.filter(
       (t) => t.priority === "must" && isScheduled(t) && t.status !== "cancelled" && t.status !== "done"
     );
-    const curMonth = monthKey();
-    const monthPlan = ensureMonthPlan(curMonth);
-    const monthGoals = (monthPlan.goals || []).slice(0, 3);
     const note = loadWeekNote(wk);
     const applied = !!loadStore().templateApplied[wk];
     const todayLabel = isWeekendSlot(today) ? "周末" : TD().DAY_NAME[today] || "今天";
@@ -2080,13 +2301,6 @@
           weekP0.length
             ? `<div class="tsk-proto-card"><h3>整周 P0</h3>${weekP0.map((t) => renderTaskRow(t, { showDay: true, fullTitle: true })).join("")}</div>`
             : ""
-        }
-        ${
-          monthGoals.length
-            ? `<div class="tsk-proto-card"><h3>本月主线 <button type="button" class="btn-link" id="btnEditMonthPlan">编辑</button></h3>
-              ${monthGoals.map((g) => `<div class="tsk-goal-line">${escapeHtml(g)}</div>`).join("")}</div>`
-            : `<div class="tsk-proto-card"><h3>本月主线 <button type="button" class="btn-link" id="btnEditMonthPlan">去规划</button></h3>
-              <p class="muted tsk-kempty-sm">尚未设定 · 可预排下月及更远</p></div>`
         }
         <div class="tsk-proto-card${!weekP0.length ? " tsk-span-2" : ""}">
           <h3>本周要点</h3>
@@ -2122,11 +2336,6 @@
       state.boardWeek = weekKey();
       saveBoardPrefs();
       renderAll();
-    });
-    $("#btnEditMonthPlan")?.addEventListener("click", () => {
-      state.monthsKey = curMonth;
-      state.monthsYear = parseMonthKey(curMonth)?.year || new Date().getFullYear();
-      switchMode("months");
     });
     $("#btnHomeGoPlan")?.addEventListener("click", () => {
       switchMode("board");
@@ -2237,6 +2446,17 @@
     root?.querySelectorAll(".tsk-card-menu summary").forEach((el) => {
       el.addEventListener("mousedown", (e) => e.stopPropagation());
       el.addEventListener("click", (e) => e.stopPropagation());
+    });
+    root?.querySelectorAll("[data-day-note]").forEach((ta) => {
+      ta.addEventListener("mousedown", (e) => e.stopPropagation());
+      ta.addEventListener("click", (e) => e.stopPropagation());
+      const commitDayNote = () => {
+        const key = ta.getAttribute("data-day-note");
+        if (!key) return;
+        saveDayNoteByKey(key, ta.value);
+      };
+      ta.addEventListener("input", commitDayNote);
+      ta.addEventListener("blur", commitDayNote);
     });
     root?.querySelectorAll("[data-task-open]").forEach((el) => {
       const open = () => openTaskDrawer(el.getAttribute("data-task-open"));
@@ -2392,7 +2612,7 @@
         return renderKanbanCol({
           daySlot: d,
           headHtml: dayColHead(wk, d, { highlightToday }),
-          body: items.map(renderPlanCard).join("") || renderColEmpty("drop"),
+          body: `${renderDayColNote(wk, d)}${items.map(renderPlanCard).join("") || renderColEmpty("drop")}`,
           dropDay: d,
           isToday: highlightToday,
           extraClass: isWeekend ? " tsk-kcol-weekend" : "",
@@ -2788,7 +3008,6 @@
     const plannedOpen = (plan.items || []).filter((i) => i.status === "planned");
     const doneItems = (plan.items || []).filter((i) => i.status === "split" || i.status === "done" || i.status === "dropped");
     const fullyEmpty = monthIsFullyEmpty(selMk, plan);
-    const goalsLines = (plan.goals || []).filter((g) => String(g).trim());
     const weekRows = renderWeekRows(weeks, { readOnly });
     const monthNav = buildMonthNavHtml(state.monthsYear, selMk);
 
@@ -2798,9 +3017,6 @@
         ${renderMonthSummaryBar(stats)}
         <p class="tsk-month-empty">这个月还没有记录</p>`;
     } else if (readOnly) {
-      const goalsBlock = goalsLines.length
-        ? goalsLines.map((g) => `<div class="tsk-goal-line">${escapeHtml(g)}</div>`).join("")
-        : "";
       const openBlock = plannedOpen.length
         ? plannedOpen.map((i) => renderMonthItemRow(i, selMk, { readOnly: true, weeks })).join("")
         : "";
@@ -2809,7 +3025,6 @@
         : "";
       mainBody = `
         ${renderMonthSummaryBar(stats)}
-        ${goalsBlock ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">主线</h3><div class="tsk-month-section-b">${goalsBlock}</div></section>` : ""}
         <section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk, { readOnly: true })}</section>
         ${openBlock ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">未完成 · ${plannedOpen.length}</h3><div class="tsk-month-section-b">${openBlock}</div></section>` : ""}
         ${weekRows ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">各周</h3><div class="tsk-month-section-b tsk-week-rows">${weekRows}</div></section>` : ""}
@@ -2821,13 +3036,6 @@
         }`;
     } else {
       mainBody = `
-        <section class="tsk-month-section">
-          <div class="tsk-month-section-head">
-            <h3 class="tsk-month-section-h">主线</h3>
-            <button type="button" class="btn primary btn-sm" id="btnMonthSaveGoals">保存</button>
-          </div>
-          <textarea id="monthGoalsInput" class="tsk-month-goals" rows="3" placeholder="3–7 条主线，一行一条">${escapeHtml((plan.goals || []).join("\n"))}</textarea>
-        </section>
         <section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk)}</section>
         <section class="tsk-month-section">
           <h3 class="tsk-month-section-h">月池 · ${pool.length}</h3>
@@ -2896,12 +3104,6 @@
       });
     });
     bindPeriodReview(box);
-    $("#btnMonthSaveGoals")?.addEventListener("click", () => {
-      const raw = $("#monthGoalsInput")?.value || "";
-      updateMonthGoals(selMk, raw.split("\n"));
-      if (typeof toast === "function") toast("主线已保存", "ok");
-      renderAll();
-    });
     $("#monthItemForm")?.addEventListener("submit", (e) => {
       e.preventDefault();
       addMonthItem(selMk, {
@@ -3228,7 +3430,11 @@
 
   function switchMode(mode) {
     state.mode = mode;
-    localStorage.setItem(LS_MODE, mode);
+    if (stateCache) {
+      stateCache.prefs = stateCache.prefs || { mode: "home", board: {} };
+      stateCache.prefs.mode = mode;
+      markDirty("prefs");
+    }
     document.querySelectorAll(".tsk-mode-tab").forEach((btn) => {
       const on = btn.dataset.taskMode === mode;
       btn.classList.toggle("on", on);
@@ -3243,6 +3449,7 @@
   }
 
   function renderAll() {
+    syncEditorsToCache();
     hideTaskPopover();
     closeStatusMenu();
     refreshTabCount();
@@ -3254,44 +3461,43 @@
   }
 
   function saveBoardPrefs() {
-    localStorage.setItem(
-      LS_BOARD,
-      JSON.stringify({
-        categoryId: state.categoryId,
-        subcategoryId: state.subcategoryId,
-        boardWeek: state.boardWeek,
-        boardView: state.boardView,
-        boardFlow: state.boardFlow,
-        columnOrder: state.columnOrder,
-        catFilter: state.catFilter,
-        subSearch: state.subSearch,
-      })
-    );
+    if (!stateCache) return;
+    stateCache.prefs = stateCache.prefs || { mode: "home", board: {} };
+    stateCache.prefs.board = {
+      categoryId: state.categoryId,
+      subcategoryId: state.subcategoryId,
+      boardWeek: state.boardWeek,
+      boardView: state.boardView,
+      boardFlow: state.boardFlow,
+      columnOrder: state.columnOrder,
+      catFilter: state.catFilter,
+      subSearch: state.subSearch,
+    };
+    markDirty("prefs");
   }
 
   function restorePrefs() {
-    state.mode = localStorage.getItem(LS_MODE) || "home";
+    const prefs = stateCache?.prefs || {};
+    state.mode = prefs.mode || "home";
     state.boardView = "schedule";
     state.boardFlow = "exec";
-    try {
-      const b = JSON.parse(localStorage.getItem(LS_BOARD) || "{}");
-      state.categoryId = b.categoryId || TD().CATEGORIES[0]?.id || "";
-      state.subcategoryId = b.subcategoryId || "";
-      state.boardWeek = b.boardWeek || weekKey();
-      state.boardView = b.boardView || (b.boardFlow === "category" ? "category" : "schedule");
-      state.boardFlow = b.boardFlow === "category" ? "exec" : b.boardFlow || "exec";
-      state.columnOrder = b.columnOrder || "asc";
-      state.catFilter = b.catFilter || "all";
-      state.subSearch = b.subSearch || "";
-    } catch (_) {
-      state.boardWeek = weekKey();
-    }
+    const b = prefs.board && typeof prefs.board === "object" ? prefs.board : {};
+    state.categoryId = b.categoryId || TD().CATEGORIES[0]?.id || "";
+    state.subcategoryId = b.subcategoryId || "";
+    state.boardWeek = b.boardWeek || weekKey();
+    state.boardView = b.boardView || (b.boardFlow === "category" ? "category" : "schedule");
+    state.boardFlow = b.boardFlow === "category" ? "exec" : b.boardFlow || "exec";
+    state.columnOrder = b.columnOrder || "asc";
+    state.catFilter = b.catFilter || "all";
+    state.subSearch = b.subSearch || "";
+    if (!state.boardWeek) state.boardWeek = weekKey();
     state.statsAnchor = monthKey();
     state.monthsKey = monthKey();
     state.monthsYear = new Date().getFullYear();
   }
 
   function bind() {
+    bindPersistLifecycle();
     document.querySelectorAll(".tsk-mode-tab[data-task-mode]").forEach((btn) => {
       btn.addEventListener("click", () => switchMode(btn.dataset.taskMode));
     });
@@ -3372,14 +3578,33 @@
     });
   }
 
+  let initPromise = null;
+
   function init() {
-    if (!TD()) return;
-    restorePrefs();
-    bind();
-    switchMode(state.mode);
+    if (!TD()) return Promise.resolve();
+    if (initPromise) return initPromise;
+    initPromise = (async () => {
+      await hydrateStateFromServer();
+      restorePrefs();
+      bind();
+      switchMode(state.mode);
+    })().catch((err) => {
+      initPromise = null;
+      if (typeof toast === "function") toast(`任务数据加载失败：${err?.message || err}`, "error");
+      stateCache = normalizeStateCache(readLocalLegacy());
+      stateReady = true;
+      restorePrefs();
+      bind();
+      switchMode(state.mode);
+    });
+    return initPromise;
   }
 
   function onTabEnter() {
+    if (!stateReady) {
+      void init().then(() => renderAll());
+      return;
+    }
     renderAll();
   }
 
@@ -3394,5 +3619,7 @@
     applyWeeklyTemplate,
     getMonthPlan,
     ensureMonthPlan,
+    flushStatePersist,
+    isStateReady: () => stateReady,
   };
 })(typeof window !== "undefined" ? window : globalThis);
