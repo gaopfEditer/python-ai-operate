@@ -10,6 +10,7 @@
  *   Topic: { ..., importance, importanceNote?, impactSummary?, impactOn[], scenarios[] }
  *   impactOn: { target, mechanism, lag }[] — 传导链（右栏卡片，浮层 1 句摘要）
  *   scenarios: { id: good|bad|mixed, name, if, then, coins[], stance, template, invalidation }[]
+ *   templates: { id, topicId, title, body, stance, coins[], category?, tags[], analogy? }
  *   importance 表示「多常被拿来做内容和交易框架」，非投资评级
  *
  * 边界：不要在此生成完整话术库；每小类 1 段含义、约 3 条话术、0～1 条占位模板即可。
@@ -32,18 +33,20 @@
     };
   }
 
-  /** @param {string} topicId @param {string} title @param {string} body @param {object} [extra] */
+  /** @param {string} topicId @param {string} title @param {string} body @param {object} [extra] id, stance, coins, category, tags[], analogy */
   function tpl(topicId, title, body, extra) {
+    const e = extra || {};
     return {
-      id: topicId + ".tpl1",
+      id: e.id || topicId + ".tpl1",
       topicId,
       title,
-      stance: "mixed",
-      coins: ["BTC"],
-      tags: [],
+      stance: e.stance ?? "mixed",
+      coins: e.coins ?? ["BTC"],
+      category: e.category ?? "",
+      tags: e.tags ?? [],
+      analogy: e.analogy ?? "",
       body,
       placeholder: false,
-      ...(extra || {}),
     };
   }
 
@@ -614,9 +617,428 @@
             }),
           ],
           templates: [
-            tpl("structure.funding", "费率极端 + OI", "费率已到极端，OI 还在堆。交易的是谁先平仓，不是基本面。", {
-              stance: "mixed",
-            }),
+            tpl(
+              "structure.funding",
+              "极端费率 + OI 堆",
+              "极端{品种}费率已经{极正/极负}，OI 还在堆：现在交易的是谁先平仓。",
+              {
+                id: "crowd_stack",
+                category: "极端",
+                analogy: "像拔河两边都在加人，比的是谁先松手",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "离瀑布差一根针",
+              "高费率 + 高 OI + 价格走不动，{品种}离清算瀑布还差一根针。",
+              {
+                id: "cascade_needle",
+                category: "极端",
+                analogy: "三根火柴都点了，桶盖还在收窄",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "空头费率 vs 现货买",
+              "{品种}空头费率打满、现货却在买：逼空和踩踏只隔一根 K。",
+              {
+                id: "short_funding_spot_bid",
+                category: "极端",
+                stance: "mixed",
+                analogy: "合约在喊空，现货在接货——同一品种两种剧本",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "新高但波动收窄",
+              "OI 新高、费率新高、波动却在收窄：这是趋势还是炸药包？",
+              {
+                id: "squeeze_or_trend",
+                category: "极端",
+                analogy: "盖子越拧越紧，要么闷燃要么爆",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "拥挤先洗 OI",
+              "{品种}多头拥挤到极值，第一波洗盘通常先打 OI，不是先打叙事。",
+              {
+                id: "wash_oi_first",
+                category: "极端",
+                analogy: "先卸杠杆，再谈故事对不对",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "Cascade 检查清单",
+              "费率极端后反向一根就容易踩踏：列出{品种}的 cascade 检查清单（哪侧 OI、哪档清算、深度在哪）。",
+              {
+                id: "cascade_checklist",
+                category: "极端",
+                analogy: "多米诺：第一块倒下去看下一档在哪",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "合约溢价抢方向",
+              "{品种}合约比现货贵到离谱，杠杆在抢方向而不是在定价。",
+              {
+                id: "perp_premium",
+                category: "极端",
+                analogy: "期货像在竞价抢座，现货还没投票",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "期权墙叠费率极值",
+              "Max Pain / 期权墙叠在费率极值上：{品种}短线更像磁铁，不是趋势。",
+              {
+                id: "maxpain_magnet",
+                category: "极端",
+                analogy: "两块磁铁叠一起，价格被吸向墙而不是跑趋势",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "价涨 OI 跟、费率温和",
+              "常见价涨、OI 跟、费率不烫：{品种}这叫趋势在加仓。",
+              {
+                id: "trend_add",
+                category: "常见",
+                stance: "bull",
+                analogy: "价和仓同向，燃料还没烧到极端",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "价涨 OI 降",
+              "价涨 OI 降：{品种}这波是空头平出来的，还是多头在撤？",
+              {
+                id: "price_up_oi_down",
+                category: "常见",
+                analogy: "价在涨，账本在减——先问是谁在离场",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "费率转正 OI 不跟",
+              "费率转正但 OI 没跟上：情绪到了，仓位没有。",
+              {
+                id: "funding_up_oi_flat",
+                category: "常见",
+                analogy: "喇叭响了，人还没进场",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "横盘换手",
+              "横盘 {N} 根，费率在零轴附近晃：{品种}在换手，不是在选边。",
+              {
+                id: "range_handoff",
+                category: "常见",
+                analogy: "球场里换队员，比分还没动",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "现货买、费率掉",
+              "ETF / 现货在买，费率却在掉：现货和合约又打架了。",
+              {
+                id: "spot_buy_funding_fade",
+                category: "常见",
+                analogy: "现货柜台在进货，永续柜台在散场",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "OI 微增价格横",
+              "{品种}OI 微增、价格横着：仓位在搬，方向还没投票。",
+              {
+                id: "oi_up_price_flat",
+                category: "常见",
+                analogy: "人在换座，比赛还没开球",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "费率回落价格不崩",
+              "费率从极端往回走、价格没崩：拥挤在缓解，不是趋势结束。",
+              {
+                id: "funding_ease_hold",
+                category: "常见",
+                stance: "bull",
+                analogy: "压力表回落，管道还没裂",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "结算前后剧本",
+              "同一天：资金费结算前缩量、结算后放量——{品种}的常规剧本（写成「通常怎样」，方便以后套数据）。",
+              {
+                id: "funding_settle_rhythm",
+                category: "大概率",
+                analogy: "像潮汐：结算前后流动性常换一档",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "极端后常见回归",
+              "费率极端之后，{24h/8h}内更常见的是回归，而不是继续加速（模板语气，事后用数据填）。",
+              {
+                id: "extreme_mean_revert",
+                category: "大概率",
+                analogy: "橡皮筋拉满，继续拉不如先弹回",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "高位突破假的多",
+              "OI 堆在高位时，{品种}的突破假的往往比真的多。",
+              {
+                id: "high_oi_fake_break",
+                category: "大概率",
+                stance: "bear",
+                analogy: "人挤在门口，冲出去的多半是误触",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "价 OI 齐升未极端",
+              "价和 OI 一起创新高、费率还没极端：趋势延续的概率大于反转。",
+              {
+                id: "trend_continue",
+                category: "大概率",
+                stance: "bull",
+                analogy: "车还在加油，油箱没到红线",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "价新高 OI 不新高",
+              "价新高、OI 不新高：冲高回落的概率大于趋势第二段。",
+              {
+                id: "price_high_oi_not",
+                category: "大概率",
+                stance: "bear",
+                analogy: "价创纪录，跟班的人少了——后劲要怀疑",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "清算后新区间",
+              "清算完一轮之后，费率归零 + OI 下台阶，更像新区间，而不是立刻反转。",
+              {
+                id: "post_liq_range",
+                category: "大概率",
+                analogy: "地震后先稳地基，再谈往哪建",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "拥挤与波动反向",
+              "拥挤方向与短线波动方向相反时，下一根更常打拥挤的反面。",
+              {
+                id: "crowd_vs_move",
+                category: "大概率",
+                analogy: "多数人站一边，短针常先扎向人多的一侧",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "短看拥挤、日看现货",
+              "{1–8h}看拥挤，{日线}看现货：两者同向才谈趋势，单向只谈波动。",
+              {
+                id: "horizon_split",
+                category: "大概率",
+                analogy: "显微镜和地图不能混用——先对齐时间尺度",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "费率领先节奏",
+              "费率领先价格 1 拍是常态；费率领先 3 拍还不兑现，多半是噪声。",
+              {
+                id: "funding_lead_lag",
+                category: "大概率",
+                analogy: "预告片比正片快，连放三遍还没上映就是假预告",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "逼空结构",
+              "空头费率拥挤 + 现货托底：{品种}更像逼空结构，不是慢熊。",
+              {
+                id: "bull_squeeze",
+                category: "看涨",
+                stance: "bull",
+                analogy: "空在付钱，现货在接——像被往上涨价里挤",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "回踩洗多头",
+              "回踩时 OI 下降、费率降温：多头在清洗，不是在崩。",
+              {
+                id: "bull_pullback_wash",
+                category: "看涨",
+                stance: "bull",
+                analogy: "跑步中途喝水，不是退赛",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "健康加仓",
+              "价和 OI 一起抬、费率温和：{品种}健康加仓，回调更像买点观察。",
+              {
+                id: "bull_healthy_add",
+                category: "看涨",
+                stance: "bull",
+                analogy: "量价齐升且费不烫，像有序排队上车",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "扫完多头费率收窄",
+              "清算扫完低位多头，OI 下来、费率从极负收窄：空头优势在减。",
+              {
+                id: "bull_post_sweep",
+                category: "看涨",
+                stance: "bull",
+                analogy: "扫完一地多单，空军的弹药也在减",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "现货领、合约补",
+              "现货 / ETF 持续流入，合约费率还没跟上：现货在领，合约会补。",
+              {
+                id: "bull_spot_leads",
+                category: "看涨",
+                stance: "bull",
+                analogy: "现货先走，永续常晚一步跟上",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "更高低点等 OI",
+              "{品种}更高低点已经出现，缺的只是 OI 不再创新低。",
+              {
+                id: "bull_higher_low",
+                category: "看涨",
+                stance: "bull",
+                analogy: "地基抬高了，就等仓位确认不再下沉",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "坏情况失效",
+              "坏情况的失效条件出现了：费率从极值回落且价格守住拥挤区上沿。",
+              {
+                id: "bull_bad_invalidate",
+                category: "看涨",
+                stance: "bull",
+                analogy: "拥挤警报解除，价格还站在门槛上——空要小心",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "现货更响",
+              "空头用费率说话、多头用现货说话——现在现货更响。",
+              {
+                id: "bull_spot_louder",
+                category: "看涨",
+                stance: "bull",
+                analogy: "两个麦克风，现货那路音量更大",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "多头拥挤走平",
+              "多头费率拥挤 + 价格走平：{品种}先等一次 OI 洗盘。",
+              {
+                id: "bear_crowd_flat",
+                category: "看跌",
+                stance: "bear",
+                analogy: "人堆在多头这边，价却不走——先等卸货",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "价新高 OI 顶加速",
+              "价新高全靠费率堆起来，OI 在顶部加速：更像派发，不是突破。",
+              {
+                id: "bear_distribution",
+                category: "看跌",
+                stance: "bear",
+                analogy: "价在创新高，仓在顶上加——像边拉边卖",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "ETF 流出叠费率极正",
+              "ETF 大额流出叠上费率极正：拥挤变成趋势的那一页。",
+              {
+                id: "bear_etf_out_crowd",
+                category: "看跌",
+                stance: "bear",
+                analogy: "账本在撤，杠杆还在追——质量最差的一页",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "涨 OI 不跟、跌 OI 反加",
+              "上涨时 OI 不跟、下跌时 OI 反加：{品种}空头在用真仓位投票。",
+              {
+                id: "bear_oi_vote_down",
+                category: "看跌",
+                stance: "bear",
+                analogy: "涨时没人加仓，跌时仓反而加——票投给了空",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "丢拥挤区下沿",
+              "拥挤区下沿丢了，费率和 OI 还没降：下跌才刚开始计费。",
+              {
+                id: "bear_crowd_break",
+                category: "看跌",
+                stance: "bear",
+                analogy: "支撑带破了，杠杆还没卸——后面常更贵",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "多头爆发透支",
+              "{品种}多头爆发但量能 / 费率已经透支，下一拍更像发还是继续？",
+              {
+                id: "bear_long_exhaust",
+                category: "看跌",
+                stance: "bear",
+                analogy: "油门踩到底还上坡，接下来要么冲顶要么熄火",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "好情况失效",
+              "好情况的失效：费率继续新高或 OI 创高但价格回吐。",
+              {
+                id: "bear_good_invalidate",
+                category: "看跌",
+                stance: "bear",
+                analogy: "健康叙事还在，但仓位和价格开始打架",
+              }
+            ),
+            tpl(
+              "structure.funding",
+              "合约加多现货减",
+              "合约在加多、现货在减持：这不是共识，是分层。",
+              {
+                id: "bear_perp_spot_split",
+                category: "看跌",
+                stance: "bear",
+                analogy: "永续在赌，现货在跑——别写成一条心",
+              }
+            ),
           ],
         }),
         topic({
@@ -683,9 +1105,413 @@
           templates: [
             tpl(
               "structure.etf_flow",
-              "价格涨 vs ETF 流出",
-              "币在涨，账本在卖。这是修复不是新趋势。先等流入回头，再谈突破。",
-              { stance: "bear" }
+              "连出但价在新高",
+              "极端{品种}ETF {N} 日连出，价格还在新高：这是杠杆在抬，不是机构在买。",
+              {
+                id: "ext_out_new_high",
+                category: "极端",
+                stance: "bear",
+                analogy: "账本在卖，价还在涨——杠杆在抬轿，不是机构在买",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "单日极值先当事件",
+              "单日流入/流出打到极值，{品种}先当事件，不升级成趋势。",
+              {
+                id: "single_day_extreme",
+                category: "极端",
+                analogy: "单日数字像烟花，亮一下不等于换季节",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "IBIT 进其余出",
+              "IBIT 在进、其余在出：表面上的「ETF 买入」可能只是内部搬家。",
+              {
+                id: "ibit_rotation",
+                category: "极端",
+                analogy: "钱从一个口袋换到另一个口袋，总量没变",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "价崩 ETF 大买",
+              "{品种}价格崩、ETF 却在大额买：现货在接飞刀，还是在抄结构？",
+              {
+                id: "crash_etf_buy",
+                category: "极端",
+                stance: "mixed",
+                analogy: "跌刀子下有人在接——先分清是救场还是抄底",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "DXY 涨叠 ETF 大出",
+              "DXY 大涨叠 ETF 大出：宏观和现货同时抽水，反弹先当反抽。",
+              {
+                id: "dxy_out_double",
+                category: "极端",
+                stance: "bear",
+                analogy: "美元在吸、ETF 在撤——两头抽水，反弹先减配",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "连入后首日翻出",
+              "连续大入之后第一天翻出：趋势没死，但「机构只会买」这句先作废。",
+              {
+                id: "inflow_then_out",
+                category: "极端",
+                stance: "mixed",
+                analogy: "连买几天后第一天卖——故事还在，口号先收一收",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "浅流入价横",
+              "浅流入、价格横着：{品种}更像在吸，不是要立刻拉。",
+              {
+                id: "shallow_in_flat",
+                category: "常见",
+                stance: "bull",
+                analogy: "细水长流地接，不是马上要冲",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "价涨 ETF 小出",
+              "价涨、ETF 小出：涨的是合约和海外盘，现货没确认。",
+              {
+                id: "price_up_small_out",
+                category: "常见",
+                stance: "bear",
+                analogy: "价在涨，账本在小卖——杠杆或海外在领",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "一天进一天出",
+              "一天进、一天出：{品种}ETF 还在噪声区间，别写成机构转向。",
+              {
+                id: "in_out_noise",
+                category: "常见",
+                analogy: "进出进出像调音量，不是换台",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "单基金在进",
+              "只有一条基金在进：总量没改，叙事先不要写「华尔街进场」。",
+              {
+                id: "one_fund_in",
+                category: "常见",
+                analogy: "一个选手得分，全队总分没变",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "流入费率同向",
+              "流入和费率同向：现货加杠杆一起堆，短线更拥挤。",
+              {
+                id: "inflow_funding_same",
+                category: "常见",
+                stance: "mixed",
+                analogy: "现货和合约一起加——人多了，通道更挤",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "流入费率在掉",
+              "流入在、费率在掉：现货买、合约降杠杆，结构比单边费率好看。",
+              {
+                id: "inflow_funding_fade",
+                category: "常见",
+                stance: "bull",
+                analogy: "现货在进货，合约在卸货——分层里现货更干净",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "流出后首日小回流",
+              "流出后的第一天小回流：只够说明抛盘歇了，不够说明趋势回来。",
+              {
+                id: "out_then_small_in",
+                category: "常见",
+                stance: "mixed",
+                analogy: "雨停不等于天晴——先看 5 日净额",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "ETF 与价同步走平",
+              "{品种}ETF 与价格同步走平：机构也在等，不是悄悄进场。",
+              {
+                id: "etf_price_flat",
+                category: "常见",
+                analogy: "双方都在等信号，不是暗度陈仓",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "单日难升级趋势",
+              "单日流入很少单独把反弹升级成趋势，通常要看 {3–5} 日净额。",
+              {
+                id: "single_day_not_trend",
+                category: "大概率",
+                analogy: "一天的数据像抽样，趋势要看连续样本",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "价涨 ETF 连出",
+              "价涨而 ETF 连续流出，冲高回落的概率大于趋势第二段。",
+              {
+                id: "price_up_outflow",
+                category: "大概率",
+                stance: "bear",
+                analogy: "价在创新高，账本在撤退——第二段要怀疑",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "横盘连流入",
+              "横盘 + 连续流入，往后更像铺垫，而不是当天就要突破。",
+              {
+                id: "flat_continuous_in",
+                category: "大概率",
+                stance: "bull",
+                analogy: "在铺轨，不是马上要发车",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "大出后立刻大入",
+              "大出之后立刻大入，更常见的是回补，不是 V 反确认。",
+              {
+                id: "out_then_big_in",
+                category: "大概率",
+                stance: "mixed",
+                analogy: "大卖后大买，多半是补仓位不是反转证",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "DXY 与 ETF 对着干",
+              "DXY 与 ETF 对着干时，短线听美元，中线才把流入当票。",
+              {
+                id: "dxy_etf_fight",
+                category: "大概率",
+                analogy: "短线美元话筒更大，中线才数 ETF 的票",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "5 日净出价不新低",
+              "5 日净流出且价格不创新低：下跌在减速，还不等于见底。",
+              {
+                id: "five_day_out_no_low",
+                category: "大概率",
+                stance: "mixed",
+                analogy: "刹车踩了，还没说掉头",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "流入领先节奏",
+              "流入领先价格 1 拍常见；领先很久价格不动，多半被杠杆对冲掉了。",
+              {
+                id: "inflow_lead_lag",
+                category: "大概率",
+                analogy: "ETF 先走、价不动——可能有人在另一边对冲",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "连入价守住才改口",
+              "只有「连续流入 + 价格守住」同时成立，才把反弹改口成趋势。",
+              {
+                id: "inflow_hold_trend",
+                category: "大概率",
+                stance: "bull",
+                analogy: "两票都投完才改口——缺一张仍是反弹",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "连入回踩费率温和",
+              "{N} 日净流入、回踩不破、费率不烫：{品种}现货在领，回调当观察。",
+              {
+                id: "bull_continuous_in",
+                category: "看涨",
+                stance: "bull",
+                analogy: "现货连买、杠杆不烫——回调像上车机会",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "价未新高 ETF 先连进",
+              "价格还没新高，ETF 已经先连续进：更像在铺，不像在追。",
+              {
+                id: "bull_in_before_high",
+                category: "看涨",
+                stance: "bull",
+                analogy: "机构先铺货，价还没追——像提前布阵",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "大出后流出缩",
+              "大出之后流出缩、价格不创新低：抛盘在尽，先看止跌不是看空到底。",
+              {
+                id: "bull_outflow_shrink",
+                category: "看涨",
+                stance: "bull",
+                analogy: "卖压在减、底没破——先谈止跌",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "ETF 进 OI 不炸",
+              "ETF 进、OI 不炸、结构出更高低点：机构买的是现货，不是拥挤。",
+              {
+                id: "bull_spot_not_crowd",
+                category: "看涨",
+                stance: "bull",
+                analogy: "现货在买、杠杆没堆——买的是货不是赌",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "DXY 弱叠 ETF 回流",
+              "DXY 转弱叠上 ETF 回流：宏观松一点，现货又有人接。",
+              {
+                id: "bull_dxy_weak_in",
+                category: "看涨",
+                stance: "bull",
+                analogy: "美元松手、ETF 接棒——宏观给现货让路",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "浅入变连入",
+              "浅流入变成连续流入：叙事可以从「吸筹」改成「加仓」。",
+              {
+                id: "bull_shallow_to_continuous",
+                category: "看涨",
+                stance: "bull",
+                analogy: "从滴水到连下——故事可以从吸改成加",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "坏情况失效",
+              "坏情况失效：流出日结束后价格守住，次日没有再创新低。",
+              {
+                id: "bull_bad_invalidate",
+                category: "看涨",
+                stance: "bull",
+                analogy: "卖压日过后价还站住——空要小心",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "合约降杠杆 ETF 进",
+              "合约在降杠杆，ETF 还在进：分层里现货这一侧更响。",
+              {
+                id: "bull_perp_out_etf_in",
+                category: "看涨",
+                stance: "bull",
+                analogy: "永续在撤、ETF 在进——听现货那路",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "价新高 ETF 连出",
+              "价新高、ETF 连出：{品种}这波更像杠杆行情，现货没跟。",
+              {
+                id: "bear_high_outflow",
+                category: "看跌",
+                stance: "bear",
+                analogy: "价创纪录、账本在卖——杠杆在演，现货缺席",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "连入翻出丢平台",
+              "连续流入突然翻出，且价格丢掉平台：机构这页翻成减持。",
+              {
+                id: "bear_in_then_out_platform",
+                category: "看跌",
+                stance: "bear",
+                analogy: "买几天后翻页卖出——平台也丢了",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "ETF 出费率极正",
+              "ETF 出、费率还极正：现货走、杠杆还在加多——拥挤变趋势的那一拍。",
+              {
+                id: "bear_out_crowded_long",
+                category: "看跌",
+                stance: "bear",
+                analogy: "现货在撤、合约还在堆多——最差的一拍",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "只有回流无连入",
+              "只有回流、没有连续净流入：反弹模板，不当反转模板。",
+              {
+                id: "bear_rebound_not_reversal",
+                category: "看跌",
+                stance: "bear",
+                analogy: "止血不等于反转——别写 V 反",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "DXY 强叠 ETF 净出",
+              "DXY 转强 + ETF 转为净流出：两头抽，反弹先减配。",
+              {
+                id: "bear_dxy_strong_out",
+                category: "看跌",
+                stance: "bear",
+                analogy: "美元吸、ETF 撤——反弹先当减配",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "IBIT 都在出",
+              "IBIT 都在出，不只是小号基金在出：这不是结构内再平衡。",
+              {
+                id: "bear_ibit_all_out",
+                category: "看跌",
+                stance: "bear",
+                analogy: "龙头也在卖——不是小基金搬家",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "好情况失效",
+              "好情况失效：流入在、价格却连续回吐平台低点。",
+              {
+                id: "bear_good_invalidate",
+                category: "看跌",
+                stance: "bear",
+                analogy: "还在买但价在破——好叙事在失效",
+              }
+            ),
+            tpl(
+              "structure.etf_flow",
+              "小进仍 5 日净出",
+              "流出日之后一天小进，总量仍是 5 日净出：还在分发，不是抄底结束。",
+              {
+                id: "bear_small_in_still_out",
+                category: "看跌",
+                stance: "bear",
+                analogy: "一天小买、五天仍卖——分发还没完",
+              }
             ),
           ],
         }),
@@ -893,9 +1719,408 @@
           templates: [
             tpl(
               "structure.options",
-              "到期周先标墙",
-              "这不是变盘，是到期周。先标 max pain 和两侧墙，突破不作数，收盘站稳再认。",
-              { stance: "mixed" }
+              "到期量占持仓极高",
+              "极端{品种}本周到期量占持仓 {x%}，短线先交易墙，不交易叙事。",
+              {
+                id: "ext_expiry_oi_pct",
+                category: "极端",
+                analogy: "墙太厚，先数砖块，别先讲故事",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "痛点偏离过大",
+              "Max Pain 和现价偏离过大：要么先被吸过去，要么到期后墙失效、波动补回来。",
+              {
+                id: "ext_pain_far",
+                category: "极端",
+                stance: "mixed",
+                analogy: "磁铁离太远——要么被吸过去，要么到期后弹回来",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "持仓一边倒",
+              "{品种}看涨/看跌持仓一边倒，到期更像单边清算，不像温和钉死。",
+              {
+                id: "ext_one_sided",
+                category: "极端",
+                stance: "mixed",
+                analogy: "一边倒的牌局，到期更像清台不是钉牌",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "墙叠费率 ETF",
+              "期权墙、费率极值、ETF 大出叠在同一天：拥挤和墙一起到期。",
+              {
+                id: "ext_wall_funding_etf",
+                category: "极端",
+                stance: "bear",
+                analogy: "三股力同一天到期——先防挤，再谈墙",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "到期碰宏观日",
+              "周度到期碰上宏观日（CPI / FOMC）：先分清是数据在动，还是墙在吸。",
+              {
+                id: "ext_expiry_macro",
+                category: "极端",
+                analogy: "同一天两个话筒——先听数据，墙当过滤器",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "到期日波动极窄",
+              "到期日当天波动收窄到极致：钉牌成功，次日更容易把压缩的波动还出来。",
+              {
+                id: "ext_pin_success",
+                category: "极端",
+                stance: "mixed",
+                analogy: "弹簧压到最紧——松手后波动常还回来",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "痛点上方 Call 墙",
+              "{品种}最大痛点上方全是 Call 墙：向上假突破的成本比向下扫 Put 更高。",
+              {
+                id: "ext_call_wall_above",
+                category: "极端",
+                stance: "bear",
+                analogy: "头顶全是卖单墙——往上假突破更贵",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "临近到期往痛点靠",
+              "临近周五 / 月末，{品种}往 Max Pain 靠：这是钉牌，不是趋势转弯。",
+              {
+                id: "common_drift_to_pain",
+                category: "常见",
+                analogy: "到期前价格往痛点滑——像被磁铁吸，不是换方向",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "到期前波动缩小",
+              "到期前 24–48h 波动变小、OI 不再加：庄家在对冲，不是没人看。",
+              {
+                id: "common_pre_expiry_quiet",
+                category: "常见",
+                analogy: "市场在调仓对冲，不是没人玩",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "到期后还波动",
+              "到期日过了，墙拆掉，波动重新变大：这是常规「到期后还波动」。",
+              {
+                id: "common_post_expiry_vol",
+                category: "常见",
+                stance: "mixed",
+                analogy: "墙拆了，被压住的波动常还回来",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "痛点跟着价格挪",
+              "Max Pain 每天跟着价格挪：痛点是结果不是锚，别把移动的点当支撑。",
+              {
+                id: "common_pain_moves",
+                category: "常见",
+                analogy: "痛点跟着走——是结果不是预言",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "近月大远月空",
+              "只有近月大、远月空：影响的是本周，改不了月线结构。",
+              {
+                id: "common_near_month_only",
+                category: "常见",
+                analogy: "本周的墙，改不了月线的图",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Put/Call 升价不跌",
+              "Put/Call 比升高但价格不跌：对冲盘在买保护，不等于现货要砸。",
+              {
+                id: "common_pc_ratio_up",
+                category: "常见",
+                stance: "mixed",
+                analogy: "保险买多了，不等于马上出事故",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "到期日量大价不动",
+              "到期当天成交很大、价格走不动：墙内换手，先当区间。",
+              {
+                id: "common_high_vol_flat",
+                category: "常见",
+                analogy: "成交热闹、价不走——墙里换手",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "周度到期量一般",
+              "{品种}周度到期量一般，日度 Max Pain 参考价值有限。",
+              {
+                id: "common_weekly_light",
+                category: "常见",
+                analogy: "墙不够厚，日度痛点别太当真",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "周度钉一下",
+              "周度到期更常看到「收盘附近钉一下」，月度到期才值得写成事件。",
+              {
+                id: "likely_weekly_pin",
+                category: "大概率",
+                analogy: "周度是小钉，月度才是大事件",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "痛点附近假突破多",
+              "现价在 Max Pain 附近震荡，突破假的往往比真的多。",
+              {
+                id: "likely_fake_break",
+                category: "大概率",
+                stance: "mixed",
+                analogy: "在痛点附近，假突破比真突破常见",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "上探墙再回来",
+              "墙在上方、费率不极端：先上探墙再回来，比直接穿过更常见。",
+              {
+                id: "likely_probe_wall",
+                category: "大概率",
+                analogy: "先碰墙再弹回，比一口气穿过去更常见",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "到期后走被压一侧",
+              "到期后 1–2 根，方向常跟到期前被压制的那一侧走。",
+              {
+                id: "likely_post_expiry_release",
+                category: "大概率",
+                stance: "mixed",
+                analogy: "墙撤了，被压住的那边常先走",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "痛点连挪三日",
+              "Max Pain 与现货连续 3 日同向挪动，才像趋势在改痛点；一天挪不算。",
+              {
+                id: "likely_pain_trend_3d",
+                category: "大概率",
+                stance: "bull",
+                analogy: "痛点连挪三天才算趋势在改墙",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "数据日大于到期日",
+              "数据日 > 到期日：同一天有非农/CPI，先写宏观，期权只当过滤器。",
+              {
+                id: "likely_macro_over_expiry",
+                category: "大概率",
+                analogy: "宏观数据日，期权墙是配角",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Call 近 Put 远",
+              "Call 墙近、Put 墙远：下跌空间叙事强，但更常见的是先磨墙再选择。",
+              {
+                id: "likely_call_near_put_far",
+                category: "大概率",
+                analogy: "头顶墙近、脚下墙远——先磨再选边",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "清算后新区间",
+              "到期清算完、期权 OI 下台阶，现货更像进入新区间，不是立刻反转。",
+              {
+                id: "likely_post_oi_step",
+                category: "大概率",
+                analogy: "墙卸完进新区间，不是立刻掉头",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Put 墙被扫费率转暖",
+              "Put 墙在下方不远被扫过、费率转暖：空头保护失效，更像逼空结构。",
+              {
+                id: "bull_put_swept",
+                category: "看涨",
+                stance: "bull",
+                analogy: "下方保护被扫、费率回暖——空在退",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "痛点上移价守住",
+              "Max Pain 上移、现货守在痛点之上：墙在跟着多头走，不是在压。",
+              {
+                id: "bull_pain_up_hold",
+                category: "看涨",
+                stance: "bull",
+                analogy: "墙跟着价上移——多头在抬天花板",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Call 未破 OI 降",
+              "到期后 Call 没被打穿、OI 下降：多头不用再付昂贵保护，波动可向上释放。",
+              {
+                id: "bull_call_hold_oi_down",
+                category: "看涨",
+                stance: "bull",
+                analogy: "头顶墙没破、保护卸了——向上波动可释放",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Put 作废结构不破",
+              "大额 Put 到期作废，现货没破结构低点：空头弹药过期。",
+              {
+                id: "bull_put_expire",
+                category: "看涨",
+                stance: "bull",
+                analogy: "下方保险过期、底还在——空弹药没了",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "墙下横 ETF 进",
+              "墙在上、现货横在墙下但 ETF 在进：现货在垫，到期后更像上试。",
+              {
+                id: "bull_etf_under_wall",
+                category: "看涨",
+                stance: "bull",
+                analogy: "现货在墙下接货——到期后更像上试",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "更高低点等到期过",
+              "{品种}更高低点已出，缺的只是本周到期不再把价格钉回去。",
+              {
+                id: "bull_higher_low_expiry",
+                category: "看涨",
+                stance: "bull",
+                analogy: "地基已抬，就等本周墙不再钉回去",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "坏情况失效",
+              "坏情况失效：痛点上移且收盘站上原 Call 墙。",
+              {
+                id: "bull_bad_invalidate",
+                category: "看涨",
+                stance: "bull",
+                analogy: "痛点上移且站上旧墙——空要小心",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Call 墙在顶费率烫",
+              "Call 墙就在头顶、费率已烫：到期更像盖帽，不像突破。",
+              {
+                id: "bear_call_wall_hot",
+                category: "看跌",
+                stance: "bear",
+                analogy: "头顶墙 + 费率烫——到期像盖帽不是突破",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "痛点下移价跌破",
+              "Max Pain 下移、现货跌破痛点：墙在跟着空头走。",
+              {
+                id: "bear_pain_down_break",
+                category: "看跌",
+                stance: "bear",
+                analogy: "墙跟着价下移——空头在抬地板往下",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Call 作废丢平台",
+              "大额 Call 作废 + 现货丢掉平台：多头保护过期，下跌才开始计费。",
+              {
+                id: "bear_call_expire_platform",
+                category: "看跌",
+                stance: "bear",
+                analogy: "头顶保护过期、平台丢了——跌才开始计费",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "拉墙外持仓减",
+              "到期前硬拉到墙外、持仓却在减：更像诱多，等墙把价格吸回去。",
+              {
+                id: "bear_fake_break_out",
+                category: "看跌",
+                stance: "bear",
+                analogy: "硬拉出墙、仓在减——像诱多，等吸回",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "Put/Call 价一起差",
+              "Put/Call 比和价格一起变差：对冲盘在加空，不是普通钉牌。",
+              {
+                id: "bear_pc_price_worse",
+                category: "看跌",
+                stance: "bear",
+                analogy: "保护盘在加空——不是普通到期钉牌",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "好情况失效",
+              "好情况失效：收盘回到 Max Pain 下方，且次日墙没有上移。",
+              {
+                id: "bear_good_invalidate",
+                category: "看跌",
+                stance: "bear",
+                analogy: "跌回痛点下、墙没上移——好叙事失效",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "月度到期叠拥挤",
+              "{品种}月度到期叠多头拥挤：先打 OI，叙事后说。",
+              {
+                id: "bear_monthly_crowd",
+                category: "看跌",
+                stance: "bear",
+                analogy: "大到期 + 多头挤——先卸杠杆再讲故事",
+              }
+            ),
+            tpl(
+              "structure.options",
+              "墙拆后向下补波动",
+              "墙拆掉后第一波是向下补波动，而不是接着原趋势。",
+              {
+                id: "bear_post_wall_down_vol",
+                category: "看跌",
+                stance: "bear",
+                analogy: "墙拆后第一波常向下还波动，不是顺原趋势",
+              }
             ),
           ],
         }),
@@ -963,9 +2188,408 @@
           templates: [
             tpl(
               "structure.liquidity",
-              "先看深度再解释插针",
-              "大针很多是流动性空洞，不是叙事反转。深度变薄时，同样消息能砸更深。",
-              { stance: "mixed" }
+              "深度掉到近期低位",
+              "极端{品种}盘口深度掉到近期低位，一根市价就能走出「趋势」。",
+              {
+                id: "ext_depth_low",
+                category: "极端",
+                stance: "mixed",
+                analogy: "池子太浅，一块石头就能激起大浪",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "一档价差拉宽",
+              "{品种}买卖一档价差拉宽：现在交易的是冲击成本，不是方向。",
+              {
+                id: "ext_spread_wide",
+                category: "极端",
+                analogy: "买卖价差在喊贵——先算滑点，再谈多空",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "下方空上方在",
+              "向下深度空了、向上还在：跌起来像瀑布，涨起来像爬墙。",
+              {
+                id: "ext_asymmetric_depth",
+                category: "极端",
+                stance: "bear",
+                analogy: "下面没垫、上面有墙——不对称的盘口",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "清算墙近盘口薄",
+              "清算墙近 + 盘口变薄：cascade 的燃料和导火索到齐了。",
+              {
+                id: "ext_liq_wall_thin",
+                category: "极端",
+                stance: "bear",
+                analogy: "炸药和引线都到位——只差一根针",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "稳定币深度一起掉",
+              "{品种}稳定币余额掉、现货深度一起掉：能接盘的钱也在撤。",
+              {
+                id: "ext_stable_depth_out",
+                category: "极端",
+                stance: "bear",
+                analogy: "弹药和挂单一起撤——接盘的人在走",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "周末深度减半",
+              "周末 / 假期深度只剩工作日的一半：波动放大先当流动性事件。",
+              {
+                id: "ext_weekend_thin",
+                category: "极端",
+                analogy: "周末池子浅——波动先当流动性，不当方向",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "吃穿一档不回补",
+              "{品种}大单把一档吃穿，回补却不回来：这是抽流动性，不是普通成交。",
+              {
+                id: "ext_eat_no_refill",
+                category: "极端",
+                stance: "bear",
+                analogy: "吃穿一档却不补——有人在抽走流动性",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "亚盘薄美盘厚",
+              "亚盘薄、美盘厚：{品种}同一根突破，时区不同含义不同。",
+              {
+                id: "common_asia_us_depth",
+                category: "常见",
+                analogy: "同一根 K，亚盘突破和美盘突破不是一回事",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "价动大盘口没补",
+              "价动很大、盘口没补：先标冲击，不标趋势。",
+              {
+                id: "common_move_no_refill",
+                category: "常见",
+                analogy: "价走了、单没补——先标冲击成本",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "深度回暖价横",
+              "深度回暖、价格横着：流动性在修复，方向还没投票。",
+              {
+                id: "common_depth_recover_flat",
+                category: "常见",
+                stance: "bull",
+                analogy: "池子在补水，球还没滚方向",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "点差正常十档降",
+              "点差正常、但十档总量在降：表面能成交，底下已经变薄。",
+              {
+                id: "common_spread_ok_depth_down",
+                category: "常见",
+                stance: "bear",
+                analogy: "门面还开着，仓库已经在搬空",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "与 BTC 一起变薄",
+              "{品种}和 BTC 深度一起变薄：是板块风险偏好，不是山寨单独故事。",
+              {
+                id: "common_btc_alts_thin",
+                category: "常见",
+                analogy: "大家一起变薄——是板块在退，不是单币",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "长影成交一般",
+              "上影 / 下影很长、成交一般：薄行情扫完就走，不是充分换手。",
+              {
+                id: "common_long_wick_thin",
+                category: "常见",
+                analogy: "长影线 + 薄成交——扫完流动性就回",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "费率不动深度先掉",
+              "资金费率不动、深度先掉：杠杆没挤，流动性先走了。",
+              {
+                id: "common_depth_before_funding",
+                category: "常见",
+                stance: "bear",
+                analogy: "杠杆还在，做市先撤——流动性领先",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "ETF 进盘口更薄",
+              "ETF 有流入、现货盘口却更薄：机构通道在买，公开订单簿没变厚。",
+              {
+                id: "common_etf_in_book_thin",
+                category: "常见",
+                analogy: "机构走暗道买，公开盘口没厚——分层成交",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "薄市假突破多",
+              "深度掉下去之后，假突破比真突破更常见。",
+              {
+                id: "likely_fake_break_thin",
+                category: "大概率",
+                analogy: "池浅时假突破比真突破常见",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "修复先于第二段",
+              "流动性修复通常先于趋势第二段，先看到点差收回、再谈方向。",
+              {
+                id: "likely_repair_before_trend",
+                category: "大概率",
+                stance: "bull",
+                analogy: "先修池子，再谈第二浪",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "薄市长针是扫流",
+              "薄市场里放量长针，事后更常被证明是扫流动性，不是起点。",
+              {
+                id: "likely_wick_sweep",
+                category: "大概率",
+                analogy: "薄市长针多半是扫单，不是新趋势起点",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "价深同向变好",
+              "深度与价格同向变好（上涨且买盘增厚）延续概率大于「只涨不厚」。",
+              {
+                id: "likely_price_depth_up",
+                category: "大概率",
+                stance: "bull",
+                analogy: "涨且买盘厚——比只涨不厚更可持续",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "美盘前变薄",
+              "美盘前一小时变薄，开盘后前 30 分钟方向噪声最大。",
+              {
+                id: "likely_us_open_noise",
+                category: "大概率",
+                analogy: "开盘前池浅——前半小时噪声最大",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "稳定币深度双降",
+              "稳定币存量降、深度降，反弹更像反抽；两者都回升才像风险偏好回来。",
+              {
+                id: "likely_stable_depth_pair",
+                category: "大概率",
+                analogy: "弹药和盘口一起回，才算风险偏好回来",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "墙近深度在 vs 没了",
+              "墙很近但深度还在，更常先磨；墙近且深度没了，更常一穿就滑。",
+              {
+                id: "likely_wall_depth",
+                category: "大概率",
+                analogy: "有墙有深度先磨，有墙没深度一穿就滑",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "短看深度长看结构",
+              "{1h}看深度，{日线}看结构：只在薄时谈波动，厚了才谈趋势。",
+              {
+                id: "likely_horizon_depth",
+                category: "大概率",
+                analogy: "薄时谈波动，厚了才谈趋势——别混时间尺",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "砸时买盘增厚",
+              "砸下去时买盘增厚、点差没爆：有人在接，不像无人区下跌。",
+              {
+                id: "bull_bid_thick_on_drop",
+                category: "看涨",
+                stance: "bull",
+                analogy: "跌时买盘厚、价差稳——有人在接",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "回踩深度回补",
+              "回踩缩量、深度回补、费率不烫：流动性在恢复，回调更像观察。",
+              {
+                id: "bull_pullback_depth_recover",
+                category: "看涨",
+                stance: "bull",
+                analogy: "缩量回踩 + 深度回来——回调像观察点",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "下方十档更厚",
+              "下方十档明显厚于上方：同样的卖压更难打穿。",
+              {
+                id: "bull_bid_ladder_thick",
+                category: "看涨",
+                stance: "bull",
+                analogy: "下面梯子厚——同样卖压更难穿",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "扫过深度未再坏",
+              "清算扫过、深度没有再坏：恐慌单出完了，薄的那一页翻过去。",
+              {
+                id: "bull_post_sweep_depth_ok",
+                category: "看涨",
+                stance: "bull",
+                analogy: "扫完深度还在——恐慌单出尽",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "稳定币买盘增厚",
+              "稳定币回升 + 现货买盘增厚：能买的钱和愿意挂单的人都在。",
+              {
+                id: "bull_stable_bid_up",
+                category: "看涨",
+                stance: "bull",
+                analogy: "弹药和挂单都在增——两侧都更响",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "更高低点等盘口厚",
+              "{品种}更高低点已出，缺的只是盘口不再越涨越薄。",
+              {
+                id: "bull_higher_low_depth",
+                category: "看涨",
+                stance: "bull",
+                analogy: "底抬了，就等涨时盘口别再变薄",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "坏情况失效",
+              "坏情况失效：点差收回、向下深度补回，价格守住扫穿区。",
+              {
+                id: "bull_bad_invalidate",
+                category: "看涨",
+                stance: "bull",
+                analogy: "价差收回、深度补回——薄的那页翻过去了",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "拉升卖盘增厚",
+              "拉起来时卖盘增厚、买盘撤单：上涨在消耗仅剩的买盘。",
+              {
+                id: "bear_ask_up_bid_out",
+                category: "看跌",
+                stance: "bear",
+                analogy: "涨时卖盘加、买盘撤——在消耗最后买盘",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "价新高深度新低",
+              "价新高、深度新低：这是薄行情推升，不是趋势变厚。",
+              {
+                id: "bear_high_price_thin",
+                category: "看跌",
+                stance: "bear",
+                analogy: "价创新高、池子在变浅——薄推不是厚趋势",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "下方深度先没",
+              "向下深度先消失，费率还在偏多：跌起来没有垫，涨是拥挤。",
+              {
+                id: "bear_bid_gone_long_crowd",
+                category: "看跌",
+                stance: "bear",
+                analogy: "下面没垫、费率还偏多——跌无缓冲涨是挤",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "砸穿不回补",
+              "大单砸穿后盘口不回补：流动性被抽走，反弹先当测试。",
+              {
+                id: "bear_break_no_refill",
+                category: "看跌",
+                stance: "bear",
+                analogy: "砸穿却不补单——反弹先当测试",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "周末薄遇坏消息",
+              "周末薄 + 坏消息：缺口和滑点比方向更先出现。",
+              {
+                id: "bear_weekend_bad_news",
+                category: "看跌",
+                stance: "bear",
+                analogy: "周末池浅遇利空——缺口滑点先到",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "好情况失效",
+              "好情况失效：上涨中买盘变薄、点差拉宽。",
+              {
+                id: "bear_good_invalidate",
+                category: "看跌",
+                stance: "bear",
+                analogy: "涨时买盘薄、价差宽——好叙事在失效",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "脱钩向下深度更差",
+              "{品种}和 BTC 脱钩向下，自身深度更差：补跌的空间在流动性里。",
+              {
+                id: "bear_decouple_thin",
+                category: "看跌",
+                stance: "bear",
+                analogy: "脱钩向下且更薄——补跌空间在滑点里",
+              }
+            ),
+            tpl(
+              "structure.liquidity",
+              "三层买盘一起撤",
+              "稳定币降、ETF 出、盘口薄：三层买盘一起撤。",
+              {
+                id: "bear_triple_bid_out",
+                category: "看跌",
+                stance: "bear",
+                analogy: "稳定币、ETF、盘口三层一起撤——买盘共振空",
+              }
             ),
           ],
         }),
@@ -1749,12 +3373,78 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.structure",
-              "先定结构，再谈指标",
-              "结构反了，RSI 金叉也不写多。先问涨势回踩还是跌势反弹，再给失效位。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.structure", "日线结构断了", "{品种}日线结构断了，小时线再漂亮也先降级成反抽。", {
+              id: "ext_daily_broken",
+              category: "极端",
+              stance: "bear",
+              analogy: "大周期断线，小周期再美也只是反抽",
+            }),
+            tpl("ta.structure", "高低点对倒", "高低点在同一段里对倒改写：现在没有趋势，只有争夺。", {
+              id: "ext_hl_swap",
+              category: "极端",
+              analogy: "高低点乱套——没有趋势，只有争夺",
+            }),
+            tpl("ta.structure", "突破收回结构内", "{品种}突破后又收回结构内：这是失败，不是「回踩确认」。", {
+              id: "ext_failed_break",
+              category: "极端",
+              stance: "bear",
+              analogy: "突破收回去——失败，不是回踩确认",
+            }),
+            tpl("ta.structure", "更高低点还在", "更高低点还在，回踩不破前低：趋势还在，回调当观察。", {
+              id: "common_hl_hold",
+              category: "常见",
+              stance: "bull",
+              analogy: "前低还在——趋势还在，回调当观察",
+            }),
+            tpl("ta.structure", "4h 与日线相反", "4h 和日线方向相反：先标分歧，不合成一句「变盘」。", {
+              id: "common_tf_conflict",
+              category: "常见",
+              analogy: "大小周期打架——标分歧，别写变盘",
+            }),
+            tpl("ta.structure", "结构成量能不足", "结构成型、量能不足：位置偏多/空，还不是进场。", {
+              id: "common_structure_no_vol",
+              category: "常见",
+              analogy: "形有了、量没有——位置对，时机未到",
+            }),
+            tpl("ta.structure", "小服从大周期", "小周期抢方向，大周期没改，结果更常服从大周期。", {
+              id: "likely_small_obey_large",
+              category: "大概率",
+              analogy: "小周期闹，大周期没改——常服从大周期",
+            }),
+            tpl("ta.structure", "收盘站上才升级", "收盘站上前高才升级趋势；影线假突破更常见。", {
+              id: "likely_close_confirm",
+              category: "大概率",
+              analogy: "收盘才算——影线突破假的多",
+            }),
+            tpl("ta.structure", "两周期同向才改口", "两个周期重新同向，才允许改口。", {
+              id: "likely_tf_align",
+              category: "大概率",
+              analogy: "两周期同向——才允许改口",
+            }),
+            tpl("ta.structure", "趋势健康结构", "高点上移、回踩不破前低、放量突破后收回踩稳。", {
+              id: "bull_trend_intact",
+              category: "看涨",
+              stance: "bull",
+              analogy: "高低点上移、回踩稳——趋势健康",
+            }),
+            tpl("ta.structure", "坏情况失效", "坏情况失效：收盘站上前高且前低还在。", {
+              id: "bull_bad_invalidate",
+              category: "看涨",
+              stance: "bull",
+              analogy: "站上高、低还在——空要小心",
+            }),
+            tpl("ta.structure", "跌势结构", "低点下移、反弹不过前高、假突破后加速。", {
+              id: "bear_downtrend",
+              category: "看跌",
+              stance: "bear",
+              analogy: "低移、高不过——跌势结构",
+            }),
+            tpl("ta.structure", "好情况失效", "好情况失效：收盘破前低且无法收回。", {
+              id: "bear_good_invalidate",
+              category: "看跌",
+              stance: "bear",
+              analogy: "破低收不回——好叙事失效",
+            }),
           ],
         }),
         topic({
@@ -1818,12 +3508,73 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.funding_extreme",
-              "极端费率先标拥挤",
-              "极正不是看涨，是多头拥挤。和价格、OI 一起看，到期周费率会失真。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.funding_extreme", "极值 OI 还在堆", "{品种}费率到极值，OI 还在堆：交易的是踩踏，不是叙事。", {
+              id: "ext_funding_oi_stack",
+              category: "极端",
+              analogy: "费率极值 + OI 堆——交易踩踏不是故事",
+            }),
+            tpl("ta.funding_extreme", "极正价走平", "极正费率 + 价格走平：多头拥挤，差一根向下清算。", {
+              id: "ext_pos_flat",
+              category: "极端",
+              stance: "bear",
+              analogy: "极正还走平——多头挤，差一根针",
+            }),
+            tpl("ta.funding_extreme", "极负现货不跌", "极负费率 + 现货不跌：空头拥挤，逼空和踩踏只隔一根。", {
+              id: "ext_neg_spot_hold",
+              category: "极端",
+              stance: "mixed",
+              analogy: "极负价不跌——逼空和踩踏只隔一根",
+            }),
+            tpl("ta.funding_extreme", "费率回落价不崩", "费率从极端往回走、价格没崩：拥挤在缓解。", {
+              id: "common_funding_ease",
+              category: "常见",
+              stance: "bull",
+              analogy: "费率回落价不崩——拥挤在缓解",
+            }),
+            tpl("ta.funding_extreme", "结算前后剧本", "结算前缩量、结算后放量：常规剧本，不当反转。", {
+              id: "common_settle_rhythm",
+              category: "常见",
+              analogy: "结算前后量换档——常规剧本",
+            }),
+            tpl("ta.funding_extreme", "费率领先节奏", "费率领先价格 1 拍常见，领先很久不兑现是噪声。", {
+              id: "common_funding_lead",
+              category: "常见",
+              analogy: "领先一拍正常，领先三拍是噪声",
+            }),
+            tpl("ta.funding_extreme", "极端后常见回归", "极端后 {8h/24h} 更常见回归，而不是继续加速。", {
+              id: "likely_mean_revert",
+              category: "大概率",
+              analogy: "极端后更常回归，不是继续加速",
+            }),
+            tpl("ta.funding_extreme", "拥挤与波动反向", "拥挤方向与短线相反，下一根更常打拥挤反面。", {
+              id: "likely_crowd_vs_move",
+              category: "大概率",
+              analogy: "拥挤与短线反向——下一根常打拥挤面",
+            }),
+            tpl("ta.funding_extreme", "空拥挤结构在", "空费率拥挤 + 结构低点还在。", {
+              id: "bull_short_crowd_low",
+              category: "看涨",
+              stance: "bull",
+              analogy: "空拥挤 + 低点在——挤空结构",
+            }),
+            tpl("ta.funding_extreme", "费率回落守住", "费率回落且收盘守住拥挤区上沿。", {
+              id: "bull_funding_ease_hold",
+              category: "看涨",
+              stance: "bull",
+              analogy: "费率回落还守住——拥挤警报解除",
+            }),
+            tpl("ta.funding_extreme", "多费率烫手", "多费率烫手 + 收盘走平在高位。", {
+              id: "bear_long_hot_flat",
+              category: "看跌",
+              stance: "bear",
+              analogy: "费率烫 + 高位走平——挤多前夜",
+            }),
+            tpl("ta.funding_extreme", "费率新高或回吐", "费率继续新高或价格回吐平台。", {
+              id: "bear_funding_new_high",
+              category: "看跌",
+              stance: "bear",
+              analogy: "费率新高或价回吐——好情况失效",
+            }),
           ],
         }),
         topic({
@@ -1887,12 +3638,74 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.liquidation",
-              "先分清洗盘还是连环",
-              "大针常是清算，不是叙事反转。先问爆的是多还是空，等费率归零再谈新方向。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.liquidation", "墙近盘口薄", "{品种}下方清算墙近、盘口变薄：cascade 条件到齐。", {
+              id: "ext_wall_thin",
+              category: "极端",
+              stance: "bear",
+              analogy: "墙近 + 盘口薄——cascade 条件齐",
+            }),
+            tpl("ta.liquidation", "扫墙带出第二层", "一次扫墙带出第二层墙：这是连锁，不是单针。", {
+              id: "ext_second_wall",
+              category: "极端",
+              stance: "bear",
+              analogy: "一层墙扫出二层——连锁不是单针",
+            }),
+            tpl("ta.liquidation", "高费率 OI 墙近", "高费率 + 高 OI + 墙近：离瀑布只差方向。", {
+              id: "ext_fuel_ready",
+              category: "极端",
+              stance: "bear",
+              analogy: "燃料满、墙近——差一个方向",
+            }),
+            tpl("ta.liquidation", "扫过立刻收回", "墙被扫过、价格立刻收回：更像猎杀流动性。", {
+              id: "common_sweep_reclaim",
+              category: "常见",
+              stance: "bull",
+              analogy: "扫完立刻收回——猎杀流动性",
+            }),
+            tpl("ta.liquidation", "清算大结构未断", "清算数字很大、结构没断：先当事件，不改趋势口径。", {
+              id: "common_big_liq_event",
+              category: "常见",
+              analogy: "爆得响但结构在——先当事件",
+            }),
+            tpl("ta.liquidation", "只扫一层就停", "只扫掉一层就停：燃料用完，不等于反转确认。", {
+              id: "common_one_layer",
+              category: "常见",
+              analogy: "只扫一层——燃料用完，不是反转证",
+            }),
+            tpl("ta.liquidation", "墙近深度在 vs 薄", "墙近但深度还在，更常先磨；墙近且薄，更常一穿就滑。", {
+              id: "likely_wall_depth",
+              category: "大概率",
+              analogy: "有墙有深度先磨，没深度一穿就滑",
+            }),
+            tpl("ta.liquidation", "cascade 后新区间", "cascade 后 OI 下台阶，更像新区间，不是立刻反转。", {
+              id: "likely_post_cascade_range",
+              category: "大概率",
+              analogy: "OI 下台阶——新区间不是立刻反转",
+            }),
+            tpl("ta.liquidation", "低位扫完结构在", "低位多头清算扫完，结构低点还在，费率从极负收窄。", {
+              id: "bull_low_sweep_hold",
+              category: "看涨",
+              stance: "bull",
+              analogy: "扫完低多、底还在——空弹药减",
+            }),
+            tpl("ta.liquidation", "下方墙被吃买盘厚", "墙在下被吃掉后买盘增厚。", {
+              id: "bull_wall_eaten_bid",
+              category: "看涨",
+              stance: "bull",
+              analogy: "下方墙被吃、买盘补——有人在接",
+            }),
+            tpl("ta.liquidation", "高位墙穿费率正", "高位多头墙被打穿，费率仍正，OI 不降。", {
+              id: "bear_high_wall_break",
+              category: "看跌",
+              stance: "bear",
+              analogy: "高墙穿、费率还正——挤多开始",
+            }),
+            tpl("ta.liquidation", "第二层墙更近", "第一层墙破了，第二层更近：下跌刚开始计费。", {
+              id: "bear_second_wall_closer",
+              category: "看跌",
+              stance: "bear",
+              analogy: "一层破、二层近——下跌才计费",
+            }),
           ],
         }),
         topic({
@@ -1956,12 +3769,78 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.sr",
-              "少画线，给失效",
-              "线要少，标 2–3 条关键位。支撑是被测出来的，给点位必须给失效。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.sr", "第三次测试", "{品种}关键位第三次测试仍不破：要么即将失效，要么要变成反转点。", {
+              id: "ext_third_test",
+              category: "极端",
+              stance: "mixed",
+              analogy: "第三次测试——要么失效要么反转",
+            }),
+            tpl("ta.sr", "支撑变阻力", "支撑变阻力的第一根收盘：角色已经换，别再用旧名字。", {
+              id: "ext_role_flip",
+              category: "极端",
+              stance: "bear",
+              analogy: "第一根收盘换角色——别叫旧名",
+            }),
+            tpl("ta.sr", "多周期位叠加", "多条周期的位叠在一起：这里才配写成「关键」。", {
+              id: "ext_multi_tf_level",
+              category: "极端",
+              analogy: "多周期位叠在一起——才配叫关键",
+            }),
+            tpl("ta.sr", "前高变支撑", "回踩到前高变支撑：趋势健康的常规动作。", {
+              id: "common_res_to_sup",
+              category: "常见",
+              stance: "bull",
+              analogy: "前高变支撑——趋势常规动作",
+            }),
+            tpl("ta.sr", "阻力区长影", "阻力区上下影很多、实体很小：在消耗，不是已经突破。", {
+              id: "common_res_wicks",
+              category: "常见",
+              analogy: "长影小实体——在消耗不是突破",
+            }),
+            tpl("ta.sr", "位对量没有", "位对了但量没有：观察，不升级。", {
+              id: "common_level_no_vol",
+              category: "常见",
+              analogy: "位对了量没有——观察不升级",
+            }),
+            tpl("ta.sr", "收盘才算", "收盘站上/跌破才算，盘中刺穿更常失败。", {
+              id: "likely_close_matters",
+              category: "大概率",
+              analogy: "收盘才算——刺穿常失败",
+            }),
+            tpl("ta.sr", "第二次更易过", "同一位第二次测试比第一次更容易过。", {
+              id: "likely_second_test",
+              category: "大概率",
+              analogy: "第二次测试——比第一次更易过",
+            }),
+            tpl("ta.sr", "日线管 4h", "日线位管 4h，4h 位管不了日线。", {
+              id: "likely_daily_over_4h",
+              category: "大概率",
+              analogy: "大周期位管小周期——反过来不行",
+            }),
+            tpl("ta.sr", "站上阻力回踩稳", "收盘站上阻力，回踩不破该位。", {
+              id: "bull_break_hold",
+              category: "看涨",
+              stance: "bull",
+              analogy: "站上阻力、回踩稳——位有效",
+            }),
+            tpl("ta.sr", "支撑三次守住", "支撑三次守住且低点抬高。", {
+              id: "bull_sup_three_hold",
+              category: "看涨",
+              stance: "bull",
+              analogy: "三次守住、低点抬——支撑有效",
+            }),
+            tpl("ta.sr", "阻力三次盖帽", "阻力三次盖帽且高点降低。", {
+              id: "bear_res_three_cap",
+              category: "看跌",
+              stance: "bear",
+              analogy: "三次盖帽、高点降——阻力有效",
+            }),
+            tpl("ta.sr", "支撑跌破回失", "支撑收盘跌破，反弹不过回失位。", {
+              id: "bear_sup_break",
+              category: "看跌",
+              stance: "bear",
+              analogy: "支撑破、反抽不过——变阻力",
+            }),
           ],
         }),
         topic({
@@ -2026,12 +3905,79 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.volume",
-              "无量突破不算突破",
-              "无量新高要打折。CVD 与价格背离要等结构确认，单独不交易。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.volume", "天量小实体", "{品种}天量小实体：这里在换手，先当战场。", {
+              id: "ext_huge_vol_doji",
+              category: "极端",
+              analogy: "天量小实体——战场不是起点",
+            }),
+            tpl("ta.volume", "无量长针", "无量长针：流动性事件，不当起点。", {
+              id: "ext_low_vol_wick",
+              category: "极端",
+              analogy: "无量长针——流动性事件",
+            }),
+            tpl("ta.volume", "主动买卖价停", "主动买/卖一边倒，价格却停：对手盘在吸收。", {
+              id: "ext_absorption",
+              category: "极端",
+              stance: "mixed",
+              analogy: "一边倒但价不动——有人在吸收",
+            }),
+            tpl("ta.volume", "小量大阳阴", "小量大阳/大阴：这段阻力小，是推进不是高潮。", {
+              id: "common_small_vol_move",
+              category: "常见",
+              stance: "bull",
+              analogy: "小量大阳——阻力小，是推进",
+            }),
+            tpl("ta.volume", "价涨量缩", "价涨量缩：动能在减，先降预期。", {
+              id: "common_price_up_vol_down",
+              category: "常见",
+              stance: "bear",
+              analogy: "价涨量缩——动能减，降预期",
+            }),
+            tpl("ta.volume", "量平价横", "量在、价横：换手，不是选边完成。", {
+              id: "common_vol_flat_price",
+              category: "常见",
+              analogy: "有量无价——换手不是选边",
+            }),
+            tpl("ta.volume", "放量突破缩量回踩", "放量突破后缩量回踩，延续概率大于继续放量狂拉。", {
+              id: "likely_break_pullback",
+              category: "大概率",
+              stance: "bull",
+              analogy: "放量突破、缩量回踩——延续更常见",
+            }),
+            tpl("ta.volume", "背离等结构", "量价背离要等结构确认，单独不够反转。", {
+              id: "likely_div_need_structure",
+              category: "大概率",
+              analogy: "量价背离——要等结构，不单反",
+            }),
+            tpl("ta.volume", "美盘量更真", "美盘放量比亚盘放量更像真换手。", {
+              id: "likely_us_session_vol",
+              category: "大概率",
+              analogy: "美盘放量——比亚盘更像真换手",
+            }),
+            tpl("ta.volume", "跌放后缩量更高低", "下跌放量后出现缩量更高低点。", {
+              id: "bull_vol_pullback_hl",
+              category: "看涨",
+              stance: "bull",
+              analogy: "跌放后缩量更高低——有人在接",
+            }),
+            tpl("ta.volume", "突破放回踩缩", "突破放量、回踩缩量、深度还在。", {
+              id: "bull_break_retest",
+              category: "看涨",
+              stance: "bull",
+              analogy: "突破放、回踩缩——健康结构",
+            }),
+            tpl("ta.volume", "上涨放量停滞", "上涨放量停滞、上影增多。", {
+              id: "bear_vol_stall",
+              category: "看跌",
+              stance: "bear",
+              analogy: "涨时量滞、上影多——供给在出",
+            }),
+            tpl("ta.volume", "下跌放量低点移", "下跌放量且低点下移：这是推进，不是洗盘默认项。", {
+              id: "bear_down_vol_push",
+              category: "看跌",
+              stance: "bear",
+              analogy: "跌放量、低点移——是推进不是洗盘",
+            }),
           ],
         }),
         topic({
@@ -2096,12 +4042,77 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.candlestick",
-              "形态必须长在关键位上",
-              "【当根/次日：填日期】射击之星、吞没、锤子只在关键位+放量有用。失效：次日收过星线高点。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.candlestick", "关键位吞没长针", "{品种}关键位上的吞没 / 长针：事件级，仍要等下一根确认。", {
+              id: "ext_key_pattern",
+              category: "极端",
+              stance: "mixed",
+              analogy: "关键位大形态——事件级，等确认",
+            }),
+            tpl("ta.candlestick", "连续上下影", "连续上下影：波动在，方向不在。", {
+              id: "ext_alternating_wicks",
+              category: "极端",
+              analogy: "上下影连出——有波动无方向",
+            }),
+            tpl("ta.candlestick", "突破收成十字", "突破 K 收成十字：形态自己否定突破。", {
+              id: "ext_doji_break",
+              category: "极端",
+              stance: "bear",
+              analogy: "突破变十字——形态否定突破",
+            }),
+            tpl("ta.candlestick", "趋势中锤子", "趋势中的锤子 / 倒锤：先当暂停，不当反转。", {
+              id: "common_hammer_trend",
+              category: "常见",
+              analogy: "趋势里的锤子——暂停不是反转",
+            }),
+            tpl("ta.candlestick", "包线在边缘", "包线出现在区间边缘，比出现在区间中更有用。", {
+              id: "common_engulf_edge",
+              category: "常见",
+              analogy: "包线在边缘——比中间有用",
+            }),
+            tpl("ta.candlestick", "形态有效期", "单根形态的有效期就是后面 1–3 根。", {
+              id: "common_pattern_ttl",
+              category: "常见",
+              analogy: "形态只管后面 1–3 根",
+            }),
+            tpl("ta.candlestick", "无位置近随机", "没有位置的形态，胜率接近随机。", {
+              id: "likely_no_location",
+              category: "大概率",
+              analogy: "没位置的形态——接近随机",
+            }),
+            tpl("ta.candlestick", "确认根同向", "确认根与信号根同向，才升级；反向就作废。", {
+              id: "likely_confirm_bar",
+              category: "大概率",
+              analogy: "确认根同向才升级——反向作废",
+            }),
+            tpl("ta.candlestick", "日线管得更长", "日线形态管得比 15m 形态长，但信号更少。", {
+              id: "likely_daily_longer",
+              category: "大概率",
+              analogy: "日线形态管得长——信号也少",
+            }),
+            tpl("ta.candlestick", "支撑看涨吞没", "支撑上的看涨吞没 + 下一根不破低点。", {
+              id: "bull_bullish_engulf",
+              category: "看涨",
+              stance: "bull",
+              analogy: "支撑吞没 + 不破低——有效",
+            }),
+            tpl("ta.candlestick", "下跌末端长下影", "下跌末端长下影，且 OI / 费率不再恶化。", {
+              id: "bull_long_lower_wick",
+              category: "看涨",
+              stance: "bull",
+              analogy: "末端长下影 + 仓位不恶化——反弹候选",
+            }),
+            tpl("ta.candlestick", "阻力看跌吞没", "阻力上的看跌吞没 + 下一根不破高点。", {
+              id: "bear_bearish_engulf",
+              category: "看跌",
+              stance: "bear",
+              analogy: "阻力吞没 + 不破高——有效",
+            }),
+            tpl("ta.candlestick", "上涨末端长上影", "上涨末端长上影，量在、结构高点降低。", {
+              id: "bear_long_upper_wick",
+              category: "看跌",
+              stance: "bear",
+              analogy: "末端长上影 + 高点降——供给信号",
+            }),
           ],
         }),
         topic({
@@ -2165,12 +4176,77 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.divergence",
-              "背离是预警，破位才是信号",
-              "【确认日：填日期】背离可以持续很久。失效：结构破位或指标重新同向。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.divergence", "多层背离", "{品种}价格新高、动量/OI/费率全面落后：多层背离。", {
+              id: "ext_multi_div",
+              category: "极端",
+              stance: "bear",
+              analogy: "价新高、指标全落后——多层背离",
+            }),
+            tpl("ta.divergence", "背离后假突破", "背离后假突破再回来：这是背离兑现，不是洗盘完毕。", {
+              id: "ext_div_fake_break",
+              category: "极端",
+              stance: "bear",
+              analogy: "背离后假突破回来——背离在兑现",
+            }),
+            tpl("ta.divergence", "日线背离 15m 新高", "日线背离 vs 15m 新高：先写分歧，不写「顶部已定」。", {
+              id: "ext_tf_div_conflict",
+              category: "极端",
+              analogy: "大周期背离、小周期新高——写分歧",
+            }),
+            tpl("ta.divergence", "RSI 背离不够卖", "RSI / MACD 背离在趋势中经常出现，单独不够卖。", {
+              id: "common_rsi_not_enough",
+              category: "常见",
+              analogy: "趋势里 RSI 背离——单独不够卖",
+            }),
+            tpl("ta.divergence", "价 OI 背离更真", "价格与 OI 背离，比价格与 RSI 背离更接近仓位事实。", {
+              id: "common_price_oi_div",
+              category: "常见",
+              analogy: "价 OI 背离——比 RSI 更接近仓位",
+            }),
+            tpl("ta.divergence", "区间里背离", "背离出现在区间里：噪声。", {
+              id: "common_range_div",
+              category: "常见",
+              analogy: "区间里的背离——当噪声",
+            }),
+            tpl("ta.divergence", "背离加破位", "背离 + 结构破位，才像反转；只有背离更像减速。", {
+              id: "likely_div_break",
+              category: "大概率",
+              analogy: "背离 + 破位才像反转——只有背离是减速",
+            }),
+            tpl("ta.divergence", "等更高低确认", "底背离要等更高低点，顶背离要等更低高点。", {
+              id: "likely_wait_structure",
+              category: "大概率",
+              analogy: "底背离等更高低——顶背离等更低高",
+            }),
+            tpl("ta.divergence", "背离领先节奏", "指标背离领先 1 段常见，领先 3 段还不破位就失效。", {
+              id: "likely_div_lead",
+              category: "大概率",
+              analogy: "领先一段正常——三段不破位就失效",
+            }),
+            tpl("ta.divergence", "下跌背离低点抬", "下跌背离 + 低点抬高 + 费率从极负收窄。", {
+              id: "bull_bull_div",
+              category: "看涨",
+              stance: "bull",
+              analogy: "底背离 + 低点抬——反弹候选",
+            }),
+            tpl("ta.divergence", "失效再创新低", "失效：背离还在但价格再创新低。", {
+              id: "bull_div_fail",
+              category: "看涨",
+              stance: "bear",
+              analogy: "背离还在价再新低——失效",
+            }),
+            tpl("ta.divergence", "上涨背离高点降", "上涨背离 + 高点降低 + 费率极正。", {
+              id: "bear_bear_div",
+              category: "看跌",
+              stance: "bear",
+              analogy: "顶背离 + 高点降——减速信号",
+            }),
+            tpl("ta.divergence", "失效再创新高", "失效：背离还在但价格再创新高且 OI 跟上。", {
+              id: "bear_div_fail",
+              category: "看跌",
+              stance: "bull",
+              analogy: "背离还在但价 OI 齐新高——失效",
+            }),
           ],
         }),
         topic({
@@ -2234,12 +4310,79 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.oi",
-              "价和 OI 要一起读",
-              "【当日：填日期】涨+OI增=新开；涨+OI降=回补。失效：OI新高而价格滞涨。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.oi", "OI 新高价平", "{品种}OI 新高、价格走平：对峙加仓，炸药在堆。", {
+              id: "ext_oi_high_flat",
+              category: "极端",
+              stance: "mixed",
+              analogy: "OI 新高价不走——对峙加仓",
+            }),
+            tpl("ta.oi", "急涨急跌 OI 暴降", "急涨急跌里 OI 暴降：这是平仓推动，不是新趋势第一天。", {
+              id: "ext_oi_crash",
+              category: "极端",
+              analogy: "急涨急跌 OI 暴降——平仓推动",
+            }),
+            tpl("ta.oi", "OI 数据缺失", "OI 数据缺失时，不要用持仓叙事硬写。", {
+              id: "ext_oi_missing",
+              category: "极端",
+              analogy: "没 OI 数据——别硬写持仓故事",
+            }),
+            tpl("ta.oi", "价涨 OI 升", "价涨 OI 升：趋势单在加。", {
+              id: "common_up_oi_up",
+              category: "常见",
+              stance: "bull",
+              analogy: "价涨 OI 升——趋势在加",
+            }),
+            tpl("ta.oi", "价涨 OI 降", "价涨 OI 降：空头回补或多头撤。", {
+              id: "common_up_oi_down",
+              category: "常见",
+              analogy: "价涨 OI 降——回补或撤离",
+            }),
+            tpl("ta.oi", "价横 OI 变", "价横 OI 升：两边加仓；价横 OI 降：在离场。", {
+              id: "common_flat_oi",
+              category: "常见",
+              analogy: "价横 OI 升减——加仓或离场",
+            }),
+            tpl("ta.oi", "价 OI 齐升未极端", "价和 OI 一起新高、费率未极端：延续 > 反转。", {
+              id: "likely_trend_continue",
+              category: "大概率",
+              stance: "bull",
+              analogy: "价 OI 齐升费不烫——延续 > 反转",
+            }),
+            tpl("ta.oi", "价新高 OI 不新高", "价新高 OI 不新高：冲高回落 > 第二段主升。", {
+              id: "likely_price_high_oi_not",
+              category: "大概率",
+              stance: "bear",
+              analogy: "价新高 OI 不跟——冲高回落更常见",
+            }),
+            tpl("ta.oi", "清算后 OI 下台阶", "清算后 OI 下台阶：新区间 > 立刻反转。", {
+              id: "likely_post_liq_oi",
+              category: "大概率",
+              analogy: "清算后 OI 下台阶——新区间不是立刻反",
+            }),
+            tpl("ta.oi", "回踩 OI 降不破低", "回踩 OI 降、价格不破前低：清洗。", {
+              id: "bull_pullback_wash",
+              category: "看涨",
+              stance: "bull",
+              analogy: "回踩 OI 降、低不破——清洗",
+            }),
+            tpl("ta.oi", "突破 OI 跟上", "突破时 OI 跟上来：有人用新仓确认。", {
+              id: "bull_break_oi_up",
+              category: "看涨",
+              stance: "bull",
+              analogy: "突破 OI 跟——新仓在确认",
+            }),
+            tpl("ta.oi", "涨 OI 不跟跌 OI 加", "上涨 OI 不跟、下跌 OI 反加：空头在投票。", {
+              id: "bear_oi_vote_down",
+              category: "看跌",
+              stance: "bear",
+              analogy: "涨不加、跌反加——空在投票",
+            }),
+            tpl("ta.oi", "高位 OI 堆价回吐", "高位 OI 还在堆、价格回吐：拥挤变趋势那一拍。", {
+              id: "bear_crowd_giveback",
+              category: "看跌",
+              stance: "bear",
+              analogy: "高位 OI 堆、价回吐——拥挤变趋势",
+            }),
           ],
         }),
         topic({
@@ -2304,12 +4447,81 @@
             }),
           ],
           templates: [
-            tpl(
-              "ta.wyckoff",
-              "先标箱子，再谈阶段",
-              "【区间：填上下沿】弹簧=假跌破收回，不是随便一根针。失效：收进区间下半。",
-              { stance: "mixed" }
-            ),
+            tpl("ta.wyckoff", "高位天量宽幅", "{品种}高位宽幅 + 天量：更像派发高潮，不像健康主升。", {
+              id: "ext_distribution_climax",
+              category: "极端",
+              stance: "bear",
+              analogy: "高位天量宽幅——派发高潮不是主升",
+            }),
+            tpl("ta.wyckoff", "弹簧后放量离开", "低位弹簧后立刻放量离开：吸筹结束的候选，仍要等更高低点。", {
+              id: "ext_spring_leave",
+              category: "极端",
+              stance: "bull",
+              analogy: "弹簧后放量走——吸筹候选，等更高低",
+            }),
+            tpl("ta.wyckoff", "上冲回落", "上冲回落（upthrust）扫过前高再收回：典型诱多。", {
+              id: "ext_upthrust",
+              category: "极端",
+              stance: "bear",
+              analogy: "扫高再收回——典型 upthrust 诱多",
+            }),
+            tpl("ta.wyckoff", "横盘缩量", "横盘缩量：在换筹码，阶段未完成前不改趋势名。", {
+              id: "common_range_low_vol",
+              category: "常见",
+              analogy: "横盘缩量——换筹码，阶段未完",
+            }),
+            tpl("ta.wyckoff", "拉升中回撤缩量", "拉升中的小回撤缩量：强势回调。", {
+              id: "common_markup_pullback",
+              category: "常见",
+              stance: "bull",
+              analogy: "拉升中缩量回撤——强势回调",
+            }),
+            tpl("ta.wyckoff", "放量打出又收回", "同样的区间，放量打出又收回：还在测试，不是已经选边。", {
+              id: "common_test_not_break",
+              category: "常见",
+              analogy: "放量打出收回——还在测试",
+            }),
+            tpl("ta.wyckoff", "吸筹区第一次突破", "吸筹区第一次向上突破假的多；第二次放量离开才像进入标记上涨。", {
+              id: "likely_acc_first_fake",
+              category: "大概率",
+              stance: "bull",
+              analogy: "吸筹区第一次突破常假——第二次才像 markup",
+            }),
+            tpl("ta.wyckoff", "派发区第一次跌破", "派发区第一次向下跌破也常假；收回失败才像进入标记下跌。", {
+              id: "likely_dist_first_fake",
+              category: "大概率",
+              stance: "bear",
+              analogy: "派发区第一次跌破常假——收回失败才 markdown",
+            }),
+            tpl("ta.wyckoff", "努力大结果小在边缘", "努力大结果小，出现在区间边缘，比出现在区间中更有阶段意义。", {
+              id: "likely_effort_result_edge",
+              category: "大概率",
+              analogy: "边缘处努力大结果小——阶段信号更强",
+            }),
+            tpl("ta.wyckoff", "弹簧站回", "弹簧（假跌破）+ 缩量回踩 + 放量站回。", {
+              id: "bull_spring_back",
+              category: "看涨",
+              stance: "bull",
+              analogy: "弹簧 + 缩量回踩 + 放量站回——吸筹完成候选",
+            }),
+            tpl("ta.wyckoff", "低点抬高供给减", "低点抬高、供给测试量小于前一次砸盘。", {
+              id: "bull_higher_low_supply",
+              category: "看涨",
+              stance: "bull",
+              analogy: "低点抬、砸盘量减——供给在减",
+            }),
+            tpl("ta.wyckoff", "上冲回落破区间", "上冲回落 + 反弹量弱 + 跌破区间下沿。", {
+              id: "bear_upthrust_break",
+              category: "看跌",
+              stance: "bear",
+              analogy: "upthrust + 量弱 + 破下沿——派发",
+            }),
+            tpl("ta.wyckoff", "高点降低需求减", "高点降低、需求测试量小于前一次拉升。", {
+              id: "bear_lower_high_demand",
+              category: "看跌",
+              stance: "bear",
+              analogy: "高点降、拉升量减——需求在减",
+            }),
           ],
         }),
       ],

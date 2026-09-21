@@ -4580,6 +4580,55 @@ label.publish-media-add {
   background: rgba(15, 118, 110, 0.12);
   color: #0f766e;
 }
+.tax-tpl-cat {
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.tax-tpl-cat.is-extreme {
+  background: #fce8e4;
+  color: #9a3412;
+}
+.tax-tpl-cat.is-common {
+  background: #f0ebe3;
+  color: #6f675f;
+}
+.tax-tpl-cat.is-likely {
+  background: #eef2ff;
+  color: #4338ca;
+}
+.tax-tpl-cat.is-bull {
+  background: #ecfdf5;
+  color: #047857;
+}
+.tax-tpl-cat.is-bear {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+.tax-tpl-cat.is-misc {
+  background: #f5f5f4;
+  color: #57534e;
+}
+.tax-tpl-analogy {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: #6b6560;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #faf6ef;
+  border-left: 3px solid #c4a574;
+}
+.tax-tpl-analogy-label {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: #8a8175;
+}
 .tax-tpl-meta {
   display: flex;
   flex-wrap: wrap;
@@ -5007,6 +5056,13 @@ body.tasks-focus .tsk-mode-tabs {
 .tsk-pri-col.pri-must h4 { color: #b45309; }
 .tsk-pri-col.pri-defer h4 { color: #475569; }
 .tsk-pri-col.pri-inspiration h4 { color: #7c3aed; }
+.tsk-board-head {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+.tsk-board-head .tsk-board-bar {
+  margin-bottom: 6px;
+}
 .tsk-board-bar {
   display: flex;
   align-items: center;
@@ -5015,6 +5071,115 @@ body.tasks-focus .tsk-mode-tabs {
   margin-bottom: 10px;
   flex-wrap: wrap;
   flex-shrink: 0;
+}
+.tsk-period-brief {
+  border: 1px solid #e4d8c8;
+  border-radius: 10px;
+  background: #fffdf8;
+  font-size: 0.82rem;
+}
+.tsk-period-brief-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.tsk-period-brief-summary::-webkit-details-marker { display: none; }
+.tsk-period-brief-summary span { font-weight: 600; color: #6a5420; }
+.tsk-period-brief-summary em { font-size: 0.72rem; font-style: normal; }
+.tsk-period-panel {
+  padding: 0 10px 10px;
+  display: grid;
+  gap: 10px;
+}
+.tsk-period-section {
+  padding-top: 8px;
+  border-top: 1px dashed #e4d8c8;
+}
+.tsk-period-section:first-child { border-top: 0; padding-top: 0; }
+.tsk-period-h {
+  margin: 0 0 6px;
+  font-size: 0.76rem;
+  font-weight: 650;
+  color: #6f675f;
+}
+.tsk-period-h .muted { font-weight: 500; }
+.tsk-period-intent-edit { display: grid; gap: 4px; }
+.tsk-period-intent-input,
+.tsk-period-line-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.82rem;
+  background: #fff;
+}
+.tsk-period-hint {
+  margin: 2px 0 0;
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+.tsk-period-intent-read {
+  margin: 0;
+  padding-left: 1.1em;
+  line-height: 1.45;
+}
+.tsk-period-intent-read li { margin: 2px 0; }
+.tsk-period-review-edit { display: grid; gap: 4px; }
+.tsk-period-review-read p {
+  margin: 0 0 4px;
+  line-height: 1.4;
+  font-size: 0.8rem;
+}
+.tsk-period-scores { display: grid; gap: 4px; }
+.tsk-period-score-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.78rem;
+}
+.tsk-period-score-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #57534e;
+}
+.tsk-period-score-row select {
+  font-size: 0.76rem;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.tsk-period-score-read {
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.tsk-period-workload {
+  margin: 8px 0 4px;
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  color: #78716c;
+}
+.tsk-period-violation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  color: #78716c;
+}
+.tsk-month-period .tsk-period-brief {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.tsk-month-period .tsk-period-brief-summary {
+  padding: 0 0 6px;
 }
 .tsk-board-bar-week {
   display: inline-flex;
@@ -5894,6 +6059,8 @@ body:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
   box-sizing: border-box;
 }
 #panel-tasks.tsk-panel:has(#tasksModeBoard:not([hidden])) {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   max-height: 100%;
@@ -5904,7 +6071,8 @@ body:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
   flex-shrink: 0;
 }
 
-.tsk-board-stage {
+.tsk-mode-panel[hidden] { display: none !important; }
+.tsk-board-stage:not([hidden]) {
   display: flex;
   gap: 0;
   min-height: 0;
@@ -5919,7 +6087,7 @@ body:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
   display: flex;
   flex-direction: column;
 }
-#tasksModeBoard.tsk-mode-panel {
+#tasksModeBoard.tsk-mode-panel:not([hidden]) {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -5933,17 +6101,6 @@ body:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
   flex-direction: column;
 }
 #tasksCategoryView[hidden] { display: none !important; }
-#panel-tasks.tsk-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-#panel-tasks .tsk-mode-panel:not([hidden]) {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
 .tsk-schedule-root {
   width: 100%;
   flex: 1;
@@ -5972,7 +6129,14 @@ body:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
 .tsk-kanban-week.is-current {
   box-shadow: inset 3px 0 0 #C4A574;
 }
-.tsk-kanban-week .tsk-kcol { flex: 1 1 0; min-width: 0; }
+.tsk-kanban-week .tsk-kcol:not(.tsk-kcol-backlog) { flex: 1 1 0; min-width: 0; }
+.tsk-kanban-week .tsk-kcol-backlog {
+  flex: 0 0 220px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 280px;
+  flex-shrink: 0;
+}
 .tsk-kanban-week.is-focus-today .tsk-kanban-day.is-today {
   flex: 1.12 1 0;
   min-width: 112px;
@@ -6007,8 +6171,8 @@ body:has(#panel-tasks:not([hidden]) #tasksModeBoard:not([hidden])) {
   background: #faf8f3;
   box-shadow: none;
 }
-body.tasks-focus .tsk-kcol-backlog {
-  flex-basis: 260px;
+body.tasks-focus .tsk-kanban-week .tsk-kcol-backlog {
+  flex: 0 0 260px;
   width: 260px;
   min-width: 260px;
   max-width: 320px;
@@ -6333,7 +6497,8 @@ body.tasks-focus .tsk-kcol-backlog {
   .tsk-board-bar { flex-wrap: wrap; }
   .tsk-board-bar-mid { order: 3; flex-basis: 100%; justify-content: flex-start; }
   .tsk-kanban-week { overflow-x: auto; }
-  .tsk-kanban-week .tsk-kcol { flex: 0 0 120px; min-width: 120px; }
+  .tsk-kanban-week .tsk-kcol:not(.tsk-kcol-backlog) { flex: 0 0 120px; min-width: 120px; }
+  .tsk-kanban-week .tsk-kcol-backlog { flex: 0 0 200px; width: 200px; min-width: 200px; }
 }
 .tsk-tpl-add {
   display: flex;

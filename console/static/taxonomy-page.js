@@ -16,6 +16,16 @@
     mixed: "混合",
   };
 
+  const TPL_CATEGORIES = ["极端", "常见", "大概率", "看涨", "看跌"];
+
+  const TPL_CATEGORY_CLASS = {
+    极端: "extreme",
+    常见: "common",
+    大概率: "likely",
+    看涨: "bull",
+    看跌: "bear",
+  };
+
   /** @type {{ categories: import('./taxonomy').Category[], categoryGroups?: object[] }} */
   let data = { categories: [], categoryGroups: [] };
   /** @type {Map<string, object>} */
@@ -474,10 +484,15 @@
     const f = state.templateFilter;
     let list = templates || [];
     if (f === "placeholder") return list.filter((t) => t.placeholder);
-    if (f === "bull" || f === "bear" || f === "neutral") {
-      return list.filter((t) => t.stance === f);
-    }
+    if (TPL_CATEGORIES.includes(f)) return list.filter((t) => t.category === f);
     return list;
+  }
+
+  function renderTemplateCategoryBadge(tpl) {
+    if (tpl.placeholder) return `<span class="tax-tpl-badge is-ph">待补充</span>`;
+    if (!tpl.category) return "";
+    const cls = TPL_CATEGORY_CLASS[tpl.category] || "misc";
+    return `<span class="tax-tpl-cat is-${cls}">${escapeHtml(tpl.category)}</span>`;
   }
 
   function renderTemplates() {
@@ -502,26 +517,24 @@
     }
     box.innerHTML = list
       .map((tpl) => {
-        const badge = tpl.placeholder
-          ? `<span class="tax-tpl-badge is-ph">待补充</span>`
-          : `<span class="tax-tpl-badge is-ok">已完善</span>`;
+        const badge = renderTemplateCategoryBadge(tpl);
         const stance = tpl.stance ? STANCE_LABEL[tpl.stance] || tpl.stance : "—";
         const coins = (tpl.coins || []).join(" · ") || "—";
         const preview = String(tpl.body || "")
           .split("\n")
           .slice(0, 3)
           .join("\n");
-        const tags = (tpl.tags || [])
-          .map((tag) => `<span class="chip tag">${escapeHtml(tag)}</span>`)
-          .join("");
+        const analogy = tpl.analogy
+          ? `<p class="tax-tpl-analogy"><span class="tax-tpl-analogy-label">类比</span>${escapeHtml(tpl.analogy)}</p>`
+          : "";
         return `<article class="tax-tpl-card" data-tpl-id="${escapeHtml(tpl.id)}" tabindex="0">
           <header>
             <h4>${escapeHtml(tpl.title || tpl.id)}</h4>
             ${badge}
           </header>
           <div class="tax-tpl-meta"><span>多空 ${escapeHtml(stance)}</span><span>币种 ${escapeHtml(coins)}</span></div>
+          ${analogy}
           <pre class="tax-tpl-preview">${escapeHtml(preview)}</pre>
-          <div class="chip-row">${tags}</div>
         </article>`;
       })
       .join("");
@@ -550,7 +563,9 @@
     if (title) title.textContent = tpl.title || tpl.id;
     if (meta) {
       const stance = tpl.stance ? STANCE_LABEL[tpl.stance] || tpl.stance : "—";
-      meta.textContent = `${topic.name} · ${stance} · ${(tpl.coins || []).join(", ") || "—"}`;
+      const cat = tpl.category ? ` · ${tpl.category}` : "";
+      const analogy = tpl.analogy ? ` · 类比：${tpl.analogy}` : "";
+      meta.textContent = `${topic.name} · ${stance} · ${(tpl.coins || []).join(", ") || "—"}${cat}${analogy}`;
     }
     if (body) body.textContent = tpl.body || "";
     if (typeof dlg.showModal === "function") dlg.showModal();
@@ -561,10 +576,7 @@
     if (!box) return;
     const opts = [
       { id: "all", label: "全部" },
-      { id: "bull", label: "看涨" },
-      { id: "bear", label: "看跌" },
-      { id: "neutral", label: "中性" },
-      { id: "placeholder", label: "仅占位" },
+      ...TPL_CATEGORIES.map((label) => ({ id: label, label })),
     ];
     box.innerHTML = opts
       .map((o) => {

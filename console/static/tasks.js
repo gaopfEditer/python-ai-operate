@@ -11,6 +11,9 @@
   const LS_TPL_CUSTOM = "tr_tasks_tpl_custom_v1";
   const LS_NOTES = "tr_tasks_week_notes";
   const LS_MONTHS = "tr_tasks_month_plans_v1";
+  const LS_PERIOD = "tr_tasks_period_v1";
+  const PERIOD_INTENT_MAX = 56;
+  const PERIOD_LINE_MAX = 72;
 
   const $ = (sel) => document.querySelector(sel);
   const TD = () => global.TasksData;
@@ -664,6 +667,248 @@
     } catch (_) {
       /* ignore */
     }
+  }
+
+  function periodStoreKey(scope, key) {
+    return scope === "week" ? `w:${key}` : `m:${key}`;
+  }
+
+  function emptyPeriodReview() {
+    return {
+      intent: ["", "", ""],
+      pro: "",
+      con: "",
+      scores: ["", "", ""],
+      violation: false,
+    };
+  }
+
+  function normalizePeriodReview(raw) {
+    const intent = [...(raw?.intent || ["", "", ""])].slice(0, 3);
+    const scores = [...(raw?.scores || ["", "", ""])].slice(0, 3);
+    while (intent.length < 3) intent.push("");
+    while (scores.length < 3) scores.push("");
+    return {
+      intent: intent.map((s) => String(s || "").slice(0, PERIOD_INTENT_MAX)),
+      pro: String(raw?.pro || "").slice(0, PERIOD_LINE_MAX),
+      con: String(raw?.con || "").slice(0, PERIOD_LINE_MAX),
+      scores: scores.map((s) => (["done", "partial", "none"].includes(s) ? s : "")),
+      violation: !!raw?.violation,
+    };
+  }
+
+  function loadPeriodReview(scope, key) {
+    try {
+      const all = JSON.parse(localStorage.getItem(LS_PERIOD) || "{}") || {};
+      return normalizePeriodReview(all[periodStoreKey(scope, key)] || emptyPeriodReview());
+    } catch (_) {
+      return emptyPeriodReview();
+    }
+  }
+
+  function savePeriodReview(scope, key, data) {
+    try {
+      const all = JSON.parse(localStorage.getItem(LS_PERIOD) || "{}") || {};
+      all[periodStoreKey(scope, key)] = normalizePeriodReview(data);
+      localStorage.setItem(LS_PERIOD, JSON.stringify(all));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function dedupeIntentLines(lines, goals) {
+    const norm = (s) => String(s || "").trim().toLowerCase();
+    const goalSet = new Set((goals || []).map(norm).filter(Boolean));
+    const out = [];
+    (lines || []).forEach((line) => {
+      const t = String(line || "").trim().slice(0, PERIOD_INTENT_MAX);
+      if (!t || goalSet.has(norm(t))) return;
+      if (out.some((x) => norm(x) === norm(t))) return;
+      out.push(t);
+    });
+    while (out.length < 3) out.push("");
+    return out.slice(0, 3);
+  }
+
+  function goalsForPeriodDedupe(scope, key) {
+    if (scope === "month") {
+      return (ensureMonthPlan(key).goals || []).filter((g) => String(g).trim());
+    }
+    return (ensureMonthPlan(monthKeyForWeek(key)).goals || []).filter((g) => String(g).trim());
+  }
+
+  function hardTasksDoneForWeek(wk) {
+    return tasksForWeek(wk).filter(
+      (t) =>
+        isScheduled(t) &&
+        t.status === "done" &&
+        !isTemplateCatalog(t) &&
+        (t.kind === "custom" || t.priority === "must" || t.weeklyMain)
+    ).length;
+  }
+
+  function hardTasksDoneForMonth(mk) {
+    return weeksInMonth(mk).reduce((n, wk) => n + hardTasksDoneForWeek(wk), 0);
+  }
+
+  function periodWorkloadSummary(review, hardN) {
+    const scores = review.scores || [];
+    const done = scores.filter((s) => s === "done").length;
+    const partial = scores.filter((s) => s === "partial").length;
+    const none = scores.filter((s) => s === "none").length;
+    const viol = review.violation ? "有" : "无";
+    return `做到 ${done} · 半做到 ${partial} · 没做 ${none} · 硬任务 ${hardN} · 问题卡入日 ${viol}`;
+  }
+
+  function periodBriefSummary(review) {
+    const n = (review.intent || []).filter((s) => String(s).trim()).length;
+    if (!n) return "待写";
+    const scored = (review.scores || []).filter(Boolean).length;
+    if (scored) return `${n} 条 · 已评 ${scored}`;
+    return `${n} 条`;
+  }
+
+  function renderPeriodScoreSelect(idx, value, { readOnly, label }) {
+    if (readOnly) {
+      const map = { done: "做到", partial: "半做到", none: "没做" };
+      return `<span class="tsk-period-score-read">${escapeHtml(label)}：${escapeHtml(map[value] || "—")}</span>`;
+    }
+    return `<label class="tsk-period-score-row">
+      <span class="tsk-period-score-label">${escapeHtml(label)}</span>
+      <select data-period-score="${idx}">
+        <option value=""${!value ? " selected" : ""}>—</option>
+        <option value="done"${value === "done" ? " selected" : ""}>做到</option>
+        <option value="partial"${value === "partial" ? " selected" : ""}>半做到</option>
+        <option value="none"${value === "none" ? " selected" : ""}>没做</option>
+      </select>
+    </label>`;
+  }
+
+  function renderPeriodReviewBlock(scope, key, { readOnly = false } = {}) {
+    const isWeek = scope === "week";
+    const label = isWeek ? "本周" : "本月";
+    const briefLabel = isWeek ? "本周要旨" : "本月要旨";
+    const goals = goalsForPeriodDedupe(scope, key);
+    const review = loadPeriodReview(scope, key);
+    review.intent = dedupeIntentLines(review.intent, goals);
+    const hardN = isWeek ? hardTasksDoneForWeek(key) : hardTasksDoneForMonth(key);
+    const summary = periodBriefSummary(review);
+    const workload = periodWorkloadSummary(review, hardN);
+    const openAttr = scope === "month" && !readOnly ? " open" : "";
+
+    const intentBlock = readOnly
+      ? `<ol class="tsk-period-intent-read">${review.intent
+          .map((line) => (line ? `<li>${escapeHtml(line)}</li>` : ""))
+          .join("") || `<li class="muted">尚未填写</li>`}</ol>`
+      : `<div class="tsk-period-intent-edit">
+          ${[0, 1, 2]
+            .map(
+              (i) =>
+                `<input type="text" class="tsk-period-intent-input" data-period-intent="${i}" maxlength="${PERIOD_INTENT_MAX}" value="${escapeAttr(review.intent[i] || "")}" placeholder="${i + 1}. 这${isWeek ? "周" : "月"}要证明什么（非任务清单）" />`
+            )
+            .join("")}
+          <p class="muted tsk-period-hint">与主线重复句会自动去掉 · 最多 3 条 · 各 ${PERIOD_INTENT_MAX} 字</p>
+        </div>`;
+
+    const reviewBlock = readOnly
+      ? `<div class="tsk-period-review-read">
+          <p><strong>优</strong> ${escapeHtml(review.pro || "—")}</p>
+          <p><strong>劣</strong> ${escapeHtml(review.con || "—")}</p>
+        </div>`
+      : `<div class="tsk-period-review-edit">
+          <input type="text" class="tsk-period-line-input" data-period-pro maxlength="${PERIOD_LINE_MAX}" value="${escapeAttr(review.pro)}" placeholder="优：哪件事按预期推进，或意外有效" />
+          <input type="text" class="tsk-period-line-input" data-period-con maxlength="${PERIOD_LINE_MAX}" value="${escapeAttr(review.con)}" placeholder="劣：哪件事占了格子却没产出" />
+        </div>`;
+
+    const resultRows = [0, 1, 2]
+      .map((i) => {
+        const lineLabel = review.intent[i]?.trim() || `要旨 ${i + 1}`;
+        return renderPeriodScoreSelect(i, review.scores[i], { readOnly, label: lineLabel });
+      })
+      .join("");
+
+    const violationBlock = readOnly
+      ? review.violation
+        ? `<p class="tsk-period-violation-read muted">问题卡违规入日：有</p>`
+        : ""
+      : `<label class="tsk-period-violation"><input type="checkbox" data-period-violation ${review.violation ? "checked" : ""} />问题卡违规入日</label>`;
+
+    return `<details class="tsk-period-brief" data-period-scope="${escapeAttr(scope)}" data-period-key="${escapeAttr(key)}"${openAttr}>
+      <summary class="tsk-period-brief-summary"><span>${escapeHtml(briefLabel)}</span><em class="muted">${escapeHtml(summary)}</em></summary>
+      <div class="tsk-period-panel">
+        <section class="tsk-period-section">
+          <h4 class="tsk-period-h">${label}要旨 <span class="muted">预期</span></h4>
+          ${intentBlock}
+        </section>
+        <section class="tsk-period-section">
+          <h4 class="tsk-period-h">${label}进程 <span class="muted">优劣各一句</span></h4>
+          ${reviewBlock}
+        </section>
+        <section class="tsk-period-section">
+          <h4 class="tsk-period-h">${label}结果 <span class="muted">只评要旨</span></h4>
+          <div class="tsk-period-scores">${resultRows}</div>
+          <p class="tsk-period-workload" data-period-workload>${escapeHtml(workload)}</p>
+          ${violationBlock}
+        </section>
+      </div>
+    </details>`;
+  }
+
+  function collectPeriodFromEl(el) {
+    if (!el) return emptyPeriodReview();
+    return {
+      intent: [0, 1, 2].map((i) => el.querySelector(`[data-period-intent="${i}"]`)?.value || ""),
+      pro: el.querySelector("[data-period-pro]")?.value || "",
+      con: el.querySelector("[data-period-con]")?.value || "",
+      scores: [0, 1, 2].map((i) => el.querySelector(`[data-period-score="${i}"]`)?.value || ""),
+      violation: !!el.querySelector("[data-period-violation]")?.checked,
+    };
+  }
+
+  function refreshPeriodWorkloadEl(el) {
+    const scope = el.getAttribute("data-period-scope");
+    const key = el.getAttribute("data-period-key");
+    const review = collectPeriodFromEl(el);
+    const hardN = scope === "week" ? hardTasksDoneForWeek(key) : hardTasksDoneForMonth(key);
+    const node = el.querySelector("[data-period-workload]");
+    if (node) node.textContent = periodWorkloadSummary(review, hardN);
+    const em = el.querySelector(".tsk-period-brief-summary em");
+    if (em) em.textContent = periodBriefSummary(review);
+  }
+
+  function persistPeriodEl(el) {
+    const scope = el.getAttribute("data-period-scope");
+    const key = el.getAttribute("data-period-key");
+    if (!scope || !key) return;
+    let data = collectPeriodFromEl(el);
+    data.intent = dedupeIntentLines(data.intent, goalsForPeriodDedupe(scope, key));
+    savePeriodReview(scope, key, data);
+    if (scope === "week") {
+      [0, 1, 2].forEach((i) => {
+        const inp = el.querySelector(`[data-period-intent="${i}"]`);
+        if (inp) inp.value = data.intent[i] || "";
+      });
+    }
+    refreshPeriodWorkloadEl(el);
+  }
+
+  function bindPeriodReview(root) {
+    root?.querySelectorAll(".tsk-period-brief[data-period-scope]").forEach((el) => {
+      if (el.dataset.periodBound) return;
+      el.dataset.periodBound = "1";
+      el.querySelectorAll("[data-period-intent]").forEach((inp) => {
+        inp.addEventListener("blur", () => persistPeriodEl(el));
+        inp.addEventListener("change", () => persistPeriodEl(el));
+      });
+      el.querySelectorAll("[data-period-pro], [data-period-con]").forEach((inp) => {
+        inp.addEventListener("blur", () => persistPeriodEl(el));
+        inp.addEventListener("change", () => persistPeriodEl(el));
+      });
+      el.querySelectorAll("[data-period-score]").forEach((sel) => {
+        sel.addEventListener("change", () => persistPeriodEl(el));
+      });
+      el.querySelector("[data-period-violation]")?.addEventListener("change", () => persistPeriodEl(el));
+    });
   }
 
   function weekProgressDetail(wk) {
@@ -1730,13 +1975,16 @@
             <button type="button" class="btn-link" id="btnOpenTemplates">模板</button>
           </div>`;
 
-    return `<div class="tsk-board-bar">${viewChips}${weekNav}${scopeChips || `<div class="tsk-board-bar-mid"></div>`}${actions}</div>`;
+    const bar = `<div class="tsk-board-bar">${viewChips}${weekNav}${scopeChips || `<div class="tsk-board-bar-mid"></div>`}${actions}</div>`;
+    if (categoryOnly || state.boardView !== "schedule") return bar;
+    return `<div class="tsk-board-head">${bar}${renderPeriodReviewBlock("week", wk)}</div>`;
   }
 
   function bindSchedBar(root, { applied } = {}) {
     bindBoardViewChips(root);
     bindBoardToolbar(root);
     bindWeekBarNav(root);
+    bindPeriodReview(root);
     root?.querySelectorAll('[id="btnOpenTemplates"]').forEach((btn) => {
       btn.addEventListener("click", openTemplateDrawer);
     });
@@ -2562,6 +2810,7 @@
       mainBody = `
         ${renderMonthSummaryBar(stats)}
         ${goalsBlock ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">主线</h3><div class="tsk-month-section-b">${goalsBlock}</div></section>` : ""}
+        <section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk, { readOnly: true })}</section>
         ${openBlock ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">未完成 · ${plannedOpen.length}</h3><div class="tsk-month-section-b">${openBlock}</div></section>` : ""}
         ${weekRows ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">各周</h3><div class="tsk-month-section-b tsk-week-rows">${weekRows}</div></section>` : ""}
         ${doneBlock ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">记录</h3><div class="tsk-month-section-b">${doneBlock}</div></section>` : ""}
@@ -2579,6 +2828,7 @@
           </div>
           <textarea id="monthGoalsInput" class="tsk-month-goals" rows="3" placeholder="3–7 条主线，一行一条">${escapeHtml((plan.goals || []).join("\n"))}</textarea>
         </section>
+        <section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk)}</section>
         <section class="tsk-month-section">
           <h3 class="tsk-month-section-h">月池 · ${pool.length}</h3>
           <form class="tsk-month-add" id="monthItemForm">
@@ -2645,6 +2895,7 @@
         renderBoard();
       });
     });
+    bindPeriodReview(box);
     $("#btnMonthSaveGoals")?.addEventListener("click", () => {
       const raw = $("#monthGoalsInput")?.value || "";
       updateMonthGoals(selMk, raw.split("\n"));
@@ -2959,7 +3210,7 @@
   }
 
   function isTasksFocusMode(mode = state.mode) {
-    return mode === "board" || mode === "stats";
+    return mode === "board";
   }
 
   function updateTasksFocusUi() {
