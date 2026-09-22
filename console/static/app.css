@@ -4985,6 +4985,50 @@ body.tasks-focus .tsk-mode-tabs {
   color: var(--ink);
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
+.tsk-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: -6px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.tsk-search-bar[hidden] {
+  display: none !important;
+}
+.tsk-search-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.tsk-search-input {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 0.88rem;
+  background: #fff;
+}
+.tsk-search-input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+.tsk-search-hint {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.tsk-search-empty {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px dashed rgba(59, 130, 246, 0.25);
+}
 .tsk-home-top {
   display: flex;
   flex-wrap: wrap;

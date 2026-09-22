@@ -29,6 +29,8 @@
     subcategoryId: "",
     catFilter: "all",
     subSearch: "",
+    taskSearch: "",
+    taskSearchScope: "week",
     boardWeek: "",
     statsPeriod: "month",
     statsAnchor: "",
@@ -395,6 +397,203 @@
 
   function execResultSummary(t) {
     return truncateCardSummary(t.execResult);
+  }
+
+  function normSearchText(s) {
+    return String(s || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function searchTokens(q) {
+    return normSearchText(q).split(/\s+/).filter(Boolean);
+  }
+
+  function textMatchesSearch(text, tokens) {
+    if (!tokens.length) return true;
+    const hay = normSearchText(text);
+    return tokens.every((t) => hay.includes(t));
+  }
+
+  function searchAnchorWeek() {
+    return state.boardWeek || weekKey();
+  }
+
+  function searchAnchorMonth() {
+    if (state.mode === "months" && state.monthsKey) return state.monthsKey;
+    return monthKeyForWeek(searchAnchorWeek());
+  }
+
+  function weekInSearchScope(wk, scope) {
+    if (scope === "all") return true;
+    if (scope === "week") return wk === searchAnchorWeek();
+    return weeksInMonth(searchAnchorMonth()).includes(wk);
+  }
+
+  function monthInSearchScope(mk, scope) {
+    if (scope === "all") return true;
+    return mk === searchAnchorMonth();
+  }
+
+  function monthItemInScope(item, mk, scope) {
+    if (scope === "all") return true;
+    if (!monthInSearchScope(mk, scope)) return false;
+    if (scope === "month") return true;
+    const anchorWk = searchAnchorWeek();
+    if (mk !== monthKeyForWeek(anchorWk)) return false;
+    return !item.targetWeekId || item.targetWeekId === anchorWk;
+  }
+
+  function weekContentMatchesSearch(wk, scope) {
+    const tokens = searchTokens(state.taskSearch);
+    if (!tokens.length) return true;
+    if (!weekInSearchScope(wk, scope)) return false;
+    if (periodEntryMatchesSearch(loadPeriodReview("week", wk), tokens)) return true;
+    if (
+      tasksForWeek(wk).some(
+        (t) => t.status !== "cancelled" && textMatchesSearch(taskSearchHaystack(t), tokens)
+      )
+    ) {
+      return true;
+    }
+    return planColumnSlots().some((d) => textMatchesSearch(loadDayNote(wk, d), tokens));
+  }
+
+  function shouldShowWeekPeriod(wk) {
+    const tokens = searchTokens(state.taskSearch);
+    if (!tokens.length) return true;
+    if (!weekInSearchScope(wk, state.taskSearchScope)) return false;
+    return periodEntryMatchesSearch(loadPeriodReview("week", wk), tokens);
+  }
+
+  function filterBoardTasks(list) {
+    if (!isTaskSearchActive()) return list;
+    return list.filter((t) => taskMatchesSearch(t, state.taskSearchScope));
+  }
+
+  function renderSearchEmptyHint() {
+    const scopeLabel =
+      state.taskSearchScope === "week" ? "本周" : state.taskSearchScope === "month" ? "本月" : "全部";
+    return `<p class="muted tsk-search-empty">在${scopeLabel}范围内未找到「${escapeHtml(state.taskSearch.trim())}」</p>`;
+  }
+
+  function taskSearchHaystack(t) {
+    return [
+      t.title,
+      t.notes,
+      t.execResult,
+      t.dailyNote,
+      TD().catLabel(t.categoryId),
+      TD().subLabel(t.subcategoryId),
+      t.weekKey,
+      t.monthKey,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function taskMatchesSearch(t, scope) {
+    const tokens = searchTokens(state.taskSearch);
+    if (!tokens.length) return true;
+    if (!weekInSearchScope(t.weekKey, scope)) return false;
+    return textMatchesSearch(taskSearchHaystack(t), tokens);
+  }
+
+  function dayNoteMatchesSearch(wk, daySlot, scope) {
+    const tokens = searchTokens(state.taskSearch);
+    if (!tokens.length) return true;
+    if (!weekInSearchScope(wk, scope)) return false;
+    return textMatchesSearch(loadDayNote(wk, daySlot), tokens);
+  }
+
+  function periodEntryMatchesSearch(entry, tokens) {
+    if (!entry || !tokens.length) return !tokens.length;
+    return textMatchesSearch([entry.plan, entry.exec, entry.eval].filter(Boolean).join("\n"), tokens);
+  }
+
+  function periodMatchesSearch(scope, wk, tokens) {
+    if (!tokens.length) return true;
+    if (scope === "week") {
+      return periodEntryMatchesSearch(loadPeriodReview("week", wk), tokens);
+    }
+    if (scope === "month") {
+      const mk = searchAnchorMonth();
+      return periodEntryMatchesSearch(loadPeriodReview("month", mk), tokens);
+    }
+    const all = stateCache?.period || {};
+    return Object.values(all).some((entry) => periodEntryMatchesSearch(normalizePeriodReview(entry), tokens));
+  }
+
+  function monthItemMatchesSearch(item, mk, scope) {
+    const tokens = searchTokens(state.taskSearch);
+    if (!tokens.length) return true;
+    if (!monthItemInScope(item, mk, scope)) return false;
+    return textMatchesSearch(
+      [item.title, item.priority, TD().catLabel(item.categoryId), TD().subLabel(item.subcategoryId)]
+        .filter(Boolean)
+        .join("\n"),
+      tokens
+    );
+  }
+
+  function isTaskSearchActive() {
+    return searchTokens(state.taskSearch).length > 0;
+  }
+
+  function countSearchHits(scope) {
+    const tokens = searchTokens(state.taskSearch);
+    if (!tokens.length) return 0;
+    let n = 0;
+    allTasks()
+      .filter((t) => t.status !== "cancelled")
+      .forEach((t) => {
+        if (taskMatchesSearch(t, scope)) n += 1;
+      });
+    Object.entries(stateCache?.day_notes || {}).forEach(([key, text]) => {
+      const m = /^(.+)\|(\d+)$/.exec(key);
+      if (!m) return;
+      if (!weekInSearchScope(m[1], scope)) return;
+      if (textMatchesSearch(text, tokens)) n += 1;
+    });
+    Object.entries(stateCache?.period || {}).forEach(([key, entry]) => {
+      if (scope === "week" && key !== periodStoreKey("week", searchAnchorWeek())) return;
+      if (scope === "month" && key !== periodStoreKey("month", searchAnchorMonth())) return;
+      if (periodEntryMatchesSearch(normalizePeriodReview(entry), tokens)) n += 1;
+    });
+    if (state.mode === "months") {
+      const mk = state.monthsKey || monthKey();
+      (ensureMonthPlan(mk).items || []).forEach((item) => {
+        if (monthItemMatchesSearch(item, mk, scope)) n += 1;
+      });
+    }
+    return n;
+  }
+
+  function updateTaskSearchBar() {
+    const bar = $("#tasksSearchBar");
+    const inp = $("#tasksGlobalSearch");
+    const hint = $("#tasksSearchHint");
+    const clearBtn = $("#btnTasksSearchClear");
+    if (!bar) return;
+    bar.hidden = state.mode === "stats";
+    if (inp && inp !== document.activeElement && inp.value !== (state.taskSearch || "")) {
+      inp.value = state.taskSearch || "";
+    }
+    bar.querySelectorAll("[data-search-scope]").forEach((btn) => {
+      btn.classList.toggle("on", btn.getAttribute("data-search-scope") === state.taskSearchScope);
+    });
+    const active = isTaskSearchActive();
+    if (clearBtn) clearBtn.hidden = !active;
+    if (hint) {
+      if (!active) {
+        hint.textContent = "";
+      } else {
+        const scopeLabel =
+          state.taskSearchScope === "week" ? "本周" : state.taskSearchScope === "month" ? "本月" : "全部";
+        const n = countSearchHits(state.taskSearchScope);
+        hint.textContent = `${scopeLabel} · ${n} 条匹配`;
+      }
+    }
   }
 
   function textToBulletLines(text, maxLines = 4) {
@@ -847,11 +1046,12 @@
     return { plan: pick("plan"), exec: pick("exec"), eval: pick("eval") };
   }
 
-  function persistPeriodEl(el) {
+  function persistPeriodEl(el, { flush = false } = {}) {
     const scope = el.getAttribute("data-period-scope");
     const key = el.getAttribute("data-period-key");
     if (!scope || !key) return;
     savePeriodReview(scope, key, collectPeriodFromEl(el));
+    if (flush) persistDirtyNow();
   }
 
   function bindPeriodReview(root) {
@@ -860,7 +1060,7 @@
       el.dataset.periodBound = "1";
       el.querySelectorAll("[data-period-field]").forEach((ta) => {
         ta.addEventListener("input", () => persistPeriodEl(el));
-        ta.addEventListener("blur", () => persistPeriodEl(el));
+        ta.addEventListener("blur", () => persistPeriodEl(el, { flush: true }));
       });
     });
   }
@@ -1379,6 +1579,16 @@
     }, PERSIST_DEBOUNCE_MS);
   }
 
+  async function pushStatePatch(patch) {
+    if (typeof api !== "function" || !patch || !Object.keys(patch).length) return { success: false };
+    const payload = JSON.stringify({ patch });
+    let res = await api("/api/tasks/state", { method: "PUT", body: payload });
+    if (!res?.success) {
+      res = await api("/api/tasks/state", { method: "POST", body: payload });
+    }
+    return res;
+  }
+
   async function flushStatePersist(force = false) {
     if (typeof api !== "function") return;
     if (!dirtyKeys.size && !force) return;
@@ -1388,14 +1598,17 @@
       patch[k] = stateCache[k];
     });
     dirtyKeys.clear();
-    const res = await api("/api/tasks/state", {
-      method: "PUT",
-      body: JSON.stringify({ patch }),
-    });
+    const res = await pushStatePatch(patch);
     if (!res?.success) {
       pending.forEach((k) => dirtyKeys.add(k));
       if (typeof toast === "function") toast(res?.error || "任务数据保存失败", "error");
     }
+  }
+
+  function persistDirtyNow() {
+    syncEditorsToCache();
+    clearTimeout(persistTimer);
+    void flushStatePersist();
   }
 
   function flushStatePersistKeepalive() {
@@ -2201,7 +2414,8 @@
 
     const bar = `<div class="tsk-board-bar">${viewChips}${weekNav}${scopeChips || `<div class="tsk-board-bar-mid"></div>`}${actions}</div>`;
     if (categoryOnly || state.boardView !== "schedule") return bar;
-    return `<div class="tsk-board-head">${bar}${renderPeriodReviewBlock("week", wk)}</div>`;
+    const periodHtml = shouldShowWeekPeriod(wk) ? renderPeriodReviewBlock("week", wk) : "";
+    return `<div class="tsk-board-head">${bar}${periodHtml}</div>`;
   }
 
   function bindSchedBar(root, { applied } = {}) {
@@ -2263,22 +2477,30 @@
     updateWeekChip();
     const wk = activeWeekKey();
     const isCurrentWeek = wk === weekKey();
-    const weekTasks = tasksForWeek(wk);
+    let weekTasks = tasksForWeek(wk);
+    if (isTaskSearchActive()) {
+      weekTasks = weekTasks.filter((t) => taskMatchesSearch(t, state.taskSearchScope));
+    }
     const prog = weekProgressDetail(wk);
     const today = todayDaySlot();
     const todayWk = weekKey();
-    const todayTasks = tasksForWeek(todayWk).filter(
+    let todayTasks = tasksForWeek(todayWk).filter(
       (t) => today && t.daySlot === today && t.status !== "cancelled" && t.status !== "done"
     );
-    const weekP0 = weekTasks.filter(
+    if (isTaskSearchActive()) {
+      todayTasks = todayTasks.filter((t) => taskMatchesSearch(t, state.taskSearchScope));
+    }
+    let weekP0 = weekTasks.filter(
       (t) => t.priority === "must" && isScheduled(t) && t.status !== "cancelled" && t.status !== "done"
     );
     const note = loadWeekNote(wk);
     const applied = !!loadStore().templateApplied[wk];
     const todayLabel = isWeekendSlot(today) ? "周末" : TD().DAY_NAME[today] || "今天";
-    const weekendRest = isWeekendSlot(today) && !todayTasks.length;
+    const weekendRest = isWeekendSlot(today) && !todayTasks.length && !isTaskSearchActive();
+    const searchEmpty = isTaskSearchActive() && !weekTasks.length && !todayTasks.length;
 
     box.innerHTML = `
+      ${searchEmpty ? renderSearchEmptyHint() : ""}
       <div class="tsk-home-head">
         <h1 class="tsk-page-title">${isCurrentWeek ? "本周工作台" : "周回看"}</h1>
         <div class="tsk-week-nav">
@@ -2456,7 +2678,10 @@
         saveDayNoteByKey(key, ta.value);
       };
       ta.addEventListener("input", commitDayNote);
-      ta.addEventListener("blur", commitDayNote);
+      ta.addEventListener("blur", () => {
+        commitDayNote();
+        persistDirtyNow();
+      });
     });
     root?.querySelectorAll("[data-task-open]").forEach((el) => {
       const open = () => openTaskDrawer(el.getAttribute("data-task-open"));
@@ -2595,24 +2820,32 @@
 
     pruneOrphanCatalog(wk);
     ensureTemplateCatalog(wk);
-    const backlogAll = backlogTasks(wk);
+    const scope = state.taskSearchScope;
+    const searchOn = isTaskSearchActive();
+    const backlogAll = filterBoardTasks(backlogTasks(wk));
     const byDay = {};
     planColumnSlots().forEach((d) => {
-      byDay[d] = columnTasks(wk, d);
+      byDay[d] = filterBoardTasks(columnTasks(wk, d));
     });
     const curToday = isCurWeek ? todayDaySlot() : 0;
     const weekendSlot = TD().WEEKEND_SLOT || 6;
     const kanbanCls = `tsk-kanban tsk-kanban-week${isCurWeek ? " is-current" : ""}${focusToday ? " is-focus-today" : ""}`;
 
     const dayCols = planColumnSlots()
+      .filter((d) => {
+        if (!searchOn) return true;
+        return (byDay[d] || []).length > 0 || dayNoteMatchesSearch(wk, d, scope);
+      })
       .map((d) => {
         const items = byDay[d] || [];
         const isWeekend = d === weekendSlot;
         const highlightToday = isCurWeek && focusToday && curToday === d;
+        const noteHtml = renderDayColNote(wk, d);
+        const showNote = !searchOn || dayNoteMatchesSearch(wk, d, scope);
         return renderKanbanCol({
           daySlot: d,
           headHtml: dayColHead(wk, d, { highlightToday }),
-          body: `${renderDayColNote(wk, d)}${items.map(renderPlanCard).join("") || renderColEmpty("drop")}`,
+          body: `${showNote ? noteHtml : ""}${items.map(renderPlanCard).join("") || (searchOn ? `<p class="muted tsk-kempty-sm">无匹配</p>` : renderColEmpty("drop"))}`,
           dropDay: d,
           isToday: highlightToday,
           extraClass: isWeekend ? " tsk-kcol-weekend" : "",
@@ -2620,15 +2853,27 @@
       })
       .join("");
 
+    const showBacklog = !searchOn || backlogAll.length > 0;
+    const showPeriod = shouldShowWeekPeriod(wk);
+    const boardEmpty =
+      searchOn && !showBacklog && !dayCols && !showPeriod;
+
     container.innerHTML = `
       ${renderSchedBar({ flow: flowPlan ? "plan" : "exec", applied })}
+      ${boardEmpty ? renderSearchEmptyHint() : ""}
       <div class="${kanbanCls}">
-        ${renderKanbanCol({
-          label: backlogColTitle(),
-          body: renderBacklogCards(backlogAll, { draggable: true, planCatalog: true }) || renderColEmpty("backlog"),
-          extraClass: " tsk-kcol-backlog",
-          dropDay: 0,
-        })}
+        ${
+          showBacklog
+            ? renderKanbanCol({
+                label: backlogColTitle(),
+                body:
+                  renderBacklogCards(backlogAll, { draggable: true, planCatalog: true }) ||
+                  (searchOn ? `<p class="muted tsk-kempty-sm">无匹配</p>` : renderColEmpty("backlog")),
+                extraClass: " tsk-kcol-backlog",
+                dropDay: 0,
+              })
+            : ""
+        }
         ${dayCols}
       </div>`;
 
@@ -2691,9 +2936,12 @@
 
   function renderCloseBoard(container) {
     const wk = state.boardWeek || weekKey();
-    const open = tasksForWeek(wk).filter(
+    let open = tasksForWeek(wk).filter(
       (t) => t.status !== "done" && t.status !== "cancelled" && isScheduled(t)
     );
+    if (isTaskSearchActive()) {
+      open = open.filter((t) => taskMatchesSearch(t, state.taskSearchScope));
+    }
     const applied = !!loadStore().templateApplied[wk];
     container.innerHTML = `
       ${renderSchedBar({ flow: "close", applied })}
@@ -2775,7 +3023,10 @@
     if (!state.subcategoryId || !cat.subs.some((s) => s.id === state.subcategoryId)) {
       state.subcategoryId = cat.subs[0]?.id || "";
     }
-    const weekTasks = tasksForWeek(wk).filter((t) => t.status !== "cancelled");
+    let weekTasks = tasksForWeek(wk).filter((t) => t.status !== "cancelled");
+    if (isTaskSearchActive()) {
+      weekTasks = weekTasks.filter((t) => taskMatchesSearch(t, state.taskSearchScope));
+    }
     const q = (state.subSearch || "").trim().toLowerCase();
 
     cats.innerHTML = categories
@@ -2787,7 +3038,11 @@
       })
       .join("");
 
-    const filteredSubs = cat.subs.filter((s) => !q || s.name.toLowerCase().includes(q));
+    const filteredSubs = cat.subs.filter((s) => {
+      if (q && !s.name.toLowerCase().includes(q)) return false;
+      if (isTaskSearchActive()) return weekTasks.some((t) => t.subcategoryId === s.id);
+      return true;
+    });
     subs.innerHTML = filteredSubs
       .map((s) => {
         let list = weekTasks.filter((t) => t.subcategoryId === s.id);
@@ -3003,12 +3258,25 @@
     const plan = ensureMonthPlan(selMk);
     const weeks = weeksInMonth(selMk);
     const stats = monthSummaryStats(selMk, plan);
-    const pool = (plan.items || []).filter((i) => i.status === "planned" && !i.targetWeekId);
-    const targeted = (plan.items || []).filter((i) => i.status === "planned" && i.targetWeekId);
-    const plannedOpen = (plan.items || []).filter((i) => i.status === "planned");
-    const doneItems = (plan.items || []).filter((i) => i.status === "split" || i.status === "done" || i.status === "dropped");
+    const filterMonthList = (items) => {
+      if (!isTaskSearchActive()) return items;
+      return items.filter((i) => monthItemMatchesSearch(i, selMk, state.taskSearchScope));
+    };
+    const pool = filterMonthList((plan.items || []).filter((i) => i.status === "planned" && !i.targetWeekId));
+    const targeted = filterMonthList((plan.items || []).filter((i) => i.status === "planned" && i.targetWeekId));
+    const plannedOpen = filterMonthList((plan.items || []).filter((i) => i.status === "planned"));
+    const doneItems = filterMonthList(
+      (plan.items || []).filter((i) => i.status === "split" || i.status === "done" || i.status === "dropped")
+    );
     const fullyEmpty = monthIsFullyEmpty(selMk, plan);
-    const weekRows = renderWeekRows(weeks, { readOnly });
+    const visibleWeeks = isTaskSearchActive()
+      ? weeks.filter((wk) => weekContentMatchesSearch(wk, state.taskSearchScope))
+      : weeks;
+    const weekRows = renderWeekRows(visibleWeeks, { readOnly });
+    const showMonthPeriod =
+      !isTaskSearchActive() ||
+      (monthInSearchScope(selMk, state.taskSearchScope) &&
+        periodEntryMatchesSearch(loadPeriodReview("month", selMk), searchTokens(state.taskSearch)));
     const monthNav = buildMonthNavHtml(state.monthsYear, selMk);
 
     let mainBody = "";
@@ -3025,7 +3293,7 @@
         : "";
       mainBody = `
         ${renderMonthSummaryBar(stats)}
-        <section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk, { readOnly: true })}</section>
+        ${showMonthPeriod ? `<section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk, { readOnly: true })}</section>` : ""}
         ${openBlock ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">未完成 · ${plannedOpen.length}</h3><div class="tsk-month-section-b">${openBlock}</div></section>` : ""}
         ${weekRows ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">各周</h3><div class="tsk-month-section-b tsk-week-rows">${weekRows}</div></section>` : ""}
         ${doneBlock ? `<section class="tsk-month-section"><h3 class="tsk-month-section-h">记录</h3><div class="tsk-month-section-b">${doneBlock}</div></section>` : ""}
@@ -3036,7 +3304,7 @@
         }`;
     } else {
       mainBody = `
-        <section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk)}</section>
+        ${showMonthPeriod ? `<section class="tsk-month-section tsk-month-period">${renderPeriodReviewBlock("month", selMk)}</section>` : ""}
         <section class="tsk-month-section">
           <h3 class="tsk-month-section-h">月池 · ${pool.length}</h3>
           <form class="tsk-month-add" id="monthItemForm">
@@ -3072,6 +3340,17 @@
         </aside>
         <main class="tsk-month-main tsk-month-skin-${phase}">
           <h2 class="tsk-month-title">${escapeHtml(monthLabel(selMk))}</h2>
+          ${
+            isTaskSearchActive() &&
+            !showMonthPeriod &&
+            !pool.length &&
+            !targeted.length &&
+            !plannedOpen.length &&
+            !doneItems.length &&
+            !weekRows
+              ? renderSearchEmptyHint()
+              : ""
+          }
           ${mainBody}
         </main>
       </div>`;
@@ -3454,6 +3733,7 @@
     closeStatusMenu();
     refreshTabCount();
     updateWeekChip();
+    updateTaskSearchBar();
     if (state.mode === "home") renderHome();
     if (state.mode === "board") renderBoard();
     if (state.mode === "months") renderMonths();
@@ -3472,6 +3752,8 @@
       columnOrder: state.columnOrder,
       catFilter: state.catFilter,
       subSearch: state.subSearch,
+      taskSearch: state.taskSearch,
+      taskSearchScope: state.taskSearchScope,
     };
     markDirty("prefs");
   }
@@ -3490,14 +3772,43 @@
     state.columnOrder = b.columnOrder || "asc";
     state.catFilter = b.catFilter || "all";
     state.subSearch = b.subSearch || "";
+    state.taskSearch = b.taskSearch || "";
+    state.taskSearchScope = b.taskSearchScope || "week";
     if (!state.boardWeek) state.boardWeek = weekKey();
     state.statsAnchor = monthKey();
     state.monthsKey = monthKey();
     state.monthsYear = new Date().getFullYear();
   }
 
+  function bindTaskSearch() {
+    const inp = $("#tasksGlobalSearch");
+    const bar = $("#tasksSearchBar");
+    if (!inp || !bar) return;
+    let debounceTimer = null;
+    inp.addEventListener("input", () => {
+      state.taskSearch = inp.value;
+      saveBoardPrefs();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => renderAll(), 120);
+    });
+    bar.querySelectorAll("[data-search-scope]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.taskSearchScope = btn.getAttribute("data-search-scope") || "week";
+        saveBoardPrefs();
+        renderAll();
+      });
+    });
+    $("#btnTasksSearchClear")?.addEventListener("click", () => {
+      state.taskSearch = "";
+      inp.value = "";
+      saveBoardPrefs();
+      renderAll();
+    });
+  }
+
   function bind() {
     bindPersistLifecycle();
+    bindTaskSearch();
     document.querySelectorAll(".tsk-mode-tab[data-task-mode]").forEach((btn) => {
       btn.addEventListener("click", () => switchMode(btn.dataset.taskMode));
     });

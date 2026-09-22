@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260921q" />
+  <link rel="stylesheet" href="/app.css?v=20260922a" />
 </head>
 <body>
   <div class="shell">
@@ -530,6 +530,16 @@
           <button type="button" class="tsk-mode-tab" data-task-mode="board" role="tab" aria-selected="false">任务预览与编辑</button>
           <button type="button" class="tsk-mode-tab" data-task-mode="months" role="tab" aria-selected="false">月度 / 历史</button>
           <button type="button" class="tsk-mode-tab" data-task-mode="stats" role="tab" aria-selected="false">数据统计</button>
+        </div>
+        <div id="tasksSearchBar" class="tsk-search-bar">
+          <div class="tsk-search-scopes" role="tablist" aria-label="搜索范围">
+            <button type="button" class="tsk-chip on" data-search-scope="week">本周</button>
+            <button type="button" class="tsk-chip" data-search-scope="month">本月</button>
+            <button type="button" class="tsk-chip" data-search-scope="all">全部</button>
+          </div>
+          <input id="tasksGlobalSearch" class="tsk-search-input" type="search" placeholder="模糊搜索：任务、要点、日记录、周/月计划…" autocomplete="off" />
+          <span id="tasksSearchHint" class="tsk-search-hint muted"></span>
+          <button type="button" class="btn-link xs tsk-search-clear" id="btnTasksSearchClear" hidden>清除</button>
         </div>
         <div id="tasksModeHome" class="tsk-mode-panel">
           <div id="tasksHome" class="tsk-home"></div>
@@ -1140,10 +1150,10 @@
 
     </main>
   </div>
-  <script src="/taxonomy.js?v=20260921o"></script>
+  <script src="/taxonomy.js?v=20260922a"></script>
   <script src="/taxonomy-page.js?v=20260921c"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
-  <script src="/tasks.js?v=20260921p"></script>
-  <script src="/app.js?v=20260921d"></script>
+  <script src="/tasks.js?v=20260922b"></script>
+  <script src="/app.js?v=20260922b"></script>
 </body>
 </html>

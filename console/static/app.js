@@ -860,6 +860,7 @@ function switchTab(name) {
     loadPublishPlatforms(loadPublishPrefs().platforms || undefined);
     restorePublishPrefsFields();
     restorePublishWorkbenchMode();
+    void restorePublishRunIfAny();
   }
   if (name === "realtimesend") {
     rtLoadState();
@@ -4813,190 +4814,132 @@ function clearPublishProgress() {
   box.innerHTML = "";
 }
 
-const PUBLISH_RETRY_MAX = 5;
-const PUBLISH_RETRY_WAIT_MIN_MS = 3 * 60 * 1000;
-const PUBLISH_RETRY_WAIT_MAX_MS = 5 * 60 * 1000;
+const PUBLISH_RUN_JOB_LS = "pai_publish_run_job";
+let _publishRunPollToken = 0;
+let _publishRunRestoring = false;
 
-function publishRetryDelayMs() {
-  return (
-    PUBLISH_RETRY_WAIT_MIN_MS +
-    Math.floor(Math.random() * (PUBLISH_RETRY_WAIT_MAX_MS - PUBLISH_RETRY_WAIT_MIN_MS + 1))
-  );
+function cachePublishRunJobId(jobId) {
+  if (!jobId) return;
+  try {
+    localStorage.setItem(PUBLISH_RUN_JOB_LS, String(jobId));
+  } catch (_) {}
 }
 
-// ── 发布重试可终止 ──────────────────────────────────────────────
-let _cancelPublishRetry = false;
-function cancelPublishRetry() { _cancelPublishRetry = true; }
-function resetPublishRetry() { _cancelPublishRetry = false; }
+function clearPublishRunJobCache() {
+  try {
+    localStorage.removeItem(PUBLISH_RUN_JOB_LS);
+  } catch (_) {}
+}
 
-class RetryAbort extends Error {}
-RetryAbort.prototype.name = "RetryAbort";
-
-async function sleepPublishRetry(ms, onTick) {
-  const end = Date.now() + Math.max(0, ms);
-  while (Date.now() < end) {
-    if (_cancelPublishRetry) throw new RetryAbort();
-    const left = end - Date.now();
-    onTick?.(Math.ceil(left / 1000));
-    await new Promise((r) => setTimeout(r, Math.min(1000, Math.max(0, left))));
+async function resolveActivePublishRunJobId() {
+  const cached = localStorage.getItem(PUBLISH_RUN_JOB_LS);
+  if (cached) return cached;
+  try {
+    const data = await api("/api/publish/run/active");
+    return data.job_id || "";
+  } catch (_) {
+    return "";
   }
 }
 
-async function postPublishPlatform({ pid, name, base, stagedMediaPaths, media_files }) {
-  const data = await api("/api/publish", {
+function applyPublishRunJobUi(job) {
+  const progress = job?.publish_progress || {};
+  const results = progress.results || job?.result?.results || [];
+  if (progress.phase) {
+    renderPublishProgress({ ...progress, results });
+  }
+  if (job?.message) {
+    setStatus($("#publishStatus"), job.message);
+  }
+}
+
+async function pollPublishRunJob(jobId, { onProgress } = {}) {
+  const token = ++_publishRunPollToken;
+  while (token === _publishRunPollToken) {
+    const data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    const job = data.job || {};
+    const progress = job.publish_progress || {};
+    if (progress.phase) {
+      onProgress?.({ ...progress, results: progress.results || job.result?.results || [] });
+      renderPublishProgress({ ...progress, results: progress.results || job.result?.results || [] });
+    }
+    if (job.message) {
+      setStatus($("#publishStatus"), job.message);
+    }
+    if (["done", "error", "cancelled"].includes(job.status)) {
+      clearPublishRunJobCache();
+      return job;
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  return null;
+}
+
+function cancelPublishRetry() {
+  const jobId = localStorage.getItem(PUBLISH_RUN_JOB_LS);
+  if (!jobId) return;
+  void api("/api/publish/run/control", {
     method: "POST",
-    body: JSON.stringify({
-      ...base,
-      platforms: [pid],
-      media_paths: stagedMediaPaths,
-      media_files: stagedMediaPaths.length ? [] : media_files,
-    }),
+    body: JSON.stringify({ job_id: jobId, action: "stop" }),
+  }).catch(() => {});
+  setStatus($("#publishStatus"), "正在终止发布…");
+}
+
+async function startPublishRunJob(draft) {
+  const data = await api("/api/publish/run", {
+    method: "POST",
+    body: JSON.stringify(draft),
   });
-  const nextPaths = data.media_paths?.length ? data.media_paths : stagedMediaPaths;
-  const row = data.results?.[0] || {
-    platform: pid,
-    platform_name: name,
-    success: !!data.success,
-    error: data.error,
-  };
-  return {
-    stagedMediaPaths: nextPaths,
-    result: {
-      platform: pid,
-      name: row.platform_name || name,
-      success: !!row.success,
-      error: row.error || (row.success ? "" : data.error),
-    },
-  };
+  if (!data.success || !data.job_id) {
+    throw new Error(data.error || "启动发布失败");
+  }
+  cachePublishRunJobId(data.job_id);
+  return data.job_id;
 }
 
 async function publishNowViaCdp(onProgress) {
-  const platforms = selectedPublishPlatforms();
-  if (!platforms.length) {
-    throw new Error("请至少选择一个平台");
+  const draft = await collectPublishDraft();
+  draft.submit = !$("#publishDryRun")?.checked;
+  const jobId = await startPublishRunJob(draft);
+  const job = await pollPublishRunJob(jobId, { onProgress });
+  if (!job) {
+    throw new Error("发布任务已中断");
   }
-  const content = $("#publishContent")?.value.trim() || "";
-  const media_files = await collectUploadMediaFiles();
-  const initialPaths = [...(publishServerMediaPaths || [])];
-  if (!content && !media_files.length && !initialPaths.length) {
-    throw new Error("请填写正文或上传图片");
-  }
-  const dry = !!$("#publishDryRun")?.checked;
-  const base = {
-    title: "",
-    content,
-    tags: "",
-    media_paths: initialPaths,
-    use_cdp: true,
-    debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
-    submit: !dry,
-  };
-  const stepResults = [];
-  let stagedMediaPaths = [...initialPaths];
-
-  const runOne = async (pid, attempt) => {
-    const name = publishPlatformLabel(pid);
-    const label = attempt > 1 ? `${name}（重试 ${attempt - 1}/${PUBLISH_RETRY_MAX}）` : name;
-    const idx = platforms.indexOf(pid) + 1;
-    onProgress?.({
-      phase: "running",
-      index: idx || stepResults.length + 1,
-      total: platforms.length,
-      platform: pid,
-      name: label,
-      results: stepResults,
-    });
-    setStatus(
-      $("#publishStatus"),
-      attempt > 1
-        ? `第 ${attempt - 1}/${PUBLISH_RETRY_MAX} 次重试 ${name}…`
-        : `正在发布 (${idx}/${platforms.length}) ${name}…`
-    );
-    const posted = await postPublishPlatform({
-      pid,
-      name,
-      base,
-      stagedMediaPaths,
-      media_files,
-    });
-    stagedMediaPaths = posted.stagedMediaPaths;
-    const prev = stepResults.find((r) => r.platform === pid);
-    const row = {
-      ...posted.result,
-      attempts: (prev?.attempts || 0) + 1,
-    };
-    if (prev) {
-      Object.assign(prev, row);
-    } else {
-      stepResults.push(row);
-    }
-    onProgress?.({
-      phase: row.success ? "done" : "fail",
-      index: idx || stepResults.length,
-      total: platforms.length,
-      platform: pid,
-      name,
-      results: stepResults,
-    });
-    return row;
-  };
-
-  for (let i = 0; i < platforms.length; i++) {
-    await runOne(platforms[i], 1);
-  }
-
-  if (!dry) {
-    for (let retry = 1; retry <= PUBLISH_RETRY_MAX; retry++) {
-      const failed = stepResults.filter((r) => !r.success);
-      if (!failed.length) break;
-      const names = failed.map((r) => r.name).join("、");
-      const waitMs = publishRetryDelayMs();
-      try {
-        await sleepPublishRetry(waitMs, (leftSec) => {
-          setStatus(
-            $("#publishStatus"),
-            `${names} 失败，${retry}/${PUBLISH_RETRY_MAX} 次重试将在 ${formatPublishCountdown(leftSec)} 后开始…`
-          );
-          onProgress?.({
-            phase: "retry_wait",
-            index: platforms.length,
-            total: platforms.length,
-            retry,
-            retryMax: PUBLISH_RETRY_MAX,
-            waitLeft: leftSec,
-            retryNames: names,
-            results: stepResults,
-          });
-        });
-      } catch (e) {
-        if (e instanceof RetryAbort) {
-          resetPublishRetry();
-          setStatus($("#publishStatus"), `${names} 已终止重试`);
-          onProgress?.({
-            phase: "retry_abort",
-            index: platforms.length,
-            total: platforms.length,
-            retryNames: names,
-            results: stepResults,
-          });
-          break;
-        }
-        throw e;
-      }
-      for (const row of failed) {
-        if (stepResults.find((r) => r.platform === row.platform)?.success) continue;
-        await runOne(row.platform, retry + 1);
-      }
-    }
-  }
-
-  const success_count = stepResults.filter((r) => r.success).length;
+  const result = job.result || {};
   return {
-    success: success_count > 0,
-    total: platforms.length,
-    success_count,
-    results: stepResults,
+    success: !!result.success,
+    total: result.total || 0,
+    success_count: result.success_count || 0,
+    results: result.results || [],
+    aborted: !!result.aborted,
   };
+}
+
+async function restorePublishRunIfAny() {
+  if (_publishRunRestoring) return false;
+  const jobId = await resolveActivePublishRunJobId();
+  if (!jobId) return false;
+  _publishRunRestoring = true;
+  try {
+    const data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    const job = data.job || {};
+    if (!job.status || ["done", "error", "cancelled"].includes(job.status)) {
+      clearPublishRunJobCache();
+      return false;
+    }
+    cachePublishRunJobId(jobId);
+    applyPublishRunJobUi(job);
+    const btn = $("#btnPublish");
+    if (btn) btn.disabled = true;
+    await pollPublishRunJob(jobId);
+    if (btn) btn.disabled = false;
+    return true;
+  } catch (_) {
+    clearPublishRunJobCache();
+    return false;
+  } finally {
+    _publishRunRestoring = false;
+  }
 }
 
 async function submitPublish() {
@@ -5908,12 +5851,14 @@ function bind() {
           results: data.results,
         });
         const failN = (data.results || []).filter((r) => !r.success).length;
-        const allOk = total > 0 && failN === 0 && okN === total;
+        const allOk = total > 0 && failN === 0 && okN === total && !data.aborted;
         setStatus(
           $("#publishStatus"),
-          allOk
-            ? `发布完成 ${okN}/${total}${detail ? ` · ${detail}` : ""}`
-            : `${detail || data.error || "发布失败"} · 正文和图片已保留`,
+          data.aborted
+            ? `${detail || "已终止"} · 正文和图片已保留`
+            : allOk
+              ? `发布完成 ${okN}/${total}${detail ? ` · ${detail}` : ""}`
+              : `${detail || data.error || "发布失败"} · 正文和图片已保留`,
           allOk ? "ok" : "error"
         );
         if (allOk) clearPublishEditorKeepMeta();
@@ -9033,6 +8978,7 @@ async function boot() {
   await loadPublishPlatforms(savedPlatforms?.length ? savedPlatforms : undefined);
   await loadPublishQueue();
   await loadPublishCache();
+  await restorePublishRunIfAny();
   await refreshCorpusStats();
   // 默认进入列表信号（若 localStorage 无有效 tab）
   if (!$(".tab.active")) switchTab("signals");

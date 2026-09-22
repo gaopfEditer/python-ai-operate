@@ -4599,6 +4599,39 @@
               "余额降是库存离开可出售池，看多日趋势。单日脉冲经常是搬仓，不是供需反转。",
               { stance: "mixed" }
             ),
+            tpl(
+              "onchain.exchange_balance",
+              "好情况（库存下降）",
+              "若交易所余额持续下降且没有同步大额进所，则盘口可售供给在收。写成库存下降，不写成必涨。失效：24h 内余额 V 型回升。",
+              {
+                id: "inventory_drain",
+                category: "看涨",
+                stance: "bull",
+                analogy: "货架空了，不等于已经涨完",
+              }
+            ),
+            tpl(
+              "onchain.exchange_balance",
+              "坏情况（库存堆积）",
+              "若余额连升、且来自老地址唤醒，则抛压在进场。先观察有没有主动卖，不先写崩盘。失效：余额升但价格同步被大额买单接住。",
+              {
+                id: "inventory_build",
+                category: "看跌",
+                stance: "bear",
+                analogy: "仓库在进货，门口还不知道谁买",
+              }
+            ),
+            tpl(
+              "onchain.exchange_balance",
+              "分裂（余额动、流向乱）",
+              "若余额波动大，但进出来自内部搬仓/跨所，则对价格中性。先拆「内部转」和「真进出」。失效：净进出方向连续 2 日同向。",
+              {
+                id: "internal_shuffle",
+                category: "混合",
+                stance: "mixed",
+                analogy: "货在仓库之间搬家，不是出了门",
+              }
+            ),
           ],
         }),
         topic({
@@ -4667,7 +4700,85 @@
               "onchain.whale",
               "先问去哪，再问多空",
               "到交易所、冷钱包、ETF 托管含义完全不同。一条转账不够写成庄家进场。",
-              { stance: "mixed" }
+              {
+                id: "ask_destination_first",
+                category: "混合",
+                stance: "mixed",
+                analogy: "先看车子开去哪，再猜司机想干什么",
+              }
+            ),
+            tpl(
+              "onchain.whale",
+              "好情况（锁仓预期）",
+              "若大额出所有到冷钱包/托管，且不是分散到发射盘，则锁仓预期。写成供给离开盘口，不写成神秘庄家。失效：24h 内原路返回交易所。",
+              {
+                id: "outflow_to_cold",
+                category: "看涨",
+                stance: "bull",
+                analogy: "筹码离开盘口，不是庄家显灵",
+              }
+            ),
+            tpl(
+              "onchain.whale",
+              "坏情况（长线变现）",
+              "若沉睡币唤醒并进所，则长线持有人变现。这是风险提示，先看有没有砸盘，不要先写叙事。失效：进所后多日未售、余额再降。",
+              {
+                id: "dormant_to_exchange",
+                category: "看跌",
+                stance: "bear",
+                analogy: "老筹码醒了，而且去了可以卖的地方",
+              }
+            ),
+            tpl(
+              "onchain.whale",
+              "分裂（标签不明）",
+              "若大额在链上转、标签不明，则信息不足。截图可以发，结论必须写「未知」。失效：地址被标注为交易所或 ETF 托管。",
+              {
+                id: "unlabeled_transfer",
+                category: "混合",
+                stance: "mixed",
+                analogy: "没有门牌就没有方向",
+              }
+            ),
+            tpl(
+              "onchain.whale",
+              "进所会改库存",
+              "进所大额会很快反映到交易所余额；小时到 1 日内把「转账」改写成「可售库存变了」。",
+              {
+                id: "inflow_hits_inventory",
+                category: "常见",
+                analogy: "货先入库，再谈会不会上架",
+              }
+            ),
+            tpl(
+              "onchain.whale",
+              "薄账本打针",
+              "薄流动性时大额更易打出针。先写深度，再写转账；否则一根针会被写成趋势。",
+              {
+                id: "thin_book_wick",
+                category: "极端",
+                analogy: "小池塘里推一块石头",
+              }
+            ),
+            tpl(
+              "onchain.whale",
+              "截图带情绪",
+              "链上截图本身会带情绪，即时生效。图可以发，方向仍要等标签和后续是否进所。",
+              {
+                id: "screenshot_sentiment",
+                category: "常见",
+                analogy: "先传的是画面，不是结论",
+              }
+            ),
+            tpl(
+              "onchain.whale",
+              "进已知托管偏中性",
+              "到已知 ETF/托管地址偏中性偏多，按 1 日窗口写，不按分钟级买卖写。",
+              {
+                id: "to_known_custody",
+                category: "大概率",
+                analogy: "进保险箱，不是进菜市场",
+              }
             ),
           ],
         }),
@@ -4737,6 +4848,39 @@
               "周期指标，不当日内扳机",
               "MVRV/SOPR 判断狂欢或恐慌，不是 5 分钟图信号。写周期稿，别写快讯扳机。",
               { stance: "mixed" }
+            ),
+            tpl(
+              "onchain.mvrv",
+              "好情况（获利回吐未失控）",
+              "若价格涨、SOPR > 1 但未到极端分位，MVRV 未进过热带，则是健康兑现。回调可当成换手。失效：SOPR 冲高同时成交量空翻。",
+              {
+                id: "healthy_realize",
+                category: "看涨",
+                stance: "bull",
+                analogy: "有人兑现，但队伍还没挤爆",
+              }
+            ),
+            tpl(
+              "onchain.mvrv",
+              "坏情况（亏损实现加速）",
+              "若 SOPR 持续 < 1 且仍在下降，则亏损盘在认输。写成抛压兑现，不写成抄底信号。失效：SOPR 回到 1 上方并站住。",
+              {
+                id: "loss_realize",
+                category: "看跌",
+                stance: "bear",
+                analogy: "亏着也要走，价格先给路",
+              }
+            ),
+            tpl(
+              "onchain.mvrv",
+              "分裂（估值与实现背离）",
+              "若 MVRV 显示估值偏高但 SOPR 接近 1、兑现很温和，则方向不明。先写「估值贵、卖压还不凶」。失效：两者重新同向。",
+              {
+                id: "value_vs_realize",
+                category: "混合",
+                stance: "mixed",
+                analogy: "账面对得上，出手还对不上",
+              }
             ),
           ],
         }),
@@ -4808,6 +4952,39 @@
               "供应升是场外美元潜力，赎回是离场。铸造不等于立刻买币，要看进没进交易所。",
               { stance: "mixed", coins: ["USDC", "BTC"] }
             ),
+            tpl(
+              "onchain.stable_supply",
+              "好情况（干火药增加）",
+              "若稳定币供应上升且留在链上/交易所，则潜在买盘增加。写成弹药变多，不写成已经开火。失效：增发后迅速流出到链下/赎回。",
+              {
+                id: "dry_powder_up",
+                category: "看涨",
+                stance: "bull",
+                analogy: "子弹入库，扳机还没扣",
+              }
+            ),
+            tpl(
+              "onchain.stable_supply",
+              "坏情况（赎回抽流动性）",
+              "若稳定币供应下降、交易所稳定币余额同步掉，则买盘弹药在撤。先写流动性收缩。失效：赎回同时现货持续吸筹。",
+              {
+                id: "stable_redeem",
+                category: "看跌",
+                stance: "bear",
+                analogy: "现金先离场，风险资产后定价",
+              }
+            ),
+            tpl(
+              "onchain.stable_supply",
+              "分裂（增发但不到盘口）",
+              "若总供应升，但交易所稳定币余额不升，则钱可能在链上空转或进了理财。结论写「未到盘口」。失效：交易所稳定币余额随后跟上。",
+              {
+                id: "mint_not_on_book",
+                category: "混合",
+                stance: "mixed",
+                analogy: "钱印出来了，还没走到柜台",
+              }
+            ),
           ],
         }),
         topic({
@@ -4877,6 +5054,39 @@
               "标签是线索，不是订单",
               "聪明钱标签是事后的，样本偏差大。单独一条不够开方向，要和 ETF/结构交叉验证。",
               { stance: "mixed" }
+            ),
+            tpl(
+              "onchain.flow",
+              "好情况（聪明钱吸筹）",
+              "若标记良好的长期地址在跌时净买入、且不进所，则更像吸筹。写成行为，不写成必涨口号。失效：同一批地址 24–48h 内倒手进所。",
+              {
+                id: "smart_accumulate",
+                category: "看涨",
+                stance: "bull",
+                analogy: "会买的人在买，而且没去柜台",
+              }
+            ),
+            tpl(
+              "onchain.flow",
+              "坏情况（聪明钱分发）",
+              "若高胜率地址在涨时分批进所或转给做市，则更像分发。先写供给回流盘口。失效：进所后余额再降、并未出现主动卖。",
+              {
+                id: "smart_distribute",
+                category: "看跌",
+                stance: "bear",
+                analogy: "会卖的人把货送回了市场",
+              }
+            ),
+            tpl(
+              "onchain.flow",
+              "分裂（标签打架）",
+              "若「聪明钱」标签互相矛盾，或地址刚被标记、样本太短，则信息不足。只发流向，不下方向。失效：多源标签收敛到同一行为。",
+              {
+                id: "label_conflict",
+                category: "混合",
+                stance: "mixed",
+                analogy: "名头比流水响时，先信流水",
+              }
             ),
           ],
         }),

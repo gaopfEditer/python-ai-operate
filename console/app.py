@@ -2615,6 +2615,27 @@ def handle_api(
             result["saved_path"] = saved
         return _json_bytes(result)
 
+    if path == "/api/publish/run/active" and method == "GET":
+        from console import publish_run as pr
+
+        return pr.active_run_payload(get_job=_get_job)
+
+    if path == "/api/publish/run/control" and method == "POST":
+        from console import publish_run as pr
+
+        return pr.control_run(body, set_job=_set_job)
+
+    if path == "/api/publish/run" and method == "POST":
+        from console import publish_run as pr
+
+        return pr.start_run(
+            body,
+            set_job=_set_job,
+            get_job=_get_job,
+            lock_acquire=_publish_lock_acquire,
+            lock_release=_publish_lock_release,
+        )
+
     if path == "/api/publish" and method == "POST":
         title = str(body.get("title") or "").strip()
         content = str(body.get("content") or body.get("text") or "").strip()
@@ -4510,7 +4531,7 @@ class ConsoleHandler(SimpleHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
             "Content-Type, Authorization, X-Publish-Token",
@@ -4533,12 +4554,18 @@ class ConsoleHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
+        self._dispatch_api("POST")
+
+    def do_PUT(self) -> None:
+        self._dispatch_api("PUT")
+
+    def _dispatch_api(self, method: str) -> None:
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
             try:
-                req_body = _read_api_body(self)
+                req_body = _read_api_body(self) if method in ("POST", "PUT", "PATCH") else {}
                 body, status, ctype = handle_api(
-                    "POST",
+                    method,
                     parsed.path,
                     parse_qs(parsed.query),
                     req_body,

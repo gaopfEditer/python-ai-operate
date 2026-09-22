@@ -28,7 +28,7 @@ def handle(
                 keys = [k for k in keys if k in STATE_KEYS] or None
             return _json_bytes({"success": True, "state": get_state(keys)})
 
-        if method == "PUT":
+        if method in ("PUT", "POST"):
             patch = body.get("patch") if isinstance(body, dict) else None
             if not isinstance(patch, dict):
                 return _json_bytes({"success": False, "error": "缺少 patch 对象"}, 400)
