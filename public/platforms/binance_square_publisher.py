@@ -2090,7 +2090,7 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
         except Exception:
             cur = ""
         if "ventures" in cur or (cur and "/orbit" not in cur):
-            driver.get(self.square_url)
+            navigate_or_activate(driver, self.square_url)
             steps.append("orbit_reset")
             human_pause(1.2, 2.0)
         self._click_okx_compose(driver, steps)
@@ -2115,7 +2115,7 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
         try:
             cur = (driver.current_url or "").lower()
             if "ventures" in cur or "/orbit" not in cur:
-                driver.get(self.square_url)
+                navigate_or_activate(driver, self.square_url)
                 human_pause(1.0, 1.6)
         except Exception:
             pass
@@ -2165,7 +2165,7 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
                     if "ventures" in cur2:
                         logger.warning("OKX Selenium 点击仍跳转 ventures，跳过该元素")
                         try:
-                            driver.get(self.square_url)
+                            navigate_or_activate(driver, self.square_url)
                             human_pause(0.8, 1.2)
                         except Exception:
                             pass
@@ -2184,7 +2184,7 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
                     steps.append("compose")
                 return True
             try:
-                driver.get(self.square_url)
+                navigate_or_activate(driver, self.square_url)
                 human_pause(0.8, 1.2)
             except Exception:
                 pass

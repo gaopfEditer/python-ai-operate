@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260922a" />
+  <link rel="stylesheet" href="/app.css?v=20260922c" />
 </head>
 <body>
   <div class="shell">
@@ -183,6 +183,16 @@
               </label>
               <button id="btnLabGenImages" class="btn primary" type="button">批量生成配图</button>
               <span id="labImageStatus" class="muted lab-image-status"></span>
+            </div>
+            <div class="lab-compose-wrap" id="labComposeWrap" hidden>
+              <div class="lab-compose-head">
+                <strong>配图布局</strong>
+                <span class="muted lab-compose-hint" id="labComposeHint">点击选中 · 拖拽移动 · 方向键微调（Shift 大步）</span>
+                <button type="button" class="btn ghost xs" id="btnLabComposeReset" title="恢复当前变体默认布局">重置</button>
+              </div>
+              <div class="lab-compose-stage" id="labComposeStage" tabindex="0" aria-label="配图布局画布">
+                <div class="lab-compose-canvas" id="labComposeCanvas"></div>
+              </div>
             </div>
             <div class="lab-right-actions" id="labResultBar" hidden>
               <button id="btnLabCopyMd" class="btn ghost" type="button">一键复制</button>
@@ -1154,6 +1164,6 @@
   <script src="/taxonomy-page.js?v=20260921c"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20260922b"></script>
+  <script src="/app.js?v=20260922c"></script>
 </body>
 </html>

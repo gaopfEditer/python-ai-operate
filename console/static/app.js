@@ -28,6 +28,7 @@ const state = {
   labTagFilter: "",
   labVariants: [],
   labActiveVariant: null,
+  labComposeSelectedId: null,
   labImagePick: new Set(),
   labMode: localStorage.getItem("appLabMode") || "lab",
   memosItems: [],
@@ -95,6 +96,15 @@ function _labSlimVariant(v) {
     generation_id: v.generation_id,
     images: Array.isArray(v.images)
       ? v.images.slice(0, 4).map((im) => ({ url: im?.url || "" }))
+      : [],
+    layoutElements: Array.isArray(v.layoutElements)
+      ? v.layoutElements.slice(0, 12).map((el) => ({
+          id: el?.id || "",
+          kind: el?.kind || "",
+          text: String(el?.text || "").slice(0, 40),
+          x: Number(el?.x) || 0,
+          y: Number(el?.y) || 0,
+        }))
       : [],
   };
 }
@@ -2444,6 +2454,233 @@ function showLabSkeleton(loading) {
   if ($("#labResultBar")) $("#labResultBar").hidden = true;
   if ($("#labTweaks")) $("#labTweaks").hidden = true;
   if ($("#labImageBar")) $("#labImageBar").hidden = true;
+  if ($("#labComposeWrap")) $("#labComposeWrap").hidden = true;
+}
+
+const LAB_COMPOSE_NUDGE = 1;
+const LAB_COMPOSE_NUDGE_SHIFT = 10;
+
+function labComposeTemplateKey() {
+  return labCurrentLine().imageTemplate || "大字金句";
+}
+
+function labComposeUid() {
+  return "el_" + Math.random().toString(36).slice(2, 8);
+}
+
+function labComposeSourceText(variant) {
+  const v = variant || state.labActiveVariant;
+  if (!v) return { punchline: "", elements: [] };
+  const brief = v.imageBrief || v.brief || {};
+  let punchline = String(brief.punchline || v.hook || "").trim();
+  let elements = Array.isArray(brief.elements)
+    ? brief.elements.map((x) => String(x).trim()).filter(Boolean)
+    : [];
+  if (!elements.length && v.content) {
+    elements = String(v.content)
+      .split("\n")
+      .map((ln) => ln.trim().replace(/^[\d\-*>\s]+/, ""))
+      .filter((ln) => ln && ln.length < 40 && !ln.startsWith("http"))
+      .slice(0, 5);
+  }
+  return { punchline, elements };
+}
+
+function labComposeDefaultLayout(variant) {
+  const { punchline, elements } = labComposeSourceText(variant);
+  const tpl = labComposeTemplateKey();
+  const layout = [];
+
+  if (punchline) {
+    layout.push({
+      id: "punch",
+      kind: "title",
+      text: punchline.slice(0, 28),
+      x: 50,
+      y: tpl === "大字金句" ? 38 : 18,
+    });
+  }
+
+  if (tpl === "三列对比") {
+    const cols = (elements.length ? elements : ["要点 A", "要点 B", "要点 C"]).slice(0, 3);
+    cols.forEach((text, i) => {
+      layout.push({
+        id: labComposeUid(),
+        kind: "col",
+        text: String(text).slice(0, 16),
+        x: 17 + i * 33,
+        y: 62,
+      });
+    });
+  } else if (tpl === "杠杆对照") {
+    const left = elements[0] || "10x";
+    const right = elements[1] || "100x";
+    layout.push({ id: labComposeUid(), kind: "col", text: String(left).slice(0, 16), x: 28, y: 55 });
+    layout.push({ id: labComposeUid(), kind: "vs", text: "VS", x: 50, y: 55 });
+    layout.push({ id: labComposeUid(), kind: "col", text: String(right).slice(0, 16), x: 72, y: 55 });
+  } else {
+    (elements.length ? elements : ["要点 1", "要点 2"]).slice(0, 4).forEach((text, i) => {
+      layout.push({
+        id: labComposeUid(),
+        kind: "tag",
+        text: String(text).slice(0, 20),
+        x: 12 + (i % 2) * 48,
+        y: 58 + Math.floor(i / 2) * 14,
+      });
+    });
+  }
+  return layout;
+}
+
+function labGetComposeLayout(variant) {
+  const v = variant || state.labActiveVariant;
+  if (!v) return [];
+  if (Array.isArray(v.layoutElements) && v.layoutElements.length) {
+    return v.layoutElements.map((el) => ({ ...el }));
+  }
+  const layout = labComposeDefaultLayout(v);
+  v.layoutElements = layout;
+  return layout;
+}
+
+function labSetComposeLayout(layout) {
+  const v = state.labActiveVariant;
+  if (!v) return;
+  v.layoutElements = layout.map((el) => ({ ...el }));
+}
+
+function labComposeSelectedElement() {
+  return labGetComposeLayout().find((el) => el.id === state.labComposeSelectedId) || null;
+}
+
+function labNudgeComposeElement(dx, dy) {
+  const layout = labGetComposeLayout();
+  const el = layout.find((item) => item.id === state.labComposeSelectedId);
+  if (!el) return false;
+  el.x = Math.round(Math.max(2, Math.min(98, el.x + dx)) * 10) / 10;
+  el.y = Math.round(Math.max(2, Math.min(98, el.y + dy)) * 10) / 10;
+  labSetComposeLayout(layout);
+  renderLabComposeCanvas();
+  scheduleLabSessionSave();
+  return true;
+}
+
+let _labComposeDrag = null;
+
+function startLabComposeDrag(ev, id) {
+  const canvas = $("#labComposeCanvas");
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const el = labComposeSelectedElement();
+  if (!el || el.id !== id) return;
+  _labComposeDrag = { id, startX: ev.clientX, startY: ev.clientY, ox: el.x, oy: el.y, rect };
+  const onMove = (e) => {
+    if (!_labComposeDrag || _labComposeDrag.id !== id) return;
+    const d = _labComposeDrag;
+    const dx = ((e.clientX - d.startX) / d.rect.width) * 100;
+    const dy = ((e.clientY - d.startY) / d.rect.height) * 100;
+    el.x = Math.round(Math.max(2, Math.min(98, d.ox + dx)) * 10) / 10;
+    el.y = Math.round(Math.max(2, Math.min(98, d.oy + dy)) * 10) / 10;
+    labSetComposeLayout(labGetComposeLayout());
+    const node = canvas.querySelector(`[data-compose-id="${id}"]`);
+    if (node) {
+      node.style.left = `${el.x}%`;
+      node.style.top = `${el.y}%`;
+    }
+  };
+  const onUp = () => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
+    _labComposeDrag = null;
+    scheduleLabSessionSave();
+    renderLabComposeCanvas();
+  };
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
+}
+
+function renderLabComposeCanvas() {
+  const wrap = $("#labComposeWrap");
+  const canvas = $("#labComposeCanvas");
+  if (!wrap || !canvas) return;
+  const variant = state.labActiveVariant;
+  if (!variant || !(state.labVariants || []).length) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  const layout = labGetComposeLayout(variant);
+  if (!state.labComposeSelectedId || !layout.some((el) => el.id === state.labComposeSelectedId)) {
+    state.labComposeSelectedId = layout[0]?.id || null;
+  }
+  const tpl = labComposeTemplateKey();
+  canvas.innerHTML = layout
+    .map((el) => {
+      const sel = el.id === state.labComposeSelectedId ? " is-selected" : "";
+      const kind =
+        el.kind === "title" ? " is-title" : el.kind === "vs" ? " is-vs" : "";
+      return `<div class="lab-compose-el${sel}${kind}" data-compose-id="${escapeAttr(el.id)}" style="left:${el.x}%;top:${el.y}%;">${escapeHtml(el.text || "")}</div>`;
+    })
+    .join("");
+  canvas.querySelectorAll(".lab-compose-el").forEach((node) => {
+    node.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      state.labComposeSelectedId = node.getAttribute("data-compose-id");
+      $("#labComposeStage")?.focus({ preventScroll: true });
+      renderLabComposeCanvas();
+      startLabComposeDrag(ev, state.labComposeSelectedId);
+    });
+  });
+  const hint = $("#labComposeHint");
+  const sel = labComposeSelectedElement();
+  if (hint) {
+    hint.textContent = sel
+      ? `${tpl} · 已选「${sel.text.slice(0, 14)}」 · ←↑↓→ 微调 · Shift 大步`
+      : `${tpl} · 点击元素选中 · 方向键微调位置`;
+  }
+}
+
+function resetLabComposeLayout() {
+  const v = state.labActiveVariant;
+  if (!v) return;
+  v.layoutElements = labComposeDefaultLayout(v);
+  state.labComposeSelectedId = v.layoutElements[0]?.id || null;
+  renderLabComposeCanvas();
+  scheduleLabSessionSave();
+}
+
+function labComposeKeydown(e) {
+  if ($("#panel-corpus")?.hidden || $("#labComposeWrap")?.hidden || state.labMode !== "lab") return;
+  const tag = (document.activeElement?.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return;
+  const dirs = {
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+  };
+  const dir = dirs[e.key];
+  if (!dir || !labComposeSelectedElement()) return;
+  const step = e.shiftKey ? LAB_COMPOSE_NUDGE_SHIFT : LAB_COMPOSE_NUDGE;
+  if (labNudgeComposeElement(dir[0] * step, dir[1] * step)) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
+function bindLabCompose() {
+  $("#labComposeStage")?.addEventListener("click", () => {
+    $("#labComposeStage")?.focus({ preventScroll: true });
+  });
+  $("#btnLabComposeReset")?.addEventListener("click", () => resetLabComposeLayout());
+  if (!document.body.dataset.labComposeKeys) {
+    document.body.dataset.labComposeKeys = "1";
+    document.addEventListener("keydown", labComposeKeydown, true);
+  }
 }
 
 function labSelectedImageIndices() {
@@ -2485,7 +2722,9 @@ function renderLabVariants(variants, activeIdx) {
     state.labImagePick = new Set([...prevPick].filter((i) => i >= 0 && i < variants.length));
   }
   const idx = activeIdx == null ? 0 : activeIdx;
+  const prevVariant = state.labActiveVariant;
   state.labActiveVariant = variants[idx];
+  if (prevVariant !== state.labActiveVariant) state.labComposeSelectedId = null;
   const hookLabels = ["A 刺眼", "B 干货", "C 故事"];
   box.innerHTML = variants
     .map((v, i) => {
@@ -2552,6 +2791,7 @@ function renderLabVariants(variants, activeIdx) {
   const out = $("#corpusRegenOut");
   if (out) out.textContent = active?.content || "";
   if (typeof updateLabSteps === "function") updateLabSteps();
+  renderLabComposeCanvas();
   scheduleLabSessionSave();
 }
 
@@ -5515,6 +5755,7 @@ function bind() {
   $("#btnLabRegen")?.addEventListener("click", () => runCorpusRegen({ explicit: true }));
   $("#btnLabSaveFeatured")?.addEventListener("click", () => labSaveFeatured());
   $("#btnLabGenImages")?.addEventListener("click", () => runLabBatchImages());
+  bindLabCompose();
   $("#labImagePickAll")?.addEventListener("change", (e) => {
     const variants = state.labVariants || [];
     if (e.target.checked) state.labImagePick = new Set(variants.map((_, i) => i));
