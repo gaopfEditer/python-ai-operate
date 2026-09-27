@@ -892,6 +892,103 @@ return el ? String(el.innerText || el.textContent || '').replace(/\\u200b/g, '')
         return ""
 
 
+_FOCUS_X_EDITOR_JS = """
+const el = (function(root) {
+  if (!root) return null;
+  const tag = String(root.tagName || '').toUpperCase();
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return root;
+  if (root.isContentEditable) return root;
+  const inner = root.querySelector && root.querySelector(
+    '[data-testid="tweetTextarea_0"] [contenteditable="true"], '
+    + 'div[role="textbox"] [contenteditable="true"], '
+    + '.public-DraftEditor-content[contenteditable="true"], '
+    + '[contenteditable="true"][role="textbox"], [contenteditable="true"]'
+  );
+  return inner || root;
+})(arguments[0]);
+if (!el) return { ok: false, reason: 'no_editable' };
+try { el.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (_) {}
+try { el.click(); } catch (_) {}
+try { el.focus(); } catch (_) {}
+const sel = window.getSelection();
+if (sel) {
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (_) {}
+}
+const ae = document.activeElement;
+const focused = ae === el || (ae && el.contains(ae));
+return { ok: !!focused, activeTag: String(ae && ae.tagName || '') };
+"""
+
+
+def _activate_driver_tab_for_input(driver) -> None:
+    """写入前短暂激活当前 Selenium 页签（Draft.js 在后台 tab 常吞 Input.insertText）。"""
+    try:
+        handle = str(driver.current_window_handle or "")
+    except Exception:
+        handle = ""
+    if not handle:
+        return
+    for t in _list_page_targets(driver):
+        tid = str(t.get("targetId") or t.get("id") or "")
+        if not tid:
+            continue
+        if tid == handle or (len(tid) >= 8 and len(handle) >= 8 and (handle.startswith(tid[:8]) or tid.startswith(handle[:8]))):
+            try:
+                driver.execute_cdp_cmd("Target.activateTarget", {"targetId": tid})
+                time.sleep(0.1)
+            except Exception:
+                pass
+            return
+
+
+def _ensure_x_editor_focus(driver, element) -> bool:
+    try:
+        with preserve_os_focus():
+            _activate_driver_tab_for_input(driver)
+            res = driver.execute_script(_FOCUS_X_EDITOR_JS, element)
+        return bool(isinstance(res, dict) and res.get("ok"))
+    except Exception:
+        return False
+
+
+def _read_x_text_from_element(driver, element) -> str:
+    try:
+        return str(
+            driver.execute_script(
+                """
+const el = (function(root) {
+  if (!root) return null;
+  if (root.isContentEditable) return root;
+  const inner = root.querySelector && root.querySelector(
+    '[contenteditable="true"][role="textbox"], .public-DraftEditor-content[contenteditable="true"], [contenteditable="true"]'
+  );
+  return inner || root;
+})(arguments[0]);
+return el ? String(el.innerText || el.textContent || '').replace(/\\u200b/g, '') : '';
+""",
+                element,
+            )
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def _read_x_compose_got(driver, element) -> str:
+    got = _norm_editor_newlines(_read_x_text_from_element(driver, element))
+    if got.strip():
+        return got
+    return _norm_editor_newlines(
+        read_x_compose_inner_text(driver) or read_editor_text(driver, element)
+    )
+
+
 def _norm_editor_newlines(s: str) -> str:
     return sanitize_typed_text(s or "").replace("\r\n", "\n").replace("\r", "\n")
 
@@ -915,6 +1012,42 @@ def x_editor_line_structure_ok(got: str, expected: str) -> bool:
     return True
 
 
+def _type_x_multiline_into_element(
+    driver,
+    element,
+    body: str,
+    *,
+    clear_first: bool = True,
+) -> str:
+    """在指定 Draft 编辑区内逐段 insertText + \\n，不抛错，返回读到的 innerText。"""
+    if clear_first:
+        try:
+            driver.execute_script(_CLEAR_EDITOR_JS, element)
+        except Exception:
+            pass
+        human_pause(0.12, 0.25)
+    if not _ensure_x_editor_focus(driver, element):
+        human_pause(0.1, 0.2)
+        _ensure_x_editor_focus(driver, element)
+    human_pause(0.08, 0.16)
+    segments = body.split("\n")
+    idx = 0
+    while idx < len(segments):
+        seg = segments[idx]
+        if seg:
+            append_text_at_caret(driver, element, seg)
+            human_pause(0.02, 0.06)
+        nxt = idx + 1
+        while nxt < len(segments) and not segments[nxt]:
+            nxt += 1
+        if nxt < len(segments):
+            append_text_at_caret(driver, element, "\n")
+            human_pause(0.04, 0.08)
+        idx = nxt if nxt > idx else idx + 1
+    human_pause(0.1, 0.2)
+    return _read_x_compose_got(driver, element)
+
+
 def type_x_compose_via_cdp_insert_text(
     driver,
     element,
@@ -923,60 +1056,88 @@ def type_x_compose_via_cdp_insert_text(
     clear_first: bool = True,
 ) -> str:
     """
-    X 发帖：焦点处 CDP Input.insertText 一次写入（含真实 \\n）。
-    不用 value 赋值；写后读 tweetTextarea innerText 核对。
+    X 发帖：多策略写入 Draft.js（含真实 \\n），写后读 innerText 核对。
+    CDP Input.insertText 在 X 上常因焦点不在编辑区而空写，故优先逐行 execCommand。
     """
     body = prepare_x_compose_text(text)
     if not body:
         return ""
-    if clear_first:
-        try:
-            driver.execute_script(_CLEAR_EDITOR_JS, element)
-        except Exception:
-            pass
-        human_pause(0.12, 0.25)
-    try:
-        element.click()
-    except Exception:
-        driver.execute_script("arguments[0].click(); arguments[0].focus();", element)
-    human_pause(0.08, 0.18)
-    try:
-        driver.execute_script(
-            "const el=arguments[0]; if(el&&el.focus) el.focus();", element
+
+    attempts: List[str] = []
+
+    def _try_multiline() -> str:
+        got = _type_x_multiline_into_element(
+            driver, element, body, clear_first=clear_first
         )
+        if x_editor_line_structure_ok(got, body):
+            return got
+        attempts.append(f"multiline={(got or '')[:48]!r}")
+        return ""
+
+    def _try_cdp_insert() -> str:
+        if clear_first:
+            try:
+                driver.execute_script(_CLEAR_EDITOR_JS, element)
+            except Exception:
+                pass
+            human_pause(0.12, 0.25)
+        if not _ensure_x_editor_focus(driver, element):
+            attempts.append("focus=fail")
+            return ""
+        human_pause(0.08, 0.16)
+        try:
+            driver.execute_cdp_cmd("Input.insertText", {"text": body})
+        except Exception as exc:
+            attempts.append(f"cdp={exc}")
+            return ""
+        human_pause(0.12, 0.24)
+        got = _read_x_compose_got(driver, element)
+        if x_editor_line_structure_ok(got, body):
+            return got
+        attempts.append(f"cdp={(got or '')[:48]!r}")
+        return ""
+
+    def _try_insert_js() -> str:
+        if clear_first:
+            try:
+                driver.execute_script(_CLEAR_EDITOR_JS, element)
+            except Exception:
+                pass
+            human_pause(0.12, 0.25)
+        _ensure_x_editor_focus(driver, element)
+        human_pause(0.08, 0.16)
+        try:
+            res = driver.execute_script(_INSERT_TEXT_JS, element, body, True)
+            if isinstance(res, dict) and not res.get("ok", True):
+                attempts.append("insert_js=not_ok")
+                return ""
+        except Exception as exc:
+            attempts.append(f"insert_js={exc}")
+            return ""
+        human_pause(0.12, 0.24)
+        got = _read_x_compose_got(driver, element)
+        if x_editor_line_structure_ok(got, body):
+            return got
+        attempts.append(f"insert_js={(got or '')[:48]!r}")
+        return ""
+
+    for fn in (_try_multiline, _try_cdp_insert, _try_insert_js):
+        got = fn()
+        if got:
+            logger.info("X 正文写入成功（%s 行）", got.count("\n") + 1)
+            return got
+
+    final_got = _read_x_compose_got(driver, element)
+    try:
+        driver.execute_script(_CLEAR_EDITOR_JS, element)
     except Exception:
         pass
-    human_pause(0.05, 0.12)
-    inserted = False
-    try:
-        driver.execute_cdp_cmd("Input.insertText", {"text": body})
-        inserted = True
-    except Exception as exc:
-        logger.warning("CDP Input.insertText 失败，回退 execCommand insertText: %s", exc)
-    if not inserted:
-        try:
-            driver.execute_script(_INSERT_TEXT_JS, element, body, False)
-        except Exception as exc:
-            raise RuntimeError(f"X 正文写入失败: {exc}") from exc
-    human_pause(0.1, 0.22)
-    got = _norm_editor_newlines(
-        read_x_compose_inner_text(driver) or read_editor_text(driver, element)
+    detail = "; ".join(attempts[:4]) if attempts else "无有效写入"
+    raise RuntimeError(
+        "X 正文写入异常（innerText 未保留换行），已中止。"
+        f" 期望前40={body[:40]!r} innerText前60={(final_got or '')[:60]!r}"
+        f" [{detail}]"
     )
-    if not x_editor_line_structure_ok(got, body):
-        logger.warning(
-            "X innerText 与预期不符。期望=%r innerText=%r",
-            body[:80],
-            (got or "")[:120],
-        )
-        try:
-            driver.execute_script(_CLEAR_EDITOR_JS, element)
-        except Exception:
-            pass
-        raise RuntimeError(
-            "X 正文写入异常（innerText 未保留换行），已中止。"
-            f" 期望前40={body[:40]!r} innerText前60={(got or '')[:60]!r}"
-        )
-    return got
 
 
 def type_text_multiline_soft_breaks(

@@ -1211,6 +1211,102 @@ fire(document.querySelector('[data-pai-editor="1"]'));
 return true;
 """
 
+_CLICK_GATE_SUBMIT_JS = r"""
+function visible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return false;
+  const st = window.getComputedStyle(el);
+  if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) < 0.05) return false;
+  if (st.pointerEvents === 'none') return false;
+  return true;
+}
+function norm(t) {
+  return (t || '').trim().replace(/\s+/g, '');
+}
+function textOf(el) {
+  if (!el) return '';
+  const aria = (el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+  if (aria) return norm(aria);
+  return norm(el.innerText || el.textContent || '');
+}
+function hardDisabled(el) {
+  if (!el) return true;
+  if (el.disabled) return true;
+  if (el.getAttribute('aria-disabled') === 'true') return true;
+  const st = window.getComputedStyle(el);
+  if (st.pointerEvents === 'none') return true;
+  return false;
+}
+function inSidebarOrNav(el) {
+  if (el.closest(
+    'aside, nav, header, [class*="sidebar" i], [class*="side-nav" i], [class*="sidenav" i], '
+    + '[class*="left-nav" i], [class*="LeftNav" i], [class*="menu-list" i], [class*="MenuList" i]'
+  )) return true;
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  if (cx < window.innerWidth * 0.22 && r.top > 60) return true;
+  return false;
+}
+function gateComposeRoot() {
+  const marked = document.querySelector('[data-pai-editor-root="1"]');
+  if (marked) return marked;
+  return document.querySelector('.editor-container--page')
+    || (document.querySelector('.editor-compose') && document.querySelector('.editor-compose').closest('.editor-container--page'))
+    || document.querySelector('.editor-compose');
+}
+function isPublishLabel(t) {
+  const low = (t || '').toLowerCase();
+  return t === '发布' || low === 'post' || low === 'publish';
+}
+function clickTarget(el) {
+  return el.closest('button, [role="button"], [type="submit"]') || el;
+}
+function doClick(el) {
+  const btn = clickTarget(el);
+  try { btn.scrollIntoView({block:'center', inline:'center'}); } catch (_) {}
+  try { btn.focus(); } catch (_) {}
+  try { btn.click(); return true; } catch (_) {}
+  try {
+    btn.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
+    return true;
+  } catch (_) { return false; }
+}
+const allowDisabled = !!arguments[0];
+const root = gateComposeRoot();
+if (!root) return false;
+const barSelectors = [
+  '.editor-bar button',
+  '.editor-bar [role="button"]',
+  '.editor-actions button',
+  '.editor-actions [role="button"]',
+];
+for (const sel of barSelectors) {
+  for (const el of root.querySelectorAll(sel)) {
+    if (!visible(el) || inSidebarOrNav(el)) continue;
+    const t = textOf(el);
+    if (!isPublishLabel(t)) continue;
+    if (hardDisabled(el) && !allowDisabled) continue;
+    if (doClick(el)) return true;
+  }
+}
+let best = null, bestSc = 0;
+root.querySelectorAll('button, [role="button"], [type="submit"]').forEach((el) => {
+  if (!visible(el) || inSidebarOrNav(el)) return;
+  const t = textOf(el);
+  if (!isPublishLabel(t)) return;
+  if (hardDisabled(el) && !allowDisabled) return;
+  let sc = 100;
+  const r = el.getBoundingClientRect();
+  if (el.closest('.editor-bar, .editor-actions')) sc += 120;
+  if (r.top > window.innerHeight * 0.35) sc += 40;
+  if (r.left > window.innerWidth * 0.25) sc += 30;
+  if (sc > bestSc) { bestSc = sc; best = el; }
+});
+if (best && bestSc >= 80) return doClick(best);
+return false;
+"""
+
 _DEBUG_BITGET_SUBMIT_JS = r"""
 function norm(t) { return (t || '').trim().replace(/\s+/g, ''); }
 const out = [];
@@ -2570,11 +2666,16 @@ return { clicked: null, score: 0 };
                         return { ok: true, label: t, where: 'okx_publish' };
                     }
                 }
-                // 策略 2b：Gate 广场入口条 .editor-bar「发布」
-                for (const el of document.querySelectorAll('.editor-bar button, .editor-bar [role="button"], .editor-container--page .editor-bar button')) {
-                    const t = labelOf(el);
-                    if (t === '发布' || t.toLowerCase() === 'post' || t.toLowerCase() === 'publish') {
-                        if (tryClick(el)) return { ok: true, label: t, where: 'gate_editor_bar' };
+                // 策略 2b：Gate 发帖页 .editor-container--page 内 .editor-bar「发布」（排除左侧导航）
+                const gateRoot = document.querySelector('.editor-container--page, [data-pai-editor-root="1"]');
+                if (gateRoot) {
+                    for (const el of gateRoot.querySelectorAll('.editor-bar button, .editor-bar [role="button"], .editor-actions button')) {
+                        const r = el.getBoundingClientRect();
+                        if (r.left + r.width / 2 < window.innerWidth * 0.22) continue;
+                        const t = labelOf(el);
+                        if (t === '发布' || t.toLowerCase() === 'post' || t.toLowerCase() === 'publish') {
+                            if (tryClick(el)) return { ok: true, label: t, where: 'gate_editor_bar' };
+                        }
                     }
                 }
                 // 策略 3：在弹框容器内找「发文」按钮
@@ -2622,6 +2723,9 @@ return { clicked: null, score: 0 };
     def _click_submit(self, driver) -> tuple:
         if self.platform_id == "bitget":
             ok = self._click_bitget_submit(driver)
+            return ok, "发布" if ok else "", []
+        if self.platform_id == "gate":
+            ok = self._click_gate_submit(driver)
             return ok, "发布" if ok else "", []
         labels = list(self.submit_labels)
         last_cands: list = []
@@ -2899,6 +3003,83 @@ return {
                 pass
             self._sync_bitget_form(driver)
             human_pause(0.45, 0.75)
+        return False
+
+    def _click_gate_submit(self, driver) -> bool:
+        """Gate /zh/post：只点发帖区 .editor-bar 内「发布」，不点左侧导航开弹窗。"""
+        from selenium.webdriver.common.by import By
+
+        for attempt in range(12):
+            allow_disabled = attempt >= 6
+            try:
+                if driver.execute_script(_CLICK_GATE_SUBMIT_JS, allow_disabled):
+                    logger.info("%s Gate 发布：editor-bar 内点击成功", self.platform_name)
+                    return True
+            except Exception as e:
+                logger.debug("Gate JS 发布 attempt=%s: %s", attempt, e)
+
+            xpaths = (
+                "//*[contains(@class,'editor-container--page')]//*[contains(@class,'editor-bar')]//button[normalize-space(.)='发布']",
+                "//*[contains(@class,'editor-container--page')]//button[normalize-space(.)='发布']",
+                "//*[@data-pai-editor-root='1']//*[contains(@class,'editor-bar')]//button[normalize-space(.)='发布']",
+            )
+            candidates: List[tuple] = []
+            for xp in xpaths:
+                try:
+                    nodes = driver.find_elements(By.XPATH, xp)
+                except Exception:
+                    continue
+                for el in nodes:
+                    try:
+                        if not el.is_displayed():
+                            continue
+                        if not allow_disabled:
+                            if (el.get_attribute("disabled") or "").lower() in ("true", "disabled"):
+                                continue
+                            if (el.get_attribute("aria-disabled") or "").lower() == "true":
+                                continue
+                        in_nav = driver.execute_script(
+                            """
+                            const el = arguments[0];
+                            if (el.closest('aside, nav, [class*="sidebar" i], [class*="side-nav" i]')) return true;
+                            const r = el.getBoundingClientRect();
+                            return (r.left + r.width / 2) < window.innerWidth * 0.22 && r.top > 60;
+                            """,
+                            el,
+                        )
+                        if in_nav:
+                            continue
+                        top = driver.execute_script(
+                            "return arguments[0].getBoundingClientRect().top", el
+                        )
+                        left = driver.execute_script(
+                            "return arguments[0].getBoundingClientRect().left", el
+                        )
+                        score = 200 + (top or 0) / 10 + (left or 0) / 20
+                        if el.find_elements(By.XPATH, "./ancestor::*[contains(@class,'editor-bar')]"):
+                            score += 150
+                        candidates.append((score, el))
+                    except Exception:
+                        continue
+
+            candidates.sort(key=lambda x: -x[0])
+            for _, el in candidates[:6]:
+                try:
+                    click_el = driver.execute_script(
+                        "return arguments[0].closest('button,[role=\"button\"]') || arguments[0];",
+                        el,
+                    )
+                    if click_el:
+                        driver.execute_script(
+                            "arguments[0].scrollIntoView({block:'center',inline:'center'});"
+                            "arguments[0].click();",
+                            click_el,
+                        )
+                        logger.info("%s Gate 发布：XPath 兜底点击成功", self.platform_name)
+                        return True
+                except Exception:
+                    continue
+            human_pause(0.6, 1.0)
         return False
 
     def _click_bitget_submit(self, driver) -> bool:

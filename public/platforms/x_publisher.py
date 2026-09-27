@@ -101,6 +101,7 @@ class XPublisher:
             human_pause(1.2, 2.5)
 
             if body:
+                editor = self._wait_editor(driver, timeout=8) or editor
                 self._fill_text(driver, editor, body)
                 steps.append("text")
                 human_pause(0.8, 1.5)
@@ -229,7 +230,8 @@ class XPublisher:
         return False
 
     def _fill_text(self, driver, editor, text: str) -> None:
-        """CDP Input.insertText 一次写入；段间单 \\n；写后读 innerText 校验。"""
+        """Draft.js 多策略写入；段间单 \\n；写后读 innerText 校验。"""
+        editor = self._wait_editor(driver, timeout=6) or editor
         type_x_compose_via_cdp_insert_text(driver, editor, text, clear_first=True)
 
     def _ensure_media_input(self, driver) -> None:
