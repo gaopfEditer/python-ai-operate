@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
@@ -83,9 +86,70 @@ def preserve_os_focus() -> Iterator[None]:
                 pass
 
 
+def _cdp_http_base(debugger_url: str) -> str:
+    base = (debugger_url or "").strip()
+    if not base:
+        base = "127.0.0.1:9222"
+    if not base.startswith("http"):
+        base = f"http://{base}"
+    return base.rstrip("/")
+
+
+def fetch_cdp_browser_version(debugger_url: str) -> Optional[str]:
+    """读 CDP 端口上正在运行的 Chrome 版本（与系统安装的 Chrome 可能不是同一只）。"""
+    url = f"{_cdp_http_base(debugger_url)}/json/version"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        browser = str((data or {}).get("Browser") or "")
+        if "/" in browser:
+            return browser.split("/", 1)[1].strip()
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError) as e:
+        logger.debug("CDP %s 读取失败: %s", url, e)
+    return None
+
+
+def _installed_chrome_version() -> Optional[str]:
+    """本机默认 Google Chrome 版本（Selenium Manager 通常按此拉 ChromeDriver）。"""
+    import shutil
+    import subprocess
+
+    for cmd in (
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        shutil.which("google-chrome"),
+        shutil.which("google-chrome-stable"),
+        shutil.which("chrome"),
+    ):
+        if not cmd:
+            continue
+        try:
+            out = subprocess.run(
+                [cmd, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            line = (out.stdout or out.stderr or "").strip()
+            # "Google Chrome 154.0.8037.58"
+            parts = line.split()
+            if parts:
+                ver = parts[-1]
+                if re.match(r"^\d+\.\d+\.\d+\.\d+$", ver):
+                    return ver
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return None
+
+
+def _chrome_major(version: str) -> Optional[int]:
+    m = re.match(r"^(\d+)", (version or "").strip())
+    return int(m.group(1)) if m else None
+
+
 def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
     """连接已启动的 Chrome（需 --remote-debugging-port）。连接本身不 switch_to，不抢焦点。"""
     from selenium import webdriver
+    from selenium.common.exceptions import SessionNotCreatedException
     from selenium.webdriver.chrome.options import Options
 
     for var in (
@@ -99,9 +163,44 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
         os.environ.pop(var, None)
 
     addr = debugger_url.strip()
+    cdp_ver = fetch_cdp_browser_version(addr)
+    local_ver = _installed_chrome_version()
+    if cdp_ver and local_ver:
+        cdp_m = _chrome_major(cdp_ver)
+        loc_m = _chrome_major(local_ver)
+        if cdp_m is not None and loc_m is not None and cdp_m != loc_m:
+            raise RuntimeError(
+                f"CDP {addr} 上的 Chrome 为 {cdp_ver}，本机 Chrome 为 {local_ver}，"
+                f"Selenium 会使用 ChromeDriver {loc_m}，无法 attach 到 {cdp_m} 的调试实例。"
+                f"9223/9222 端口能 curl 通不代表版本已对齐。"
+                f"请完全退出该调试 Chrome，用本机最新 Chrome 重新启动，例如："
+                f' "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" '
+                f'--remote-debugging-port={addr.split(":")[-1]} '
+                f'--user-data-dir="$HOME/chrome-cdp-profile"'
+            )
+
     options = Options()
     options.add_experimental_option("debuggerAddress", addr)
-    driver = webdriver.Chrome(options=options)
+
+    try:
+        driver = webdriver.Chrome(options=options)
+    except SessionNotCreatedException as e:
+        msg = str(e)
+        if "only supports Chrome version" in msg or "Current browser version" in msg:
+            hint = (
+                f"ChromeDriver 与 {addr} 上的 Chrome 主版本不一致。"
+                f"端口能访问只说明调试服务在跑，不代表驱动已匹配。"
+            )
+            if cdp_ver:
+                hint += f" 该端口当前浏览器版本约为 {cdp_ver}。"
+            if local_ver:
+                hint += f" 本机 Chrome 约为 {local_ver}（ChromeDriver 通常跟随本机）。"
+            hint += (
+                " 请关闭该调试 Chrome 后，用本机最新 Chrome 重新启动，例如："
+                " chrome --remote-debugging-port=9223 --user-data-dir=…"
+            )
+            raise SessionNotCreatedException(hint) from e
+        raise
     try:
         driver._cdp_debugger_url = addr  # type: ignore[attr-defined]
     except Exception:
