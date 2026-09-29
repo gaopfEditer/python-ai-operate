@@ -612,6 +612,70 @@ def human_pause(a: float = 0.4, b: float = 1.0) -> None:
     time.sleep(max(0.1, a + random.random() * max(0.0, b - a)))
 
 
+# 长文粘贴进 CDP 编辑区时，若像 Markdown 则转成适合社交平台的纯文本
+PASTE_MARKDOWN_MIN_LEN = 300
+
+
+def is_markdown(text: str) -> bool:
+    """判断一段文本是否很有可能是 Markdown。"""
+    if not text or len(text) < 8:
+        return False
+    score = 0
+    if re.search(r"^#{1,6}\s+\S+", text, flags=re.MULTILINE):
+        score += 2
+    if re.search(r"\*\*[^*]+\*\*|~~[^~]+~~", text):
+        score += 2
+    if re.search(r"\[.+?\]\(https?://\S+\)", text):
+        score += 2
+    if re.search(r"^\s*[-*+]\s+\S+|^\s*>\s+\S+", text, flags=re.MULTILINE):
+        score += 1
+    if re.search(r"^[-\*_]{3,}\s*$", text, flags=re.MULTILINE):
+        score += 1
+    if re.search(r"```", text):
+        score += 2
+    return score >= 2
+
+
+def clean_markdown_for_social(text: str) -> str:
+    """去掉 Markdown 语法，保留可读正文（链接保留 URL）。"""
+    if not text:
+        return ""
+    s = text.replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(r"```[^\n]*\n([\s\S]*?)```", r"\1", s)
+    s = re.sub(r"`([^`\n]+)`", r"\1", s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    s = re.sub(r"__(.+?)__", r"\1", s)
+    s = re.sub(r"~~(.+?)~~", r"\1", s)
+    s = re.sub(r"\*(.+?)\*", r"\1", s)
+    s = re.sub(r"_(.+?)_", r"\1", s)
+    s = re.sub(r"!\[(.+?)\]\([^)]+\)", r"\1", s)
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 \2", s)
+    s = re.sub(r"^>\s?", "", s, flags=re.MULTILINE)
+    s = re.sub(r"^#{1,6}\s*", "", s, flags=re.MULTILINE)
+    s = re.sub(r"^[\-\*_]{3,}\s*$", "", s, flags=re.MULTILINE)
+    s = re.sub(r"^\s*[-*+]\s+", "", s, flags=re.MULTILINE)
+    s = re.sub(r"^\s*\d+\.\s+", "", s, flags=re.MULTILINE)
+    s = re.sub(r"<[^>]+>", "", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+def process_text_before_send(text: str) -> str:
+    """超长粘贴：疑似 Markdown 时清洗后再写入 CDP 编辑区。"""
+    if not text or len(text) <= PASTE_MARKDOWN_MIN_LEN:
+        return text
+    if is_markdown(text):
+        cleaned = clean_markdown_for_social(text)
+        if cleaned and cleaned != text:
+            logger.info(
+                "CDP 长文 Markdown 已清洗: %d -> %d 字",
+                len(text),
+                len(cleaned),
+            )
+        return cleaned or text
+    return text
+
+
 def sanitize_typed_text(text: str) -> str:
     """去掉 Selenium Keys 私用区和控制符，避免广场正文出现 a 这类乱码。"""
     if not text:
@@ -633,7 +697,7 @@ def sanitize_typed_text(text: str) -> str:
         if o in (0x7F, 0x200B, 0x200C, 0x200D, 0xFEFF, 0x00AD):
             continue
         out.append(ch)
-    return "".join(out)
+    return process_text_before_send("".join(out))
 
 
 _CLEAR_EDITOR_JS = """
