@@ -278,7 +278,11 @@ def _run_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
         media=",".join(payload["media_paths"]),
     )
     if not _publish_lock_acquire(lock_key):
-        return {"success": False, "error": "另一个发布任务正在进行，请稍候再试", "elapsed_ms": 0}
+        return {
+            "success": False,
+            "error": "发布锁等待超时（上一任务可能仍在浏览器中操作），请稍后重试",
+            "elapsed_ms": 0,
+        }
     t0 = time.perf_counter()
     try:
         result = publish_content_with_retry(

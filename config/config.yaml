@@ -233,10 +233,10 @@ publish:
   headless: false
   # 浏览器等待时间（秒）
   wait_timeout: 10
-  # CDP：复用已启动的 Chrome（控制台「CDP 发布」默认开启）
-  # 启动示例：Chrome --remote-debugging-port=9222 --user-data-dir=...
-  # 并提前登录 X / 币安
-  debugger_url: "127.0.0.1:9222"
+  # CDP：复用已启动的 Chrome（控制台「CDP 发布」/ 外部 /api/v1/publish）
+  # 与 crawler.x_cdp 一致，默认 9223；也可用环境变量 CDP_DEBUGGER_URL
+  # 启动示例：Chrome --remote-debugging-port=9223 --user-data-dir=...
+  debugger_url: "127.0.0.1:9223"
   # 外部发布 API 令牌。空则不校验。也可用环境变量 PUBLISH_API_TOKEN
   api_token: ""
   

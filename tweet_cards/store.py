@@ -63,6 +63,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE tweet_cards ADD COLUMN user_category TEXT NOT NULL DEFAULT ''"
         )
+    if "taxonomy_topic_id" not in cols:
+        conn.execute(
+            "ALTER TABLE tweet_cards ADD COLUMN taxonomy_topic_id TEXT NOT NULL DEFAULT ''"
+        )
+    if "taxonomy_category_id" not in cols:
+        conn.execute(
+            "ALTER TABLE tweet_cards ADD COLUMN taxonomy_category_id TEXT NOT NULL DEFAULT ''"
+        )
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_tweet_cards_favorited
@@ -73,6 +81,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_tweet_cards_user_category
             ON tweet_cards(user_category);
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_tweet_cards_taxonomy_topic
+            ON tweet_cards(taxonomy_topic_id);
         """
     )
 
@@ -137,6 +151,8 @@ def _row_to_card(row: sqlite3.Row) -> Dict[str, Any]:
     ai_cat = str(d.get("category") or "").strip()
     d["user_category"] = user_cat
     d["display_category"] = user_cat or ai_cat
+    d["taxonomy_topic_id"] = str(d.get("taxonomy_topic_id") or "").strip()
+    d["taxonomy_category_id"] = str(d.get("taxonomy_category_id") or "").strip()
     return d
 
 
@@ -231,6 +247,8 @@ def _build_list_query(
     keyword: str = "",
     category: str = "",
     favorited: Optional[bool] = None,
+    taxonomy_topic_id: str = "",
+    taxonomy_category_id: str = "",
 ) -> Tuple[str, List[Any]]:
     where: List[str] = []
     params: List[Any] = []
@@ -252,6 +270,14 @@ def _build_list_query(
         where.append("favorited = 1")
     elif favorited is False:
         where.append("favorited = 0")
+    tid = (taxonomy_topic_id or "").strip()
+    if tid:
+        where.append("taxonomy_topic_id = ?")
+        params.append(tid)
+    cid = (taxonomy_category_id or "").strip()
+    if cid and not tid:
+        where.append("taxonomy_category_id = ?")
+        params.append(cid)
     sql_where = f"WHERE {' AND '.join(where)}" if where else ""
     return sql_where, params
 
@@ -263,13 +289,19 @@ def list_cards(
     keyword: str = "",
     category: str = "",
     favorited: Optional[bool] = None,
+    taxonomy_topic_id: str = "",
+    taxonomy_category_id: str = "",
 ) -> Dict[str, Any]:
     init_db()
     pg = max(1, int(page or 1))
     size = max(1, min(int(page_size or 20), 100))
     offset = (pg - 1) * size
     sql_where, params = _build_list_query(
-        keyword=keyword, category=category, favorited=favorited
+        keyword=keyword,
+        category=category,
+        favorited=favorited,
+        taxonomy_topic_id=taxonomy_topic_id,
+        taxonomy_category_id=taxonomy_category_id,
     )
     with connect() as conn:
         total = conn.execute(
@@ -326,6 +358,12 @@ def update_card(tweet_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any
     if "user_category" in fields:
         sets.append("user_category = ?")
         params.append(str(fields.get("user_category") or "").strip())
+    if "taxonomy_topic_id" in fields:
+        sets.append("taxonomy_topic_id = ?")
+        params.append(str(fields.get("taxonomy_topic_id") or "").strip())
+    if "taxonomy_category_id" in fields:
+        sets.append("taxonomy_category_id = ?")
+        params.append(str(fields.get("taxonomy_category_id") or "").strip())
     if not sets:
         return get_card(tid)
     sets.append("updated_at = ?")

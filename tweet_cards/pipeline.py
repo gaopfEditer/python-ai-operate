@@ -112,6 +112,8 @@ def list_tweet_cards(
     keyword: str = "",
     category: str = "",
     favorited: Any = None,
+    taxonomy_topic_id: str = "",
+    taxonomy_category_id: str = "",
 ) -> Dict[str, Any]:
     result = list_cards(
         page=page,
@@ -119,6 +121,8 @@ def list_tweet_cards(
         keyword=keyword,
         category=category,
         favorited=_parse_favorited(favorited),
+        taxonomy_topic_id=taxonomy_topic_id,
+        taxonomy_category_id=taxonomy_category_id,
     )
     return {
         "success": True,
@@ -136,6 +140,13 @@ def patch_tweet_card(tweet_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
         fields["user_category"] = str(
             body.get("user_category") if "user_category" in body else body.get("category") or ""
         ).strip()
+    if "taxonomy_topic_id" in body:
+        fields["taxonomy_topic_id"] = str(body.get("taxonomy_topic_id") or "").strip()
+    if "taxonomy_category_id" in body:
+        fields["taxonomy_category_id"] = str(body.get("taxonomy_category_id") or "").strip()
+    if body.get("clear_taxonomy"):
+        fields["taxonomy_topic_id"] = ""
+        fields["taxonomy_category_id"] = ""
     card = update_card(tweet_id, fields)
     if not card:
         return {"success": False, "error": "未找到卡片"}

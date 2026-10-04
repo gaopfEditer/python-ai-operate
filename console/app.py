@@ -47,15 +47,46 @@ ARTICLES_DIR = PROJECT_ROOT / "output" / "articles"
 # 全局发布锁：CDP 浏览器只能串行使用，避免并发抢占同一 tab 反复输入
 _PUBLISH_LOCK = threading.RLock()
 _PUBLISH_LOCK_KEY = None
-_PUBLISH_LOCK_TIMEOUT = 0.05  # 50ms 抢占尝试
+_PUBLISH_LOCK_TIMEOUT = 0.05  # 50ms 快速尝试
+_PUBLISH_LOCK_WAIT_PREEMPT = 120.0  # 终止上一任务后等待释放 CDP 锁
 _LAST_PUBLISH_FINGERPRINT = {}
 _LAST_PUBLISH_FINGERPRINT_TS = 0.0
 _PUBLISH_DEDUP_WINDOW = 6.0  # 同一 (platform,text,image) 6s 内拒收
 
 
-def _publish_lock_acquire(key: str) -> bool:
+def _abort_active_publish_run(*, set_job=None) -> str:
+    """终止进行中的 publish_run（新发布取代旧任务）。"""
+    try:
+        from console import publish_run as pr
+        from signals.control import control_action
+
+        jid = pr.active_run_id()
+        if not jid:
+            return ""
+        control_action(jid, "stop")
+        if set_job:
+            set_job(
+                jid,
+                status="cancelled",
+                message="已被新发布任务取代",
+                control_status="stopped",
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+            )
+        return jid
+    except Exception:
+        return ""
+
+
+def _publish_lock_acquire(key: str, *, preempt: bool = True) -> bool:
+    """CDP 串行锁；若被占用且 preempt=True，则终止上一发布并等待释放。"""
     global _PUBLISH_LOCK_KEY
-    if _PUBLISH_LOCK.acquire(blocking=True, timeout=_PUBLISH_LOCK_TIMEOUT + 30):
+    if _PUBLISH_LOCK.acquire(blocking=True, timeout=_PUBLISH_LOCK_TIMEOUT):
+        _PUBLISH_LOCK_KEY = key
+        return True
+    if not preempt:
+        return False
+    _abort_active_publish_run()
+    if _PUBLISH_LOCK.acquire(blocking=True, timeout=_PUBLISH_LOCK_WAIT_PREEMPT):
         _PUBLISH_LOCK_KEY = key
         return True
     return False
@@ -2636,6 +2667,61 @@ def handle_api(
             lock_release=_publish_lock_release,
         )
 
+    if path == "/api/publish/history" and method == "GET":
+        from console.publish_history_db import list_history
+
+        try:
+            page = int((query.get("page") or ["1"])[0])
+        except Exception:
+            page = 1
+        try:
+            page_size = int((query.get("page_size") or query.get("limit") or ["24"])[0])
+        except Exception:
+            page_size = 24
+        kind = (query.get("kind") or query.get("filter") or ["all"])[0]
+        return _json_bytes(
+            {"success": True, **list_history(page=page, page_size=page_size, kind=kind)}
+        )
+
+    if path == "/api/publish/history/file" and method == "GET":
+        from console.publish_history_db import resolve_history_path
+        import mimetypes
+
+        rel = (query.get("rel") or [""])[0].strip()
+        try:
+            fpath = resolve_history_path(rel)
+            if not fpath.is_file():
+                return _json_bytes({"success": False, "error": "文件不存在"}, 404)
+            data = fpath.read_bytes()
+            ctype = mimetypes.guess_type(str(fpath))[0] or "application/octet-stream"
+            return data, 200, ctype
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+
+    if path.startswith("/api/publish/history/") and method == "GET":
+        from console.publish_history_db import get_history
+
+        rid = path[len("/api/publish/history/") :].strip("/")
+        if not rid or rid == "file":
+            return _json_bytes({"success": False, "error": "缺少 id"}, 400)
+        item = get_history(rid)
+        if not item:
+            return _json_bytes({"success": False, "error": "未找到"}, 404)
+        return _json_bytes({"success": True, "item": item})
+
+    if path.startswith("/api/publish/history/") and method == "DELETE":
+        from console.publish_history_db import delete_history
+
+        rid = path[len("/api/publish/history/") :].strip("/")
+        if not rid:
+            return _json_bytes({"success": False, "error": "缺少 id"}, 400)
+        ok = delete_history(rid)
+        if not ok:
+            from console import publish_queue as pq
+
+            ok = pq.delete_item(rid, remove_files=True)
+        return _json_bytes({"success": ok, "error": None if ok else "未找到"}, 200 if ok else 404)
+
     if path == "/api/publish" and method == "POST":
         title = str(body.get("title") or "").strip()
         content = str(body.get("content") or body.get("text") or "").strip()
@@ -2685,7 +2771,10 @@ def handle_api(
         lock_key = f"publish|{','.join(platforms or [])}|{(content or '')[:64]}|{','.join(map(str, media_paths))}"
         if not _publish_lock_acquire(lock_key):
             return _json_bytes(
-                {"success": False, "error": "另一个发布任务正在进行，请稍候再试"},
+                {
+                    "success": False,
+                    "error": "发布锁等待超时（上一任务可能仍在浏览器中操作），请稍后重试",
+                },
                 429,
             )
         try:
@@ -2751,11 +2840,11 @@ def handle_api(
             return _json_bytes({"success": False, "error": str(e)}, 500)
 
     if path == "/api/publish/cache/save" and method == "POST":
-        from console import publish_queue as pq
+        from console.publish_history_db import save_draft_from_body
 
         try:
-            item = pq.save_draft(body, enqueue=False)
-            return _json_bytes({"success": True, "item": item, "stats": pq.stats()})
+            item = save_draft_from_body(body)
+            return _json_bytes({"success": True, "item": item})
         except ValueError as e:
             return _json_bytes({"success": False, "error": str(e)}, 400)
         except Exception as e:
@@ -3329,7 +3418,10 @@ def handle_api(
         lock_key = f"rt-publish|{platform}|{text[:64]}"
         if not _publish_lock_acquire(lock_key):
             return _json_bytes(
-                {"success": False, "error": "另一个发布任务正在进行，请稍候再试"},
+                {
+                    "success": False,
+                    "error": "发布锁等待超时（上一任务可能仍在浏览器中操作），请稍后重试",
+                },
                 429,
             )
 
@@ -4398,6 +4490,8 @@ def handle_api(
         keyword = (query.get("keyword") or [""])[0]
         category = (query.get("category") or [""])[0]
         favorited = (query.get("favorited") or [""])[0]
+        taxonomy_topic_id = (query.get("taxonomy_topic_id") or [""])[0]
+        taxonomy_category_id = (query.get("taxonomy_category_id") or [""])[0]
         return _json_bytes(
             list_tweet_cards(
                 page=page,
@@ -4405,6 +4499,8 @@ def handle_api(
                 keyword=keyword,
                 category=category,
                 favorited=favorited,
+                taxonomy_topic_id=taxonomy_topic_id,
+                taxonomy_category_id=taxonomy_category_id,
             )
         )
 

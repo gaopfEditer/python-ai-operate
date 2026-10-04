@@ -18,6 +18,13 @@ _ACTIVE_RUN: Optional[str] = None
 _ACTIVE_LOCK = threading.Lock()
 
 
+def _resolve_publish_debugger_url(raw: Any) -> str:
+    from utils.crawl_cdp import resolve_publish_debugger_url
+
+    s = str(raw or "").strip()
+    return resolve_publish_debugger_url(s or None)
+
+
 def active_run_id() -> str:
     with _ACTIVE_LOCK:
         return _ACTIVE_RUN or ""
@@ -46,6 +53,39 @@ def _sleep_retry(wait_sec: float, ctl, on_tick) -> bool:
     return True
 
 
+def _save_publish_history(
+    *,
+    job_id: str,
+    body: Dict[str, Any],
+    media_paths: List[str],
+    status: str,
+    result: Dict[str, Any],
+    message: str,
+) -> None:
+    try:
+        from console.publish_history_db import record_publish
+
+        platforms = body.get("platforms") or []
+        if isinstance(platforms, str):
+            platforms = [p.strip() for p in platforms.split(",") if p.strip()]
+        record_publish(
+            title=str(body.get("title") or "").strip(),
+            content=str(body.get("content") or body.get("text") or "").strip(),
+            platforms=[str(p) for p in platforms if str(p).strip()],
+            media_paths=list(media_paths or []),
+            debugger_url=str(body.get("debugger_url") or "").strip(),
+            submit=bool(body.get("submit", True)),
+            job_id=job_id,
+            status=str(status or ""),
+            success_count=int(result.get("success_count") or 0),
+            total_count=int(result.get("total") or len(platforms)),
+            results=result.get("results") if isinstance(result.get("results"), list) else [],
+            message=message,
+        )
+    except Exception as e:
+        print(f"[publish_run] 写入发布历史失败: {e}")
+
+
 def _publish_one(
     *,
     pid: str,
@@ -62,7 +102,7 @@ def _publish_one(
             "platform": pid,
             "platform_name": _platform_label(pid),
             "success": False,
-            "error": "另一个发布任务正在进行，请稍候再试",
+            "error": "发布锁等待超时（上一任务可能仍在浏览器中操作），请稍后重试",
         }
     try:
         result = publish_content(
@@ -100,10 +140,19 @@ def _run_worker(
     media_paths: List[str],
     *,
     set_job: Callable[..., None],
+    get_job: Callable[[str], Optional[Dict[str, Any]]],
     lock_acquire,
     lock_release,
 ) -> None:
+    global _ACTIVE_RUN
     from signals.control import RunControl, register, unregister
+
+    snap = (get_job(job_id) if get_job else None) or {}
+    if snap.get("status") == "cancelled":
+        with _ACTIVE_LOCK:
+            if _ACTIVE_RUN == job_id:
+                _ACTIVE_RUN = None
+        return
 
     platforms = [str(p).strip() for p in (body.get("platforms") or []) if str(p).strip()]
     submit = bool(body.get("submit", True))
@@ -112,7 +161,7 @@ def _run_worker(
         "content": str(body.get("content") or body.get("text") or "").strip(),
         "tags": str(body.get("tags") or "").strip() or None,
         "use_cdp": bool(body.get("use_cdp", True)),
-        "debugger_url": str(body.get("debugger_url") or "").strip() or "127.0.0.1:9222",
+        "debugger_url": _resolve_publish_debugger_url(body.get("debugger_url")),
         "submit": submit,
     }
     ctl = register(job_id, RunControl(job_id))
@@ -260,6 +309,14 @@ def _run_worker(
             control_status=ctl.status(),
             finished_at=datetime.now().isoformat(timespec="seconds"),
         )
+        _save_publish_history(
+            job_id=job_id,
+            body=body,
+            media_paths=staged_paths,
+            status=status,
+            result=result,
+            message=message,
+        )
     except Exception as e:
         set_job(
             job_id,
@@ -268,10 +325,17 @@ def _run_worker(
             control_status=ctl.status(),
             finished_at=datetime.now().isoformat(timespec="seconds"),
         )
+        _save_publish_history(
+            job_id=job_id,
+            body=body,
+            media_paths=staged_paths,
+            status="error",
+            result={"success": False, "results": step_results, "total": len(platforms)},
+            message=str(e),
+        )
     finally:
         unregister(job_id)
         with _ACTIVE_LOCK:
-            global _ACTIVE_RUN
             if _ACTIVE_RUN == job_id:
                 _ACTIVE_RUN = None
 
@@ -284,6 +348,7 @@ def start_run(
     lock_acquire,
     lock_release,
 ) -> tuple[bytes, int, str]:
+    global _ACTIVE_RUN
     from console.app import _json_bytes
     from console import publish_queue as pq
 
@@ -305,18 +370,19 @@ def start_run(
         return _json_bytes({"success": False, "error": "请填写正文或上传图片"}, 400)
 
     with _ACTIVE_LOCK:
-        global _ACTIVE_RUN
         if _ACTIVE_RUN:
             existing = get_job(_ACTIVE_RUN) or {}
             if existing.get("status") in ("queued", "running"):
-                return _json_bytes(
-                    {
-                        "success": True,
-                        "job_id": _ACTIVE_RUN,
-                        "status": existing.get("status"),
-                        "resumed": True,
-                        "message": "已有发布任务进行中",
-                    }
+                from signals.control import control_action
+
+                old_id = _ACTIVE_RUN
+                control_action(old_id, "stop")
+                set_job(
+                    old_id,
+                    status="cancelled",
+                    message="已被新发布任务取代",
+                    control_status="stopped",
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
 
         job_id = uuid.uuid4().hex[:12]
@@ -338,6 +404,7 @@ def start_run(
         args=(job_id, payload, media_paths),
         kwargs={
             "set_job": set_job,
+            "get_job": get_job,
             "lock_acquire": lock_acquire,
             "lock_release": lock_release,
         },

@@ -221,25 +221,60 @@ def fetch_tweet(url_or_id: str) -> Dict[str, Any]:
     }
 
 
+_URL_IN_LINE_RE = re.compile(
+    r"https?://(?:www\.)?(?:twitter\.com|x\.com|vxtwitter\.com|fxtwitter\.com|t\.co)/[^\s\])>,，；;]+",
+    re.I,
+)
+
+
+def _trim_input_piece(piece: str) -> str:
+    return (piece or "").strip().rstrip(").,，；;]")
+
+
 def split_inputs(raw: str) -> List[str]:
-    """支持多行：每行一个链接/ID；也支持同一段里多个 URL。"""
+    """
+    批量输入：每行一条链接 / Tweet ID；一行内多个 URL；整段无换行时扫全文 URL。
+    按 tweet_id 去重保序（避免多行重复链接触发重复 LLM）。
+    """
     text = (raw or "").strip()
     if not text:
         return []
-    found = re.findall(
-        r"https?://(?:www\.)?(?:twitter\.com|x\.com|vxtwitter\.com|fxtwitter\.com)/[^\s]+",
-        text,
-        re.I,
-    )
-    if found:
-        # 去重保序
-        out = []
-        seen = set()
-        for u in found:
-            u = u.rstrip(").,，；;]")
-            if u not in seen:
-                seen.add(u)
-                out.append(u)
-        return out
-    parts = re.split(r"[\n\r]+", text)
-    return [p.strip() for p in parts if p.strip()]
+
+    out: List[str] = []
+    seen_tid: set[str] = set()
+    seen_raw: set[str] = set()
+
+    def _add(piece: str) -> None:
+        p = _trim_input_piece(piece)
+        if not p or p in seen_raw:
+            return
+        tid = extract_tweet_id(p)
+        if tid:
+            if tid in seen_tid:
+                return
+            seen_tid.add(tid)
+        seen_raw.add(p)
+        out.append(p)
+
+    lines = re.split(r"[\n\r]+", text)
+    if len(lines) > 1:
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            urls = _URL_IN_LINE_RE.findall(line)
+            if urls:
+                for u in urls:
+                    _add(u)
+            else:
+                _add(line)
+    else:
+        for u in _URL_IN_LINE_RE.findall(text):
+            _add(u)
+        if not out:
+            _add(text)
+
+    if not out:
+        for u in _URL_IN_LINE_RE.findall(text):
+            _add(u)
+    return out

@@ -19,6 +19,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+
+def _publish_debugger_url(raw: Any = None) -> str:
+    from utils.crawl_cdp import resolve_publish_debugger_url
+
+    s = str(raw or "").strip()
+    return resolve_publish_debugger_url(s or None)
+
+
 QUEUE_PATH: Optional[Path] = None
 CACHE_ROOT: Optional[Path] = None
 _LOCK = threading.RLock()
@@ -336,8 +344,7 @@ def save_draft(body: Dict[str, Any], *, enqueue: bool = False) -> Dict[str, Any]
         "status": status,
         "enabled": bool(body.get("enabled", True)) if enqueue else False,
         "use_cdp": bool(body.get("use_cdp", True)),
-        "debugger_url": str(body.get("debugger_url") or "127.0.0.1:9222").strip()
-        or "127.0.0.1:9222",
+        "debugger_url": _publish_debugger_url(body.get("debugger_url")),
         "created_at": now,
         "updated_at": now,
         "published_at": None,
@@ -388,7 +395,7 @@ def _public_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "status": item.get("status") or "pending",
         "enabled": bool(item.get("enabled", True)),
         "use_cdp": bool(item.get("use_cdp", True)),
-        "debugger_url": item.get("debugger_url") or "127.0.0.1:9222",
+        "debugger_url": _publish_debugger_url(item.get("debugger_url")),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
         "published_at": item.get("published_at"),
@@ -469,7 +476,7 @@ def _load() -> int:
                 "status": status,
                 "enabled": bool(row.get("enabled", True)),
                 "use_cdp": bool(row.get("use_cdp", True)),
-                "debugger_url": str(row.get("debugger_url") or "127.0.0.1:9222"),
+                "debugger_url": _publish_debugger_url(row.get("debugger_url")),
                 "created_at": row.get("created_at") or _now_iso(),
                 "updated_at": row.get("updated_at") or row.get("created_at") or _now_iso(),
                 "published_at": row.get("published_at"),
@@ -808,7 +815,7 @@ def _run_publish(item_id: str, *, force: bool = False) -> Dict[str, Any]:
             "platforms": list(item.get("platforms") or []),
             "tags": item.get("tags") or "",
             "use_cdp": bool(item.get("use_cdp", True)),
-            "debugger_url": item.get("debugger_url") or "127.0.0.1:9222",
+            "debugger_url": _publish_debugger_url(item.get("debugger_url")),
         }
         item["status"] = "running"
         item["updated_at"] = _now_iso()

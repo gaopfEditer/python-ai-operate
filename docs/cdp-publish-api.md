@@ -9,7 +9,7 @@
 python console.py --host 0.0.0.0 --port 8787
 ```
 
-发布前请确认 Chrome 已用 `--remote-debugging-port=9222` 启动，并登录目标平台。同一时刻只会跑一个发布任务（CDP 串行）。
+发布前请确认 Chrome 已用 `--remote-debugging-port=9223` 启动（与 `crawler.x_cdp` / 控制台 CDP 发布一致），并登录目标平台。同一时刻只会跑一个发布任务（CDP 串行）。
 
 ---
 
@@ -72,7 +72,7 @@ GET /api/v1/publish/platforms
 | `media_paths` | string[] | 本机已有文件的绝对路径 |
 | `submit` | bool | 默认 `true`。`false` 只填不点发布 |
 | `async` | bool | 默认 `true`。`false` 则阻塞直到发完 |
-| `debugger_url` | string | 可选，默认配置 `127.0.0.1:9222` |
+| `debugger_url` | string | 可选，默认 `publish.debugger_url` 或与抓取相同的 `127.0.0.1:9223` |
 | `tags` | string | 可选 |
 
 `images` 每一项可以是：

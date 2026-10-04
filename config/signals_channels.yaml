@@ -53,6 +53,20 @@ channels:
     name: "太白"
     aliases: ["0xTaiBai", "Tai Bai"]
     enabled: true
+  "nine_DeFi":
+    channelId: ""
+    channelName: "nine_DeFi"
+    channelAvatar: ""
+    name: "nine_DeFi"
+    aliases: ["nine_DeFi", "nine_DeFi"]
+    enabled: true
+  "SUOHA_AI":
+    channelId: ""
+    channelName: "SUOHA_AI"
+    channelAvatar: ""
+    name: "SUOHA_AI"
+    aliases: ["SUOHA_AI"]
+    enabled: true
   "17zxhold":
     channelId: ""
     channelName: "5块的糖"

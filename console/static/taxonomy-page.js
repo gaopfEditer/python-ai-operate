@@ -6,6 +6,7 @@
 
   const LS_CAT = "taxonomyCategoryId";
   const LS_TOPIC = "taxonomyTopicId";
+  const LS_RIGHT_TAB = "taxonomyRightTab";
   const POPOVER_DELAY_MS = 300;
   const POPOVER_MAX_W = 360;
 
@@ -39,8 +40,10 @@
     topicFilter: "",
     topicImportanceFilter: "all",
     templateFilter: "all",
+    rightTab: "info",
     popoverTimer: null,
     popoverTopicId: "",
+    tweetCardsLoading: false,
   };
 
   function normalizeImportance(n) {
@@ -314,7 +317,97 @@
     hidePopover(true);
     renderCategories();
     renderTopics();
-    renderTemplates();
+    renderRightColumn();
+  }
+
+  function restoreRightTab() {
+    try {
+      const tab = localStorage.getItem(LS_RIGHT_TAB) || "info";
+      state.rightTab = tab === "tweets" ? "tweets" : "info";
+    } catch (_) {
+      state.rightTab = "info";
+    }
+  }
+
+  function setRightTab(tab) {
+    state.rightTab = tab === "tweets" ? "tweets" : "info";
+    try {
+      localStorage.setItem(LS_RIGHT_TAB, state.rightTab);
+    } catch (_) {}
+    renderRightTabUi();
+    renderRightColumn();
+  }
+
+  function renderRightTabUi() {
+    const infoPane = $("#taxonomyRightPaneInfo");
+    const tweetPane = $("#taxonomyRightPaneTweets");
+    if (infoPane) infoPane.hidden = state.rightTab !== "info";
+    if (tweetPane) tweetPane.hidden = state.rightTab !== "tweets";
+    document.querySelectorAll("[data-tax-right-tab]").forEach((btn) => {
+      const on = btn.getAttribute("data-tax-right-tab") === state.rightTab;
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    const title = $("#taxonomyRightTitle");
+    const t = getTopic(state.topicId);
+    if (title) {
+      title.textContent =
+        state.rightTab === "tweets" ? (t ? `${t.name} · 推文` : "推文") : t?.name || "模板";
+    }
+  }
+
+  function renderRightColumn() {
+    renderRightTabUi();
+    if (state.rightTab === "info") renderTemplates();
+    else renderTweetCardsPane();
+  }
+
+  async function renderTweetCardsPane() {
+    const box = $("#taxonomyTweetCards");
+    if (!box || state.rightTab !== "tweets") return;
+    const t = getTopic(state.topicId);
+    if (!t) {
+      box.innerHTML = `<p class="tax-empty muted">请先选择小类</p>`;
+      return;
+    }
+    if (typeof api !== "function") {
+      box.innerHTML = `<p class="tax-empty muted">页面尚未就绪</p>`;
+      return;
+    }
+    state.tweetCardsLoading = true;
+    box.innerHTML = `<p class="tax-empty muted">加载推文卡片…</p>`;
+    try {
+      const qs = new URLSearchParams();
+      qs.set("page", "1");
+      qs.set("page_size", "40");
+      qs.set("taxonomy_topic_id", t.id);
+      const data = await api(`/api/tweet-cards?${qs.toString()}`);
+      const items = data.items || [];
+      if (!items.length) {
+        box.innerHTML = `<div class="tax-empty-state">
+          <p>该小类下暂无推文卡片</p>
+          <p class="muted">在「推文卡片」页解析推文后，右键归入「${escapeHtml(t.name)}」</p>
+        </div>`;
+        return;
+      }
+      box.innerHTML = items
+        .map((c) => {
+          const summary = escapeHtml(c.summary || (c.text || "").slice(0, 120));
+          const author = escapeHtml(c.author_handle ? `@${c.author_handle}` : c.author_name || "");
+          const url = escapeHtml(c.url || "#");
+          const likes = typeof fmtCount === "function" ? fmtCount(c.likes) : String(c.likes || 0);
+          return `<article class="tax-tweet-card">
+            <header><strong>${author}</strong><span class="muted">赞 ${likes}</span></header>
+            <p class="tax-tweet-summary">${summary}</p>
+            <footer><a href="${url}" target="_blank" rel="noopener">原帖</a></footer>
+          </article>`;
+        })
+        .join("");
+    } catch (e) {
+      box.innerHTML = `<p class="tax-empty muted">加载失败：${escapeHtml(String(e))}</p>`;
+    } finally {
+      state.tweetCardsLoading = false;
+    }
   }
 
   function renderCategories() {
@@ -497,9 +590,11 @@
 
   function renderTemplates() {
     const box = $("#taxonomyTemplates");
-    const title = $("#taxonomyRightTitle");
     const t = getTopic(state.topicId);
-    if (title) title.textContent = t?.name || "模板";
+    if (state.rightTab === "info") {
+      const title = $("#taxonomyRightTitle");
+      if (title) title.textContent = t?.name || "模板";
+    }
     renderImpactCards(t);
     renderScenarioCards(t);
     if (!box) return;
@@ -588,7 +683,7 @@
       btn.addEventListener("click", () => {
         state.templateFilter = btn.getAttribute("data-tpl-filter") || "all";
         renderTemplateFilters();
-        renderTemplates();
+        renderRightColumn();
       });
     });
   }
@@ -612,7 +707,7 @@
         state.topicImportanceFilter = btn.getAttribute("data-imp-filter") || "all";
         renderImportanceFilters();
         renderTopics();
-        renderTemplates();
+        renderRightColumn();
       });
     });
   }
@@ -622,15 +717,20 @@
     renderImportanceFilters();
     renderTopics();
     renderTemplateFilters();
-    renderTemplates();
+    renderRightColumn();
   }
 
   function bindGlobal() {
+    document.querySelectorAll("[data-tax-right-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setRightTab(btn.getAttribute("data-tax-right-tab") || "info");
+      });
+    });
     const search = $("#taxonomyTopicSearch");
     search?.addEventListener("input", () => {
       state.topicFilter = search.value || "";
       renderTopics();
-      renderTemplates();
+      renderRightColumn();
     });
     const pop = $("#taxonomyPopover");
     pop?.addEventListener("mouseleave", () => hidePopover(true));
@@ -655,6 +755,7 @@
     data = global.TaxonomyData;
     buildIndexes();
     restoreSelection();
+    restoreRightTab();
     bindGlobal();
     renderAll();
   }
@@ -667,5 +768,13 @@
     renderAll();
   }
 
-  global.TaxonomyPage = { init, onTabEnter, selectTopic, selectCategory };
+  global.TaxonomyPage = {
+    init,
+    onTabEnter,
+    selectTopic,
+    selectCategory,
+    refreshTweetCards: () => {
+      if (state.rightTab === "tweets") renderTweetCardsPane();
+    },
+  };
 })(typeof window !== "undefined" ? window : globalThis);

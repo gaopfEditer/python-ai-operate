@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20260922c" />
+  <link rel="stylesheet" href="/app.css?v=20261001c" />
 </head>
 <body>
   <div class="shell">
@@ -421,7 +421,7 @@
           </div>
           <label class="field">
             <span>CDP debugger</span>
-            <input id="debuggerUrl" type="text" placeholder="127.0.0.1:9222" value="127.0.0.1:9222" />
+            <input id="debuggerUrl" type="text" placeholder="127.0.0.1:9223" value="127.0.0.1:9223" />
           </label>
           <label class="field check publish-only-field">
             <input id="useCdp" type="checkbox" checked />
@@ -461,17 +461,16 @@
           </div>
           <div id="publishQueueList" class="card-list queue-list"></div>
           <div class="queue-head" style="margin-top:28px">
-            <h3>月度缓存浏览 <span id="cacheRootLabel" class="muted"></span></h3>
+            <h3>草稿与发布记录 <span id="publishHistoryStats" class="muted"></span></h3>
+            <div class="publish-archive-filters" role="tablist" aria-label="文稿筛选">
+              <button type="button" class="publish-archive-filter on" data-archive-kind="all">全部</button>
+              <button type="button" class="publish-archive-filter" data-archive-kind="draft">草稿</button>
+              <button type="button" class="publish-archive-filter" data-archive-kind="run">已发布</button>
+            </div>
+            <button id="btnHistoryRefresh" class="btn ghost btn-sm" type="button">刷新</button>
           </div>
-          <div class="toolbar">
-            <label class="field">
-              <span>月份</span>
-              <select id="cacheMonthSelect"></select>
-            </label>
-            <button id="btnCacheRefresh" class="btn ghost" type="button">刷新</button>
-            <button id="btnCacheOpenRoot" class="btn ghost" type="button">打开缓存根目录</button>
-          </div>
-          <div id="publishCacheList" class="card-list queue-list"></div>
+          <p class="muted publish-history-hint">「存草稿」与每次 CDP 发布结束都会写入同一库；在此载入、再发或删除。</p>
+          <div id="publishHistoryList" class="publish-history-grid"></div>
         </div>
 
         <div class="cache-only-section" hidden>
@@ -1014,12 +1013,24 @@
           </section>
           <section class="tax-col tax-col-tpl" aria-label="模板列表">
             <div class="tax-right-head">
-              <h3 class="tax-col-title" id="taxonomyRightTitle">模板</h3>
+              <div class="tax-right-head-row">
+                <h3 class="tax-col-title" id="taxonomyRightTitle">模板</h3>
+                <div class="tax-right-tabs" role="tablist" aria-label="右栏视图">
+                  <button type="button" class="tax-right-tab on" role="tab" aria-selected="true" data-tax-right-tab="info">信息</button>
+                  <button type="button" class="tax-right-tab" role="tab" aria-selected="false" data-tax-right-tab="tweets">推文</button>
+                </div>
+              </div>
+            </div>
+            <div id="taxonomyRightPaneInfo" class="tax-right-pane">
               <div id="taxonomyImpactRow" class="tax-impact-row" hidden></div>
               <div id="taxonomyScenarioRow" class="tax-scenario-row" hidden></div>
               <div id="taxonomyTplFilters" class="tax-tpl-filters"></div>
+              <div id="taxonomyTemplates" class="tax-tpl-grid"></div>
             </div>
-            <div id="taxonomyTemplates" class="tax-tpl-grid"></div>
+            <div id="taxonomyRightPaneTweets" class="tax-right-pane" hidden>
+              <p class="muted tax-tweet-hint">已归入当前小类的推文卡片。在「推文卡片」页对卡片<strong>右键</strong> →「内容模板小类」→ 大类 → 小类。</p>
+              <div id="taxonomyTweetCards" class="tax-tweet-grid"></div>
+            </div>
           </section>
         </div>
         <dialog id="taxonomyTemplateDialog" class="corpus-dialog tax-dialog">
@@ -1037,15 +1048,16 @@
       <section id="panel-tweetcards" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h2>推文卡片</h2>
-          <p>粘贴 X/Twitter 链接（可多行）→ FxTwitter 拉取全文/配图/互动 → AI 摘要与标签 → 卡片库。</p>
+          <p>粘贴 X/Twitter 链接（支持多行批量）→ FxTwitter 拉取全文/配图/互动 → AI 摘要与标签 → 卡片库。</p>
         </div>
         <div class="tc-compose">
           <label class="field full">
-            <span>推特链接（每行一条，或一段里多个 URL）</span>
-            <textarea id="tcInput" rows="4" placeholder="https://x.com/user/status/1234567890"></textarea>
+            <span>推特链接（每行一条；一行可多个 URL；或纯数字 Tweet ID）</span>
+            <textarea id="tcInput" rows="8" placeholder="https://x.com/user/status/1234567890&#10;https://x.com/other/status/9876543210&#10;11223344556677889900"></textarea>
           </label>
+          <p id="tcInputHint" class="muted tc-input-hint" hidden></p>
           <div class="toolbar" style="margin:0;flex-wrap:wrap">
-            <button id="btnTcIngest" class="btn primary" type="button">解析入库</button>
+            <button id="btnTcIngest" class="btn primary" type="button">批量解析入库</button>
             <button id="btnTcRefresh" class="btn ghost" type="button">刷新</button>
             <label class="field check" style="margin:0">
               <input id="tcHideSensitive" type="checkbox" />
@@ -1161,9 +1173,9 @@
     </main>
   </div>
   <script src="/taxonomy.js?v=20260922a"></script>
-  <script src="/taxonomy-page.js?v=20260921c"></script>
+  <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20260922c"></script>
+  <script src="/app.js?v=20261003a"></script>
 </body>
 </html>

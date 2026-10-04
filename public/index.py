@@ -66,12 +66,6 @@ def publish_content(
         submit: False 时只填内容不点发布（干跑）
     """
     config = load_publish_config()
-    if use_cdp and not debugger_url:
-        debugger_url = (
-            config.get("debugger_url")
-            or config.get("cdp_debugger_url")
-            or "127.0.0.1:9222"
-        )
 
     if not config.get('enable', True):
         return {
@@ -100,6 +94,10 @@ def publish_content(
         in ("x", "twitter", "binance_square", "okx", "bitget", "gate")
         for pid in platform_ids
     )
+    if needs_cdp:
+        from utils.crawl_cdp import resolve_publish_debugger_url
+
+        debugger_url = resolve_publish_debugger_url(debugger_url)
     if needs_cdp and debugger_url:
         try:
             from public.platforms.cdp_common import connect_cdp
@@ -156,7 +154,7 @@ def publish_content(
                 from public.platforms.x_publisher import XPublisher
 
                 publisher = XPublisher(
-                    debugger_url=debugger_url or "127.0.0.1:9222",
+                    debugger_url=debugger_url,
                     compose_url=platform_config.get(
                         'compose_url', 'https://x.com/compose/post'
                     ),
@@ -176,7 +174,7 @@ def publish_content(
                 )
 
                 publisher = BinanceSquarePublisher(
-                    debugger_url=debugger_url or "127.0.0.1:9222",
+                    debugger_url=debugger_url,
                     square_url=platform_config.get(
                         'square_url',
                         'https://www.binance.com/zh-CN/square',

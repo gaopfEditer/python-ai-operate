@@ -3211,6 +3211,14 @@ label.publish-media-add {
 }
 
 /* 推文卡片 */
+.tc-input-hint {
+  margin: -4px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+#tcStatus {
+  white-space: pre-wrap;
+}
 .tc-compose {
   display: grid;
   gap: 10px;
@@ -3547,6 +3555,110 @@ label.publish-media-add {
   gap: 4px;
   padding: 8px 10px 10px;
 }
+.publish-archive-filters {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.05);
+  margin-right: auto;
+}
+.publish-archive-filter {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.publish-archive-filter.on {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.queue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ph-kind-draft {
+  color: #6b5a2e;
+  font-weight: 600;
+}
+.publish-history-hint {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+}
+.publish-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.publish-history-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.publish-history-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+.publish-history-card .ph-status {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.publish-history-card .ph-status.ok { color: var(--ok, #2a7); }
+.publish-history-card .ph-status.fail { color: var(--danger, #c44); }
+.publish-history-cover {
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.publish-history-cover img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  display: block;
+}
+.publish-history-cover-empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 16px;
+}
+.publish-history-snippet {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.publish-history-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.publish-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .series-hint {
   margin: 0 0 10px;
   font-size: 0.8rem;
@@ -4294,6 +4406,101 @@ label.publish-media-add {
 }
 .tax-col-tpl {
   background: #f7f2e6;
+}
+.tax-right-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.tax-right-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.tax-right-tab {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.tax-right-tab.on {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.tax-right-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+.tax-tweet-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.tax-tweet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+.tax-tweet-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tax-tweet-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+.tax-tweet-summary {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tax-tweet-card footer {
+  font-size: 0.78rem;
+}
+.tc-tag.tax {
+  border-color: #c4a574;
+  color: #6b4f1d;
+  background: #f5ecd8;
+}
+.app-ctx-menu button.has-submenu::after {
+  content: "›";
+  float: right;
+  opacity: 0.55;
+}
+.app-ctx-menu button.is-muted {
+  opacity: 0.65;
+  font-size: 0.82rem;
+}
+.app-ctx-submenu {
+  position: fixed;
+  z-index: 10001;
+  max-height: min(420px, 70vh);
+  overflow: auto;
 }
 .tax-col-title {
   margin: 0;

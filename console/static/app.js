@@ -1,5 +1,10 @@
 const $ = (sel) => document.querySelector(sel);
 
+const DEFAULT_PUBLISH_DEBUGGER = "127.0.0.1:9223";
+function publishDebuggerUrl() {
+  return $("#debuggerUrl")?.value.trim() || DEFAULT_PUBLISH_DEBUGGER;
+}
+
 const state = {
   lastCreate: { title: "", content: "", path: "" },
   listTarget: "signals",
@@ -438,6 +443,15 @@ async function api(path, options = {}) {
     data.error = `HTTP ${res.status}`;
   }
   return data;
+}
+
+/** 任务 API 明确失败（404/已清）时停止轮询；网络错误仍继续重试 */
+function isJobPollGone(data) {
+  if (data?.success === true && data?.job) return false;
+  const err = String(data?.error || "");
+  if (err.startsWith("网络错误")) return false;
+  if (data?.success === false && (err.includes("不存在") || /HTTP\s*404/i.test(err))) return true;
+  return false;
 }
 
 function escapeHtml(s) {
@@ -3037,7 +3051,7 @@ async function labPublishViaCdp() {
         platforms,
         media_paths: draft.media_paths || [],
         use_cdp: true,
-        debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+        debugger_url: publishDebuggerUrl(),
         submit: !$("#publishDryRun")?.checked,
       }),
     });
@@ -3113,6 +3127,12 @@ async function pollLabImageJob(jobId) {
   const btn = $("#btnLabGenImages");
   for (let i = 0; i < 240; i++) {
     const data = await api(`/api/jobs/${jobId}`);
+    if (isJobPollGone(data)) {
+      const gone = data.error || "配图任务已不存在";
+      if (statusEl) statusEl.textContent = gone;
+      setStatus($("#corpusRegenStatus"), gone, "error");
+      break;
+    }
     const job = data.job || {};
     const msg = job.message || job.status || "配图生成中…";
     if (statusEl) statusEl.textContent = msg;
@@ -3183,7 +3203,7 @@ async function runLabBatchImages() {
     const payload = {
       indices,
       topic: $("#regenTopic")?.value.trim() || "",
-      debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+      debugger_url: publishDebuggerUrl(),
       production_line: state.labProductionLine || "A",
       image_template: line.imageTemplate || "",
       variants: variants.map((v) => ({
@@ -3561,6 +3581,7 @@ let _appCtxMenuEl = null;
 let _appCtxMenuCloser = null;
 
 function hideAppCtxMenu() {
+  hideAppCtxSubMenu();
   if (_appCtxMenuCloser) {
     document.removeEventListener("pointerdown", _appCtxMenuCloser, true);
     document.removeEventListener("keydown", _appCtxMenuCloser, true);
@@ -3574,11 +3595,61 @@ function hideAppCtxMenu() {
   }
 }
 
-function showAppCtxMenu(clientX, clientY, items) {
-  hideAppCtxMenu();
-  const menu = document.createElement("div");
-  menu.className = "app-ctx-menu";
-  menu.setAttribute("role", "menu");
+let _appCtxSubMenuEl = null;
+
+function hideAppCtxSubMenu() {
+  if (_appCtxSubMenuEl) {
+    _appCtxSubMenuEl.remove();
+    _appCtxSubMenuEl = null;
+  }
+}
+
+function showAppCtxSubMenu(anchorBtn, items) {
+  hideAppCtxSubMenu();
+  const sub = document.createElement("div");
+  sub.className = "app-ctx-menu app-ctx-submenu";
+  sub.setAttribute("role", "menu");
+  (items || []).forEach((it) => {
+    if (!it?.label) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("role", "menuitem");
+    btn.textContent = it.label;
+    if (it.danger) btn.classList.add("is-danger");
+    if (it.disabled) {
+      btn.disabled = true;
+      btn.classList.add("is-muted");
+    } else if (it.submenu?.length) {
+      btn.classList.add("has-submenu");
+      btn.addEventListener("mouseenter", () => showAppCtxSubMenu(btn, it.submenu));
+    } else {
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        hideAppCtxMenu();
+        try {
+          it.action?.();
+        } catch (e) {
+          toast(String(e), "error");
+        }
+      });
+    }
+    sub.appendChild(btn);
+  });
+  if (!sub.childElementCount) return;
+  document.body.appendChild(sub);
+  const pad = 8;
+  const a = anchorBtn.getBoundingClientRect();
+  const r = sub.getBoundingClientRect();
+  let left = a.right + 2;
+  let top = a.top;
+  if (left + r.width > window.innerWidth - pad) left = a.left - r.width - 2;
+  if (top + r.height > window.innerHeight - pad) top = window.innerHeight - r.height - pad;
+  sub.style.left = `${Math.max(pad, left)}px`;
+  sub.style.top = `${Math.max(pad, top)}px`;
+  _appCtxSubMenuEl = sub;
+}
+
+function appendAppCtxMenuItems(menu, items) {
   (items || []).forEach((it) => {
     if (!it || !it.label) return;
     const btn = document.createElement("button");
@@ -3586,17 +3657,44 @@ function showAppCtxMenu(clientX, clientY, items) {
     btn.setAttribute("role", "menuitem");
     btn.textContent = it.label;
     if (it.danger) btn.classList.add("is-danger");
-    btn.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      hideAppCtxMenu();
-      try {
-        it.action?.();
-      } catch (e) {
-        toast(String(e), "error");
-      }
-    });
+    if (it.disabled) {
+      btn.disabled = true;
+      btn.classList.add("is-muted");
+      menu.appendChild(btn);
+      return;
+    }
+    if (it.submenu?.length) {
+      btn.classList.add("has-submenu");
+      btn.addEventListener("mouseenter", () => showAppCtxSubMenu(btn, it.submenu));
+      btn.addEventListener("mouseleave", () => {
+        setTimeout(() => {
+          if (_appCtxSubMenuEl && !_appCtxSubMenuEl.matches(":hover") && !btn.matches(":hover")) {
+            hideAppCtxSubMenu();
+          }
+        }, 160);
+      });
+    } else {
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        hideAppCtxMenu();
+        try {
+          it.action?.();
+        } catch (e) {
+          toast(String(e), "error");
+        }
+      });
+    }
     menu.appendChild(btn);
   });
+}
+
+function showAppCtxMenu(clientX, clientY, items) {
+  hideAppCtxMenu();
+  hideAppCtxSubMenu();
+  const menu = document.createElement("div");
+  menu.className = "app-ctx-menu";
+  menu.setAttribute("role", "menu");
+  appendAppCtxMenuItems(menu, items);
   if (!menu.childElementCount) return;
   document.body.appendChild(menu);
   const pad = 8;
@@ -3928,6 +4026,11 @@ async function pollMemosImageJob(jobId) {
   const btn = $("#btnMemosGenImages");
   for (let i = 0; i < 240; i++) {
     const data = await api(`/api/jobs/${jobId}`);
+    if (isJobPollGone(data)) {
+      const gone = data.error || "配图任务已不存在";
+      if (statusEl) statusEl.textContent = gone;
+      break;
+    }
     const job = data.job || {};
     const msg = job.message || job.status || "配图生成中…";
     if (statusEl) statusEl.textContent = msg;
@@ -4001,7 +4104,7 @@ async function runMemosBatchImages() {
       indices,
       topic: "Memos",
       sync_to_memos: true,
-      debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+      debugger_url: publishDebuggerUrl(),
       variants: items.map((it) => ({
         id: it.id || it.name,
         name: it.name || (it.id ? `memos/${it.id}` : ""),
@@ -4159,6 +4262,10 @@ async function runXgrowthViral() {
     for (;;) {
       await new Promise((r) => setTimeout(r, 1500));
       const data = await api(`/api/jobs/${jobId}`);
+      if (isJobPollGone(data)) {
+        setStatus($("#xgrowthStatus"), data.error || "任务已不存在", "error");
+        break;
+      }
       const job = data.job || {};
       setStatus($("#xgrowthStatus"), job.message || job.status || "运行中…");
       if (out && job.message) out.textContent = job.message;
@@ -4217,6 +4324,10 @@ async function reloadCurrentList() {
 async function pollJob(jobId) {
   for (let i = 0; i < 180; i++) {
     const data = await api(`/api/jobs/${jobId}`);
+    if (isJobPollGone(data)) {
+      setStatus($("#crawlStatus"), data.error || "任务已不存在", "error");
+      return;
+    }
     const job = data.job || {};
     setStatus($("#crawlStatus"), job.message || job.status || "运行中…");
     if (job.plan && job.plan.twitter_queries) {
@@ -4602,6 +4713,8 @@ let publishMediaItems = [];
 let publishServerMediaPaths = [];
 /** 对应 preview 用的 cache rel */
 let publishServerMediaRels = [];
+/** @type {"/api/publish/cache/file"|"/api/publish/history/file"} */
+let publishServerMediaFileApi = "/api/publish/cache/file";
 
 function publishMediaCacheBytes(items = publishMediaItems) {
   return (items || []).reduce(
@@ -4668,7 +4781,7 @@ function savePublishPrefs(patch) {
 
 function snapshotPublishPrefs() {
   savePublishPrefs({
-    debuggerUrl: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+    debuggerUrl: publishDebuggerUrl(),
     useCdp: !!$("#useCdp")?.checked,
     publishDryRun: !!$("#publishDryRun")?.checked,
     content: $("#publishContent")?.value || "",
@@ -4681,6 +4794,7 @@ function snapshotPublishPrefs() {
 
 function restorePublishPrefsFields() {
   const p = loadPublishPrefs();
+  if (p.debuggerUrl === "127.0.0.1:9222") p.debuggerUrl = DEFAULT_PUBLISH_DEBUGGER;
   if (p.debuggerUrl != null && $("#debuggerUrl")) $("#debuggerUrl").value = p.debuggerUrl;
   if ($("#useCdp")) $("#useCdp").checked = p.useCdp !== false;
   if ($("#publishDryRun")) $("#publishDryRun").checked = !!p.publishDryRun;
@@ -4911,7 +5025,7 @@ function renderMediaPreview() {
       const img = document.createElement("img");
       img.className = "thumb";
       img.alt = base;
-      img.src = `/api/publish/cache/file?rel=${encodeURIComponent(rel)}`;
+      img.src = `${publishServerMediaFileApi}?rel=${encodeURIComponent(rel)}`;
       wrap.appendChild(img);
     } else {
       const ph = document.createElement("div");
@@ -5097,6 +5211,12 @@ async function pollPublishRunJob(jobId, { onProgress } = {}) {
   const token = ++_publishRunPollToken;
   while (token === _publishRunPollToken) {
     const data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (isJobPollGone(data)) {
+      clearPublishRunJobCache();
+      const msg = data.error || "发布任务已不存在";
+      setStatus($("#publishStatus"), msg, "error");
+      return { status: "error", message: msg };
+    }
     const job = data.job || {};
     const progress = job.publish_progress || {};
     if (progress.phase) {
@@ -5126,6 +5246,7 @@ function cancelPublishRetry() {
 }
 
 async function startPublishRunJob(draft) {
+  _publishRunPollToken += 1;
   const data = await api("/api/publish/run", {
     method: "POST",
     body: JSON.stringify(draft),
@@ -5162,6 +5283,10 @@ async function restorePublishRunIfAny() {
   _publishRunRestoring = true;
   try {
     const data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (isJobPollGone(data)) {
+      clearPublishRunJobCache();
+      return false;
+    }
     const job = data.job || {};
     if (!job.status || ["done", "error", "cancelled"].includes(job.status)) {
       clearPublishRunJobCache();
@@ -5217,7 +5342,7 @@ async function collectPublishDraft({ requireSchedule = false, allowNoPlatform = 
     media_paths,
     media_files,
     use_cdp: true,
-    debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+    debugger_url: publishDebuggerUrl(),
     scheduled_at: $("#publishScheduleAt")?.value || "",
   };
   if (!allowNoPlatform && !draft.platforms.length) {
@@ -5240,6 +5365,7 @@ function clearPublishEditorKeepMeta() {
   publishMediaItems = [];
   publishServerMediaPaths = [];
   publishServerMediaRels = [];
+  publishServerMediaFileApi = "/api/publish/cache/file";
   if ($("#publishMedia")) $("#publishMedia").value = "";
   persistPublishMediaItems();
   const input = $("#publishMediaFiles");
@@ -5252,6 +5378,7 @@ function clearPublishEditorKeepMeta() {
 
 const PUBLISH_MODE_LS = "publishWorkbenchMode";
 let publishWorkbenchMode = "publish";
+let publishArchiveKind = "all";
 
 function applyPublishWorkbenchMode(mode) {
   const m = mode === "cache" ? "cache" : "publish";
@@ -5284,7 +5411,7 @@ function applyPublishWorkbenchMode(mode) {
   if (m === "cache") loadPublishSeriesCards();
   else {
     loadPublishQueue();
-    loadPublishCache();
+    loadPublishHistory();
   }
 }
 
@@ -5405,7 +5532,7 @@ async function batchPublishSeriesSelected() {
       body: JSON.stringify({
         ids,
         platforms,
-        debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+        debugger_url: publishDebuggerUrl(),
       }),
     });
     if (!data.success) {
@@ -5424,9 +5551,98 @@ async function batchPublishSeriesSelected() {
   }
 }
 
+async function loadPublishHistoryItem(it, { switchMode = true } = {}) {
+  if (!it) throw new Error("条目为空");
+  if (switchMode) applyPublishWorkbenchMode("publish");
+  publishServerMediaFileApi = "/api/publish/history/file";
+  if ($("#publishContent")) $("#publishContent").value = it.content || "";
+  updatePublishContentCount();
+  if (it.debugger_url && $("#debuggerUrl")) $("#debuggerUrl").value = it.debugger_url;
+  applyPublishPlatformHint(it.platforms || []);
+  if ($("#publishSeriesNote") && it.series_note) $("#publishSeriesNote").value = it.series_note;
+  if ($("#publishDryRun")) $("#publishDryRun").checked = it.submit === false;
+  publishMediaItems = [];
+  publishServerMediaPaths = Array.isArray(it.media_paths) ? [...it.media_paths] : [];
+  publishServerMediaRels = Array.isArray(it.media_rels) ? [...it.media_rels] : [];
+  persistPublishMediaItems();
+  renderMediaPreview();
+  snapshotPublishPrefs();
+  setStatus(
+    $("#publishStatus"),
+    `已载入发布历史 #${it.id || ""}，确认后点「发布」`,
+    "ok"
+  );
+}
+
+async function loadPublishHistory() {
+  const box = $("#publishHistoryList");
+  if (!box) return;
+  document.querySelectorAll("[data-archive-kind]").forEach((btn) => {
+    btn.classList.toggle("on", btn.getAttribute("data-archive-kind") === publishArchiveKind);
+  });
+  try {
+    const qs = new URLSearchParams({ page: "1", page_size: "24", kind: publishArchiveKind });
+    const data = await api(`/api/publish/history?${qs.toString()}`);
+    const items = data.items || [];
+    const st = data.stats || {};
+    const statsEl = $("#publishHistoryStats");
+    if (statsEl) {
+      statsEl.textContent = `共 ${data.total || 0} · 草稿 ${st.draft ?? "—"} · 发布 ${st.run ?? "—"}`;
+    }
+    if (!items.length) {
+      box.innerHTML = `<p class="muted">暂无记录。点「存草稿」或完成一次 CDP 发布会出现在这里。</p>`;
+      return;
+    }
+    box.innerHTML = items
+      .map((it) => {
+        const isDraft = it.entry_kind === "draft" || it.status === "draft";
+        const st = it.status || "";
+        const ok = !isDraft && st === "done" && (it.success_count || 0) >= (it.total_count || 1);
+        const stCls = isDraft ? "ph-kind-draft" : ok ? "ok" : st === "cancelled" ? "" : "fail";
+        const stLabel = isDraft
+          ? "草稿"
+          : st === "done"
+            ? `完成 ${it.success_count || 0}/${it.total_count || 0}`
+            : st === "cancelled"
+              ? "已终止"
+              : st === "error"
+                ? "失败"
+                : statusLabel(st);
+        const plats = (it.platforms || []).map(publishPlatformLabel).join("、") || "—";
+        const imgApi =
+          it.source === "queue" && it.media_rels?.[0]
+            ? `/api/publish/cache/file?rel=${encodeURIComponent(it.media_rels[0])}`
+            : it.media_rels?.[0]
+              ? `/api/publish/history/file?rel=${encodeURIComponent(it.media_rels[0])}`
+              : "";
+        const cover = imgApi
+          ? `<div class="publish-history-cover"><img src="${imgApi}" alt="" loading="lazy" /></div>`
+          : `<div class="publish-history-cover publish-history-cover-empty">纯文本</div>`;
+        const when = String(it.created_at || "").slice(0, 16).replace("T", " ");
+        return `<article class="publish-history-card" data-hid="${escapeAttr(it.id)}" data-hsource="${escapeAttr(it.source || "archive")}">
+          <header>
+            <span class="publish-history-meta">${escapeHtml(when)} · ${escapeHtml(plats)}</span>
+            <span class="ph-status ${stCls}">${escapeHtml(stLabel)}</span>
+          </header>
+          ${cover}
+          <p class="publish-history-snippet">${escapeHtml(it.snippet || it.content || "")}</p>
+          <div class="publish-history-actions">
+            <button type="button" class="btn ghost btn-sm" data-ph-act="load">载入</button>
+            <button type="button" class="btn primary btn-sm" data-ph-act="republish">再发布</button>
+            <button type="button" class="btn ghost btn-sm" data-ph-act="del">删除</button>
+          </div>
+        </article>`;
+      })
+      .join("");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
+  }
+}
+
 async function loadQueueItemIntoPublishEditor(it, { switchMode = true } = {}) {
   if (!it) throw new Error("条目为空");
   if (switchMode) applyPublishWorkbenchMode("publish");
+  publishServerMediaFileApi = "/api/publish/cache/file";
   if ($("#publishTitle")) $("#publishTitle").value = it.title || "";
   if ($("#publishContent")) $("#publishContent").value = it.content || "";
   updatePublishContentCount();
@@ -5575,13 +5791,13 @@ async function savePublishBundle({ enqueue }) {
       $("#publishStatus"),
       enqueue
         ? `已入队 ${it.id} · ${it.scheduled_at || ""} · ${it.storage_rel || ""}`
-        : `已存草稿 ${it.id} · ${it.storage_rel || ""}`,
+        : `已存草稿 ${it.id}`,
       "ok"
     );
     $("#publishResult").textContent = JSON.stringify(it, null, 2);
     clearPublishEditorKeepMeta();
     await loadPublishQueue();
-    await loadPublishCache();
+    await loadPublishHistory();
   } catch (e) {
     setStatus($("#publishStatus"), String(e), "error");
   }
@@ -6103,6 +6319,7 @@ function bind() {
           allOk ? "ok" : "error"
         );
         if (allOk) clearPublishEditorKeepMeta();
+        await loadPublishHistory();
       } else {
         const it = result.data.item || {};
         const when = it.scheduled_at || $("#publishScheduleAt")?.value || "";
@@ -6196,8 +6413,51 @@ function bind() {
   });
   $("#btnQueueRefresh")?.addEventListener("click", () => {
     loadPublishQueue();
-    loadPublishCache();
+    if (publishWorkbenchMode === "publish") loadPublishHistory();
     if (publishWorkbenchMode === "cache") loadPublishSeriesCards();
+  });
+  $("#btnHistoryRefresh")?.addEventListener("click", () => loadPublishHistory());
+  document.querySelectorAll("[data-archive-kind]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      publishArchiveKind = btn.getAttribute("data-archive-kind") || "all";
+      loadPublishHistory();
+    });
+  });
+  $("#publishHistoryList")?.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-ph-act]");
+    if (!btn) return;
+    const card = btn.closest("[data-hid]");
+    const hid = card?.getAttribute("data-hid") || "";
+    const source = card?.getAttribute("data-hsource") || "archive";
+    if (!hid) return;
+    const act = btn.getAttribute("data-ph-act");
+    try {
+      if (act === "del") {
+        if (!confirm("删除这条记录？")) return;
+        await api(`/api/publish/history/${encodeURIComponent(hid)}`, { method: "DELETE" });
+        toast("已删除", "ok");
+        await loadPublishHistory();
+        await loadPublishQueue();
+        return;
+      }
+      let it;
+      if (source === "queue") {
+        const q = await api(`/api/publish/queue/${encodeURIComponent(hid)}`);
+        it = q.item || (await api("/api/publish/queue")).items?.find((x) => String(x.id) === hid);
+        if (!it) throw new Error("未找到");
+        await loadQueueItemIntoPublishEditor(it);
+      } else {
+        const data = await api(`/api/publish/history/${encodeURIComponent(hid)}`);
+        it = data.item;
+        if (!it) throw new Error("未找到");
+        await loadPublishHistoryItem(it);
+      }
+      if (act === "republish") {
+        $("#btnPublish")?.click();
+      }
+    } catch (e) {
+      toast(String(e), "error");
+    }
   });
   $("#btnQueueClearDone")?.addEventListener("click", async () => {
     try {
@@ -6502,6 +6762,12 @@ function bind() {
 
   $("#btnTcIngest")?.addEventListener("click", () => runTweetCardIngest());
   $("#btnTcRefresh")?.addEventListener("click", () => loadTweetCards());
+  let _tcInputHintTimer = null;
+  $("#tcInput")?.addEventListener("input", () => {
+    clearTimeout(_tcInputHintTimer);
+    _tcInputHintTimer = setTimeout(() => tcUpdateInputHint(), 120);
+  });
+  tcUpdateInputHint();
   $("#btnTcApplyFilter")?.addEventListener("click", () => {
     state.tcPage = 1;
     tcSaveFilterPrefs();
@@ -7718,6 +7984,10 @@ async function runUserSignalsCrawl() {
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
       const data = await api(`/api/jobs/${jobId}`);
+      if (isJobPollGone(data)) {
+        setStatus($("#sigUserStatus"), data.error || "任务已不存在", "error");
+        break;
+      }
       const job = data.job || {};
       renderSigUserRunLog(job.logs || [], job.result?.item_logs, job.result);
       const paused = job.status === "paused" || job.control_status === "paused";
@@ -8301,6 +8571,10 @@ async function runSignalsCrawl() {
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
       const data = await api(`/api/jobs/${jobId}`);
+      if (isJobPollGone(data)) {
+        setStatus($("#sigStatus"), data.error || "任务已不存在", "error");
+        break;
+      }
       const job = data.job || {};
       renderSigRunLog(job.logs || []);
       const paused = job.status === "paused" || job.control_status === "paused";
@@ -8686,6 +8960,10 @@ async function runValueReturnCrawl() {
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
       const data = await api(`/api/jobs/${jobId}`);
+      if (isJobPollGone(data)) {
+        setStatus($("#sigValueStatus"), data.error || "任务已不存在", "error");
+        break;
+      }
       const job = data.job || {};
       if (logEl) {
         logEl.hidden = false;
@@ -8861,6 +9139,94 @@ function fmtCount(n) {
 
 const TC_FILTER_LS = "tcFilterPrefs";
 
+/** 与 tweet_cards.fetch.split_inputs 对齐：多行 / 多 URL / Tweet ID 批量识别 */
+function tcSplitInputItems(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  const urlRe =
+    /https?:\/\/(?:www\.)?(?:twitter\.com|x\.com|vxtwitter\.com|fxtwitter\.com|t\.co)\/[^\s\])>,，；;]+/gi;
+  const trimPiece = (s) => String(s || "").trim().replace(/[).,，；;\]]+$/, "");
+  const tweetId = (s) => {
+    const m = String(s).match(/\/status\/(\d+)/i);
+    if (m) return m[1];
+    const m2 = String(s).match(/^(\d{10,22})$/);
+    return m2 ? m2[1] : "";
+  };
+  const out = [];
+  const seenTid = new Set();
+  const seenRaw = new Set();
+  const add = (piece) => {
+    const p = trimPiece(piece);
+    if (!p || seenRaw.has(p)) return;
+    const tid = tweetId(p);
+    if (tid) {
+      if (seenTid.has(tid)) return;
+      seenTid.add(tid);
+    }
+    seenRaw.add(p);
+    out.push(p);
+  };
+  const lines = text.split(/\r?\n/);
+  if (lines.length > 1) {
+    for (const line of lines) {
+      const ln = line.trim();
+      if (!ln || ln.startsWith("#")) continue;
+      const urls = ln.match(urlRe);
+      if (urls && urls.length) urls.forEach((u) => add(u));
+      else add(ln);
+    }
+  } else {
+    const urls = text.match(urlRe);
+    if (urls && urls.length) urls.forEach((u) => add(u));
+    else add(text);
+  }
+  if (!out.length) {
+    const urls = text.match(urlRe);
+    if (urls) urls.forEach((u) => add(u));
+  }
+  return out;
+}
+
+function tcUpdateInputHint() {
+  const hint = $("#tcInputHint");
+  const raw = $("#tcInput")?.value || "";
+  if (!hint) return;
+  const items = tcSplitInputItems(raw);
+  if (!raw.trim()) {
+    hint.hidden = true;
+    hint.textContent = "";
+    return;
+  }
+  hint.hidden = false;
+  if (!items.length) {
+    hint.textContent = "未识别到有效链接或 Tweet ID，请检查每行格式。";
+    return;
+  }
+  const preview = items
+    .slice(0, 4)
+    .map((u) => (u.length > 52 ? `${u.slice(0, 50)}…` : u))
+    .join(" · ");
+  const more = items.length > 4 ? ` 等 ${items.length} 条` : "";
+  hint.textContent = `已识别 ${items.length} 条${more}：${preview}`;
+}
+
+function tcFormatIngestResult(result) {
+  const ok = Number(result?.ok_count ?? 0);
+  const fail = Number(result?.fail_count ?? 0);
+  let msg = result?.message || `成功 ${ok} · 失败 ${fail}`;
+  const failed = Array.isArray(result?.failed) ? result.failed : [];
+  if (failed.length) {
+    const lines = failed.slice(0, 8).map((f) => {
+      const inp = String(f.input || "").slice(0, 48);
+      const err = String(f.error || "失败");
+      return `${inp}${inp.length >= 48 ? "…" : ""} → ${err}`;
+    });
+    msg += `\n${lines.join("\n")}`;
+    if (failed.length > 8) msg += `\n… 另有 ${failed.length - 8} 条失败`;
+  }
+  return msg;
+}
+
 function isTcPrivacyOn() {
   return !!$("#tcHideSensitive")?.checked || localStorage.getItem("tcHideSensitive") === "1";
 }
@@ -8962,6 +9328,66 @@ function tcAuthorView(c) {
   };
 }
 
+function tcTaxonomyTopicLabel(topicId, categoryId) {
+  const cats = globalThis.TaxonomyData?.categories || [];
+  if (topicId) {
+    for (const cat of cats) {
+      for (const t of cat.topics || []) {
+        if (t.id === topicId) return `${cat.name} › ${t.name}`;
+      }
+    }
+  }
+  if (categoryId) {
+    const cat = cats.find((c) => c.id === categoryId);
+    if (cat) return cat.name;
+  }
+  return "";
+}
+
+function tcBuildTaxonomyContextItems(tid, card) {
+  const cats = globalThis.TaxonomyData?.categories || [];
+  if (!cats.length) return [];
+  const hasTax =
+    !!String(card.taxonomy_topic_id || "").trim() ||
+    !!String(card.taxonomy_category_id || "").trim();
+  const items = [];
+  if (hasTax) {
+    const lbl = tcTaxonomyTopicLabel(card.taxonomy_topic_id, card.taxonomy_category_id);
+    items.push({
+      label: lbl ? `当前小类：${lbl}` : "当前已归入内容模板",
+      disabled: true,
+    });
+    items.push({
+      label: "移出内容模板小类",
+      action: async () => {
+        await tcPatchCard(tid, { clear_taxonomy: true });
+        toast("已移出内容模板小类", "ok");
+        await loadTweetCards();
+        globalThis.TaxonomyPage?.refreshTweetCards?.();
+      },
+    });
+  }
+  items.push({
+    label: "内容模板小类",
+    submenu: cats.map((cat) => ({
+      label: cat.name,
+      submenu: (cat.topics || []).map((topic) => ({
+        label: topic.name,
+        action: async () => {
+          await tcPatchCard(tid, {
+            taxonomy_topic_id: topic.id,
+            taxonomy_category_id: cat.id,
+          });
+          toast(`已归入「${cat.name} › ${topic.name}」`, "ok");
+          await loadTweetCards();
+          globalThis.TaxonomyPage?.refreshTweetCards?.();
+        },
+      })),
+    })),
+  });
+  return items;
+}
+
 async function tcPatchCard(tid, patch) {
   const data = await api(`/api/tweet-cards/${encodeURIComponent(tid)}`, {
     method: "PATCH",
@@ -8994,6 +9420,7 @@ function tcShowCardContextMenu(ev, card) {
         await loadTweetCards();
       },
     },
+    ...tcBuildTaxonomyContextItems(tid, card),
   ];
   categories.forEach((cat) => {
     items.push({
@@ -9104,8 +9531,10 @@ async function loadTweetCards() {
           ? `<img class="tc-avatar" src="${escapeAttr(author.avatar)}" alt="" loading="lazy" />`
           : `<div class="tc-avatar" aria-hidden="true"></div>`;
         const displayCat = c.display_category || c.user_category || c.category || "";
+        const taxLbl = tcTaxonomyTopicLabel(c.taxonomy_topic_id, c.taxonomy_category_id);
         const tags = [
           c.favorited ? `<span class="tc-tag fav">★ 收藏</span>` : "",
+          taxLbl ? `<span class="tc-tag tax">${escapeHtml(taxLbl)}</span>` : "",
           c.emotion ? `<span class="tc-tag emo">${escapeHtml(c.emotion)}</span>` : "",
           displayCat ? `<span class="tc-tag cat">${escapeHtml(displayCat)}</span>` : "",
           ...(c.tags || []).map((t) => `<span class="tc-tag">#${escapeHtml(String(t))}</span>`),
@@ -9157,13 +9586,15 @@ async function loadTweetCards() {
 
 async function runTweetCardIngest() {
   const raw = $("#tcInput")?.value.trim() || "";
-  if (!raw) {
-    toast("请先粘贴推特链接", "error");
+  const items = tcSplitInputItems(raw);
+  if (!raw || !items.length) {
+    toast("请先粘贴推特链接（可多行）或 Tweet ID", "error");
+    tcUpdateInputHint();
     return;
   }
   const btn = $("#btnTcIngest");
   if (btn) btn.disabled = true;
-  setStatus($("#tcStatus"), "提交解析…");
+  setStatus($("#tcStatus"), `提交批量解析（${items.length} 条）…`);
   try {
     const start = await api("/api/tweet-cards/ingest", {
       method: "POST",
@@ -9177,22 +9608,34 @@ async function runTweetCardIngest() {
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
       const data = await api(`/api/jobs/${jobId}`);
+      if (isJobPollGone(data)) {
+        setStatus($("#tcStatus"), data.error || "任务已不存在", "error");
+        break;
+      }
       const job = data.job || {};
-      setStatus($("#tcStatus"), job.message || job.status || "运行中…");
+      const prog = job.message || job.status || "运行中…";
+      setStatus($("#tcStatus"), prog);
       if (job.status === "done" || job.status === "error") {
         const result = job.result || {};
+        const detail = tcFormatIngestResult(result);
+        const partial = job.status === "error" && Number(result.ok_count) > 0;
         setStatus(
           $("#tcStatus"),
-          job.status === "done"
-            ? result.message || job.message || "完成"
-            : job.message || "失败",
-          job.status === "done" ? "ok" : "error"
+          partial ? tcFormatIngestResult(result) : detail,
+          job.status === "done" || partial ? "ok" : "error"
         );
-        if (job.status === "done") {
-          toast(result.message || "已入库", "ok");
-          if ($("#tcInput")) $("#tcInput").value = "";
-          state.tcPage = 1;
-          await loadTweetCards();
+        if (job.status === "done" || partial) {
+          const ok = Number(result.ok_count ?? 0);
+          toast(
+            ok ? `批量完成：成功 ${ok}/${items.length}` : result.message || "完成",
+            ok ? "ok" : "error"
+          );
+          if (ok > 0) {
+            if ($("#tcInput")) $("#tcInput").value = "";
+            tcUpdateInputHint();
+            state.tcPage = 1;
+            await loadTweetCards();
+          }
         }
         break;
       }
@@ -10044,7 +10487,7 @@ async function rtPublishNow(id) {
             platforms: [pid],
             media_paths: image_path ? [image_path] : [],
             use_cdp: true,
-            debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222",
+            debugger_url: publishDebuggerUrl(),
             submit: true,
           }),
         });
@@ -10063,7 +10506,7 @@ async function rtPublishNow(id) {
         try {
           await api("/api/cdp/goto", {
             method: "POST",
-            body: JSON.stringify({ url: pid === "binance_square" ? "https://www.binance.com/zh-CN/square" : pid === "okx" ? "https://www.okx.com/cn/orbit" : "", debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222" }),
+            body: JSON.stringify({ url: pid === "binance_square" ? "https://www.binance.com/zh-CN/square" : pid === "okx" ? "https://www.okx.com/cn/orbit" : "", debugger_url: publishDebuggerUrl() }),
           });
         } catch (_) {}
       }
@@ -10178,7 +10621,7 @@ async function rtStartSchedule() {
             try {
               await api("/api/cdp/goto", {
                 method: "POST",
-                body: JSON.stringify({ url: gotoUrl, debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222" }),
+                body: JSON.stringify({ url: gotoUrl, debugger_url: publishDebuggerUrl() }),
               });
             } catch (_) {}
           }
@@ -10264,7 +10707,7 @@ async function rtPublishQueueItem(qid) {
           try {
             await api("/api/cdp/goto", {
               method: "POST",
-              body: JSON.stringify({ url: gotoUrl, debugger_url: $("#debuggerUrl")?.value.trim() || "127.0.0.1:9222" }),
+              body: JSON.stringify({ url: gotoUrl, debugger_url: publishDebuggerUrl() }),
             });
           } catch (_) {}
         }
