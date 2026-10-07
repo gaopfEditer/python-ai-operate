@@ -1885,9 +1885,12 @@ class BinanceSquarePublisher:
                 "platform": self.platform_id,
             }
 
+        from public.platforms.cdp_common import PublishAborted, raise_if_publish_aborted
+
         steps: List[str] = []
         own = self.driver is None
         try:
+            raise_if_publish_aborted()
             if own:
                 self.driver = connect_cdp(self.debugger_url)
             driver = self.driver
@@ -1990,7 +1993,7 @@ class BinanceSquarePublisher:
             if self.platform_id in ("bitget", "gate"):
                 if body:
                     logger.info("%s 写入正文 %s 字", self.platform_name, len(body))
-                    self._type_text(driver, body, clear_first=False)
+                    self._type_text(driver, body, clear_first=True)
                     steps.append("text")
                     human_pause(0.4, 0.9)
                     self._sync_editor_state(driver)
@@ -2132,6 +2135,9 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
                 "platform_name": self.platform_name,
                 "media_count": len(media),
             }
+        except PublishAborted:
+            logger.info("%s 发布已终止", self.platform_name)
+            raise
         except Exception as e:
             logger.exception("%s 发布失败", self.platform_name)
             return {
@@ -2157,8 +2163,11 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
         return []
 
     def _wait_for_editor(self, driver, timeout: float) -> bool:
+        from public.platforms.cdp_common import PublishAborted, raise_if_publish_aborted
+
         deadline = time.time() + max(6.0, timeout)
         while time.time() < deadline:
+            raise_if_publish_aborted()
             if self._find_body_editor(driver):
                 return True
             try:
@@ -2873,11 +2882,14 @@ return {
             logger.info("%s 弹框按钮 dump: %s", self.platform_name, dump)
         except Exception as e:
             logger.info("%s 弹框 dump 失败: %s", self.platform_name, e)
+        from public.platforms.cdp_common import PublishAborted, raise_if_publish_aborted
+
         deadline = time.time() + max(6.0, timeout)
         last: dict = {}
         closed_since = None
         last_log = 0.0
         while time.time() < deadline:
+            raise_if_publish_aborted()
             post_url = self._pick_new_post_url(driver, urls_before)
             if post_url:
                 return True, post_url, "出现新帖链接"
@@ -3379,13 +3391,26 @@ return {
     def _type_text(self, driver, text: str, *, clear_first: bool = True) -> None:
         from selenium.webdriver.common.by import By
 
+        from public.platforms.cdp_common import type_text_gate
+
         text = sanitize_typed_text(text)
         if not text:
             return
 
-        for _ in range(3):
+        use_gate_writer = self.platform_id in ("gate", "bitget")
+
+        for attempt in range(2):
             if not self._find_body_editor(driver):
                 human_pause(0.2, 0.4)
+                continue
+            try:
+                editor = driver.find_element(By.CSS_SELECTOR, '[data-pai-editor="1"]')
+                if use_gate_writer:
+                    type_text_gate(driver, editor, text)
+                    return
+            except Exception as exc:
+                logger.warning("%s 正文写入第 %s 次失败: %s", self.platform_name, attempt + 1, exc)
+                human_pause(0.25, 0.45)
                 continue
             try:
                 if clear_first and driver.execute_script(_SET_EDITOR_TEXT_JS, text):
@@ -3399,10 +3424,11 @@ return {
                     driver,
                     editor,
                     text,
-                    clear_first=clear_first,
+                    clear_first=True,
                 )
                 return
-            except Exception:
+            except Exception as exc:
+                logger.warning("%s type_text_human 失败: %s", self.platform_name, exc)
                 human_pause(0.2, 0.4)
         raise RuntimeError("无法写入正文编辑区")
 

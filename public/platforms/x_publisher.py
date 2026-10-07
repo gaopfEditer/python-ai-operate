@@ -61,9 +61,12 @@ class XPublisher:
         if not body and not media:
             return {"success": False, "error": "正文与媒体不能同时为空", "platform": "x"}
 
+        from public.platforms.cdp_common import PublishAborted, raise_if_publish_aborted
+
         steps: List[str] = []
         own = self.driver is None
         try:
+            raise_if_publish_aborted()
             if own:
                 self.driver = connect_cdp(self.debugger_url)
             driver = self.driver
@@ -175,6 +178,9 @@ class XPublisher:
                 "platform_name": "X / Twitter",
                 "media_count": len(media),
             }
+        except PublishAborted:
+            logger.info("X 发布已终止")
+            raise
         except Exception as e:
             logger.exception("X 发布失败")
             return {"success": False, "error": str(e), "steps": steps, "platform": "x"}

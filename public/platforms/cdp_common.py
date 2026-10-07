@@ -18,6 +18,25 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+
+class PublishAborted(Exception):
+    """CDP 发布被用户终止或新任务抢占。"""
+
+
+def publish_abort_requested() -> bool:
+    try:
+        from console.publish_context import abort_requested
+
+        return abort_requested()
+    except Exception:
+        return False
+
+
+def raise_if_publish_aborted() -> None:
+    if publish_abort_requested():
+        raise PublishAborted("已终止")
+
+
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv"}
 
@@ -708,7 +727,11 @@ def upload_files(driver, paths: Sequence[str], prefer: str = "any", settle_s: fl
 def human_pause(a: float = 0.4, b: float = 1.0) -> None:
     import random
 
-    time.sleep(max(0.1, a + random.random() * max(0.0, b - a)))
+    total = max(0.1, a + random.random() * max(0.0, b - a))
+    end = time.time() + total
+    while time.time() < end:
+        raise_if_publish_aborted()
+        time.sleep(min(0.2, max(0.05, end - time.time())))
 
 
 # 长文粘贴进 CDP 编辑区时，若像 Markdown 则转成适合社交平台的纯文本
@@ -1022,18 +1045,20 @@ def _split_x_compose_chunks(text: str) -> List[str]:
 
 def prepare_x_compose_text(text: str) -> str:
     """
-    X 发帖正文：段间仅单换行 \\n（X 会吃掉连续空行）。
-    多行原文保留行序；单行多句按句号拆行；连续空行压成单 \\n。
+    X 发帖正文：保留原文换行与空行；仅对「单行无换行」长文按句号拆行。
     """
-    body = sanitize_typed_text(text or "").strip()
-    if not body:
+    body = sanitize_typed_text(text or "")
+    if not body.strip():
         return ""
-    body = re.sub(r"\n\s*\n+", "\n", body)
-    body = re.sub(r"\n{2,}", "\n", body)
-    lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
-    if len(lines) > 1:
-        return "\n".join(lines)
-    chunks = _split_x_compose_chunks(body)
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    if "\n" in body:
+        lines = [ln.rstrip() for ln in body.split("\n")]
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        return "\n".join(lines) if lines else ""
+    chunks = _split_x_compose_chunks(body.strip())
     return "\n".join(chunks)
 
 
@@ -1156,8 +1181,170 @@ def _norm_editor_newlines(s: str) -> str:
     return sanitize_typed_text(s or "").replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _compose_lines_for_match(text: str) -> List[str]:
+    """行级比对：保留段落间空行，忽略首尾空行与行尾空格。"""
+    lines = [ln.rstrip() for ln in _norm_editor_newlines(text).split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines
+
+
+def editor_lines_match(got: str, expected: str) -> bool:
+    return _compose_lines_for_match(got) == _compose_lines_for_match(expected)
+
+
+def read_gate_editor_text(driver, element) -> str:
+    """Gate ProseMirror：以 data-pai-editor 的 innerText 为准。"""
+    try:
+        raw = driver.execute_script(
+            """
+const el = document.querySelector('[data-pai-editor="1"]') || arguments[0];
+if (!el) return '';
+return String(el.innerText || el.textContent || '').replace(/\\u200b/g, '');
+""",
+            element,
+        )
+        return _norm_editor_newlines(str(raw or ""))
+    except Exception:
+        return _norm_editor_newlines(read_editor_text(driver, element))
+
+
+def gate_body_acceptable(got: str, expected: str) -> bool:
+    """Gate 验收：行结构一致，或非空行顺序一致且字数接近（空行数 ProseMirror 可能略有差异）。"""
+    body = _norm_editor_newlines(expected)
+    got_s = _norm_editor_newlines(got)
+    if not got_s.strip():
+        return False
+    if editor_lines_match(got_s, body):
+        return True
+    if not multiline_content_preserved(got_s, body):
+        return False
+    exp_len = len(body.strip())
+    got_len = len(got_s.strip())
+    if exp_len <= 0:
+        return True
+    return got_len >= max(int(exp_len * 0.88), exp_len - 40)
+
+
+def _insert_exact_newlines_at_caret(driver, element, body: str) -> None:
+    """按 split('\\n') 边界逐段 insertText，每个边界恰好一个 \\n（与原文一致）。"""
+    segments = body.split("\n")
+    for i, seg in enumerate(segments):
+        if seg:
+            append_text_at_caret(driver, element, seg)
+            human_pause(0.02, 0.05)
+        if i < len(segments) - 1:
+            append_text_at_caret(driver, element, "\n")
+            human_pause(0.03, 0.07)
+
+
+def type_text_gate(driver, element, text: str) -> str:
+    """
+    Gate 广场：一次整段 insertText 优先；验收失败再换写法，失败时不清空已输入内容。
+    """
+    body = _norm_editor_newlines(text)
+    if not body.strip() and "\n" not in body:
+        return ""
+
+    def _focus() -> None:
+        try:
+            element.click()
+        except Exception:
+            driver.execute_script("arguments[0].click(); arguments[0].focus();", element)
+        _ensure_x_editor_focus(driver, element)
+        human_pause(0.06, 0.14)
+
+    def _clear() -> None:
+        try:
+            driver.execute_script(_CLEAR_EDITOR_JS, element)
+        except Exception:
+            pass
+        human_pause(0.08, 0.16)
+
+    last_got = ""
+    notes: List[str] = []
+
+    def _try(label: str, write) -> bool:
+        nonlocal last_got
+        try:
+            write()
+            human_pause(0.12, 0.24)
+            last_got = read_gate_editor_text(driver, element)
+            if gate_body_acceptable(last_got, body):
+                logger.info(
+                    "Gate 正文写入 OK（%s）· 期望 %s 行 / 读到 %s 行",
+                    label,
+                    len(_compose_lines_for_match(body)),
+                    len(_compose_lines_for_match(last_got)),
+                )
+                return True
+            notes.append(
+                f"{label}: exp={len(_compose_lines_for_match(body))} "
+                f"got={len(_compose_lines_for_match(last_got))} "
+                f"len={len(last_got.strip())}/{len(body.strip())}"
+            )
+        except Exception as exc:
+            notes.append(f"{label}={exc}")
+        return False
+
+    if _try("cdp", lambda: (_clear(), _focus(), driver.execute_cdp_cmd("Input.insertText", {"text": body}))):
+        return last_got
+    if _try("js", lambda: (_clear(), _focus(), driver.execute_script(_INSERT_TEXT_JS, element, body, True))):
+        return last_got
+    if _try("seg", lambda: (_clear(), _focus(), _insert_exact_newlines_at_caret(driver, element, body))):
+        return last_got
+
+    if last_got.strip() and multiline_content_preserved(last_got, body):
+        logger.warning(
+            "Gate 行空行与原文略有差异，正文顺序已对齐，继续发布（%s）",
+            notes[-1] if notes else "",
+        )
+        return last_got
+
+    raise RuntimeError(
+        "Gate 正文写入失败（编辑区内容已保留便于核对）。"
+        f" {' · '.join(notes[:4])}"
+    )
+
+
+def type_text_exact_multiline(
+    driver,
+    element,
+    text: str,
+    *,
+    clear_first: bool = True,
+) -> str:
+    """Bitget 等：同 Gate 策略，可在外层选择 gate 专用入口。"""
+    _ = clear_first
+    return type_text_gate(driver, element, text)
+
+
+def _paragraph_gap_signature(text: str) -> List[int]:
+    """相邻两段非空正文之间的空行数（与原文 \\n 结构对应）。"""
+    lines = _norm_editor_newlines(text).split("\n")
+    sig: List[int] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        while i < n and not lines[i].strip():
+            i += 1
+        if i >= n:
+            break
+        j = i + 1
+        blanks = 0
+        while j < n and not lines[j].strip():
+            blanks += 1
+            j += 1
+        if j < n:
+            sig.append(blanks)
+        i = j if j > i + 1 else i + 1
+    return sig
+
+
 def x_editor_line_structure_ok(got: str, expected: str) -> bool:
-    """核对 innerText：多行预期时编辑区须含 \\n，且非空行顺序一致。"""
+    """核对 innerText：非空行顺序一致，且段落间空行数与原文一致。"""
     exp = _norm_editor_newlines(expected)
     got_s = _norm_editor_newlines(got)
     if not exp:
@@ -1166,23 +1353,32 @@ def x_editor_line_structure_ok(got: str, expected: str) -> bool:
     got_lines = [ln.strip() for ln in got_s.split("\n") if ln.strip()]
     if not multiline_content_preserved(got_s, exp):
         return False
+    if got_lines != exp_lines:
+        return False
     if len(exp_lines) <= 1:
         return True
-    if "\n" not in got_s:
+    if _paragraph_gap_signature(got_s) != _paragraph_gap_signature(exp):
         return False
-    if got_lines != exp_lines:
+    if "\n" not in got_s:
         return False
     return True
 
 
-def _type_x_multiline_into_element(
+def _type_x_draft_paragraphs(
     driver,
     element,
     body: str,
     *,
     clear_first: bool = True,
 ) -> str:
-    """在指定 Draft 编辑区内逐段 insertText + \\n，不抛错，返回读到的 innerText。"""
+    """
+    X Draft.js：空行用 Enter（新段落/空块），相邻行用 Shift+Enter。
+    insertText 的 \\n 在 X 上常被压成一行，故不用整段粘贴。
+    """
+    from selenium.webdriver.common.action_chains import ActionChains
+    from selenium.webdriver.common.keys import Keys
+
+    lines = _norm_editor_newlines(body).split("\n")
     if clear_first:
         try:
             driver.execute_script(_CLEAR_EDITOR_JS, element)
@@ -1193,20 +1389,63 @@ def _type_x_multiline_into_element(
         human_pause(0.1, 0.2)
         _ensure_x_editor_focus(driver, element)
     human_pause(0.08, 0.16)
+
+    i = 0
+    n = len(lines)
+    while i < n:
+        if not lines[i]:
+            ActionChains(driver).click(element).send_keys(Keys.ENTER).perform()
+            human_pause(0.06, 0.12)
+            i += 1
+            continue
+        append_text_at_caret(driver, element, lines[i])
+        human_pause(0.03, 0.08)
+        i += 1
+        if i >= n:
+            break
+        blanks = 0
+        while i < n and not lines[i]:
+            ActionChains(driver).click(element).send_keys(Keys.ENTER).perform()
+            human_pause(0.06, 0.12)
+            blanks += 1
+            i += 1
+        if i < n and blanks == 0:
+            ActionChains(driver).click(element).key_down(Keys.SHIFT).send_keys(
+                Keys.ENTER
+            ).key_up(Keys.SHIFT).perform()
+            human_pause(0.04, 0.09)
+    human_pause(0.12, 0.22)
+    return _read_x_compose_got(driver, element)
+
+
+def _type_x_multiline_into_element(
+    driver,
+    element,
+    body: str,
+    *,
+    clear_first: bool = True,
+) -> str:
+    """优先 Draft Enter/Shift+Enter；失败再退回 insertText 分段。"""
+    got = _type_x_draft_paragraphs(
+        driver, element, body, clear_first=clear_first
+    )
+    if x_editor_line_structure_ok(got, body):
+        return got
+    if clear_first:
+        try:
+            driver.execute_script(_CLEAR_EDITOR_JS, element)
+        except Exception:
+            pass
+        human_pause(0.1, 0.2)
+    _ensure_x_editor_focus(driver, element)
     segments = body.split("\n")
-    idx = 0
-    while idx < len(segments):
-        seg = segments[idx]
+    for i, seg in enumerate(segments):
         if seg:
             append_text_at_caret(driver, element, seg)
             human_pause(0.02, 0.06)
-        nxt = idx + 1
-        while nxt < len(segments) and not segments[nxt]:
-            nxt += 1
-        if nxt < len(segments):
+        if i < len(segments) - 1:
             append_text_at_caret(driver, element, "\n")
             human_pause(0.04, 0.08)
-        idx = nxt if nxt > idx else idx + 1
     human_pause(0.1, 0.2)
     return _read_x_compose_got(driver, element)
 
@@ -1228,6 +1467,19 @@ def type_x_compose_via_cdp_insert_text(
 
     attempts: List[str] = []
 
+    def _try_draft_keys() -> str:
+        got = _type_x_draft_paragraphs(
+            driver, element, body, clear_first=clear_first
+        )
+        if x_editor_line_structure_ok(got, body):
+            return got
+        attempts.append(
+            f"draft gaps={_paragraph_gap_signature(got)} "
+            f"exp={_paragraph_gap_signature(body)} "
+            f"text={(got or '')[:40]!r}"
+        )
+        return ""
+
     def _try_multiline() -> str:
         got = _type_x_multiline_into_element(
             driver, element, body, clear_first=clear_first
@@ -1235,29 +1487,6 @@ def type_x_compose_via_cdp_insert_text(
         if x_editor_line_structure_ok(got, body):
             return got
         attempts.append(f"multiline={(got or '')[:48]!r}")
-        return ""
-
-    def _try_cdp_insert() -> str:
-        if clear_first:
-            try:
-                driver.execute_script(_CLEAR_EDITOR_JS, element)
-            except Exception:
-                pass
-            human_pause(0.12, 0.25)
-        if not _ensure_x_editor_focus(driver, element):
-            attempts.append("focus=fail")
-            return ""
-        human_pause(0.08, 0.16)
-        try:
-            driver.execute_cdp_cmd("Input.insertText", {"text": body})
-        except Exception as exc:
-            attempts.append(f"cdp={exc}")
-            return ""
-        human_pause(0.12, 0.24)
-        got = _read_x_compose_got(driver, element)
-        if x_editor_line_structure_ok(got, body):
-            return got
-        attempts.append(f"cdp={(got or '')[:48]!r}")
         return ""
 
     def _try_insert_js() -> str:
@@ -1284,10 +1513,14 @@ def type_x_compose_via_cdp_insert_text(
         attempts.append(f"insert_js={(got or '')[:48]!r}")
         return ""
 
-    for fn in (_try_multiline, _try_cdp_insert, _try_insert_js):
+    for fn in (_try_draft_keys, _try_multiline, _try_insert_js):
         got = fn()
         if got:
-            logger.info("X 正文写入成功（%s 行）", got.count("\n") + 1)
+            logger.info(
+                "X 正文写入成功 · %s 行 · 段落空行 %s",
+                got.count("\n") + 1,
+                _paragraph_gap_signature(got),
+            )
             return got
 
     final_got = _read_x_compose_got(driver, element)
@@ -1339,22 +1572,16 @@ def type_text_multiline_soft_breaks(
     got = ""
     if newline_via_insert:
         segments = body.split("\n")
-        idx = 0
-        while idx < len(segments):
-            seg = segments[idx]
+        for i, seg in enumerate(segments):
             if seg:
                 got = append_text_at_caret(driver, element, seg)
                 human_pause(*line_pause)
-            nxt = idx + 1
-            while nxt < len(segments) and not segments[nxt]:
-                nxt += 1
-            if nxt < len(segments):
-                nl = max(1, nxt - idx)
-                if seg and min_breaks_between_blocks > nl:
-                    nl = min_breaks_between_blocks
-                got = append_text_at_caret(driver, element, "\n" * nl)
+            if i < len(segments) - 1:
+                gap = 1
+                if seg and min_breaks_between_blocks > gap:
+                    gap = min_breaks_between_blocks
+                got = append_text_at_caret(driver, element, "\n" * gap)
                 human_pause(*break_pause)
-            idx = nxt if nxt > idx else idx + 1
     else:
         lines = body.split("\n")
         for i, line in enumerate(lines):

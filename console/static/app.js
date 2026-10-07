@@ -5171,6 +5171,7 @@ function clearPublishProgress() {
 const PUBLISH_RUN_JOB_LS = "pai_publish_run_job";
 let _publishRunPollToken = 0;
 let _publishRunRestoring = false;
+let _publishUiGeneration = 0;
 
 function cachePublishRunJobId(jobId) {
   if (!jobId) return;
@@ -5259,12 +5260,16 @@ async function startPublishRunJob(draft) {
 }
 
 async function publishNowViaCdp(onProgress) {
+  const gen = ++_publishUiGeneration;
   const draft = await collectPublishDraft();
   draft.submit = !$("#publishDryRun")?.checked;
   const jobId = await startPublishRunJob(draft);
   const job = await pollPublishRunJob(jobId, { onProgress });
+  if (gen !== _publishUiGeneration) {
+    return { success: false, total: 0, success_count: 0, results: [], superseded: true };
+  }
   if (!job) {
-    throw new Error("发布任务已中断");
+    return { success: false, total: 0, success_count: 0, results: [], aborted: true };
   }
   const result = job.result || {};
   return {
@@ -5272,7 +5277,7 @@ async function publishNowViaCdp(onProgress) {
     total: result.total || 0,
     success_count: result.success_count || 0,
     results: result.results || [],
-    aborted: !!result.aborted,
+    aborted: job.status === "cancelled" || !!result.aborted,
   };
 }
 
@@ -6281,15 +6286,14 @@ function bind() {
   });
 
   $("#btnPublish").addEventListener("click", async () => {
-    $("#btnPublish").disabled = true;
     clearPublishProgress();
     const platformNames = selectedPublishPlatforms().map(publishPlatformLabel).join("、");
     setStatus(
       $("#publishStatus"),
       isPublishScheduleDefault()
         ? platformNames
-          ? `正在发布 · ${platformNames}`
-          : "正在发布…"
+          ? `正在发布 · ${platformNames}（再次点击将终止当前并开始新发布）`
+          : "正在发布…（再次点击将终止当前并开始新发布）"
         : platformNames
           ? `正在加入定时队列 · ${platformNames}`
           : "正在加入定时队列…"
@@ -6298,6 +6302,7 @@ function bind() {
       const result = await submitPublish();
       if (result.mode === "now") {
         const data = result.data;
+        if (data.superseded) return;
         const okN = data.success_count || 0;
         const total = data.total || 0;
         const detail = formatPublishStepSummary(data.results);
@@ -6334,8 +6339,6 @@ function bind() {
       }
     } catch (e) {
       setStatus($("#publishStatus"), `${String(e)} · 正文和图片已保留`, "error");
-    } finally {
-      $("#btnPublish").disabled = false;
     }
   });
 

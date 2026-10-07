@@ -85,9 +85,12 @@ def publish_content(
                 'results': []
             }
 
+    from public.platforms.cdp_common import PublishAborted, publish_abort_requested
+
     media = list(media_paths or content.get("media_paths") or [])
     results = []
     shared_driver = None
+    aborted = False
     t0 = time.perf_counter()
     needs_cdp = use_cdp or any(
         (get_platform_config(pid) or {}).get("type")
@@ -109,6 +112,9 @@ def publish_content(
 
     try:
         for platform_id in platform_ids:
+            if publish_abort_requested():
+                aborted = True
+                break
             platform_config = get_platform_config(platform_id)
             if not platform_config:
                 results.append({
@@ -133,73 +139,85 @@ def publish_content(
 
             logger.info(f"正在发布到平台: {platform_name} ({platform_id})")
             plat_t0 = time.perf_counter()
+            try:
+                if platform_type == 'typecho':
+                    from public.platforms.typecho_publisher import TypechoPublisher
 
-            if platform_type == 'typecho':
-                from public.platforms.typecho_publisher import TypechoPublisher
+                    publisher = TypechoPublisher(
+                        login_url=platform_config.get('login_url', ''),
+                        write_url=platform_config.get('write_url', ''),
+                        username=platform_config.get('username', ''),
+                        password=platform_config.get('password', ''),
+                        headless=config.get('headless', False),
+                        debugger_url=debugger_url if use_cdp else None,
+                    )
+                    result = publisher.publish(
+                        title=content.get('title', ''),
+                        content=content.get('content', ''),
+                        tags=tags or content.get('tags', '')
+                    )
+                elif platform_type in ('x', 'twitter'):
+                    from public.platforms.x_publisher import XPublisher
 
-                publisher = TypechoPublisher(
-                    login_url=platform_config.get('login_url', ''),
-                    write_url=platform_config.get('write_url', ''),
-                    username=platform_config.get('username', ''),
-                    password=platform_config.get('password', ''),
-                    headless=config.get('headless', False),
-                    debugger_url=debugger_url if use_cdp else None,
-                )
-                result = publisher.publish(
-                    title=content.get('title', ''),
-                    content=content.get('content', ''),
-                    tags=tags or content.get('tags', '')
-                )
-            elif platform_type in ('x', 'twitter'):
-                from public.platforms.x_publisher import XPublisher
+                    publisher = XPublisher(
+                        debugger_url=debugger_url,
+                        compose_url=platform_config.get(
+                            'compose_url', 'https://x.com/compose/post'
+                        ),
+                        close_driver=False,
+                    )
+                    if shared_driver is not None:
+                        publisher.driver = shared_driver
+                    result = publisher.publish(
+                        text=content.get('content', '') or content.get('text', ''),
+                        media_paths=media,
+                        submit=submit,
+                        title=content.get('title', ''),
+                    )
+                elif platform_type in ('binance_square', 'binance', 'square', 'okx', 'bitget', 'gate'):
+                    from public.platforms.binance_square_publisher import (
+                        BinanceSquarePublisher,
+                    )
 
-                publisher = XPublisher(
-                    debugger_url=debugger_url,
-                    compose_url=platform_config.get(
-                        'compose_url', 'https://x.com/compose/post'
-                    ),
-                    close_driver=False,
-                )
-                if shared_driver is not None:
-                    publisher.driver = shared_driver
-                result = publisher.publish(
-                    text=content.get('content', '') or content.get('text', ''),
-                    media_paths=media,
-                    submit=submit,
-                    title=content.get('title', ''),
-                )
-            elif platform_type in ('binance_square', 'binance', 'square', 'okx', 'bitget', 'gate'):
-                from public.platforms.binance_square_publisher import (
-                    BinanceSquarePublisher,
-                )
-
-                publisher = BinanceSquarePublisher(
-                    debugger_url=debugger_url,
-                    square_url=platform_config.get(
-                        'square_url',
-                        'https://www.binance.com/zh-CN/square',
-                    ),
-                    close_driver=False,
-                    wait_sec=float(platform_config.get('wait_sec', 8) or 8),
-                    media_upload_wait=float(
-                        platform_config.get('media_upload_wait', 25) or 25
-                    ),
-                    platform_id=platform_id,
-                    platform_name=platform_name,
-                )
-                if shared_driver is not None:
-                    publisher.driver = shared_driver
-                result = publisher.publish(
-                    text=content.get('content', '') or content.get('text', ''),
-                    media_paths=media,
-                    submit=submit,
-                    title=content.get('title', ''),
-                )
-            else:
-                result = {
+                    publisher = BinanceSquarePublisher(
+                        debugger_url=debugger_url,
+                        square_url=platform_config.get(
+                            'square_url',
+                            'https://www.binance.com/zh-CN/square',
+                        ),
+                        close_driver=False,
+                        wait_sec=float(platform_config.get('wait_sec', 8) or 8),
+                        media_upload_wait=float(
+                            platform_config.get('media_upload_wait', 25) or 25
+                        ),
+                        platform_id=platform_id,
+                        platform_name=platform_name,
+                    )
+                    if shared_driver is not None:
+                        publisher.driver = shared_driver
+                    result = publisher.publish(
+                        text=content.get('content', '') or content.get('text', ''),
+                        media_paths=media,
+                        submit=submit,
+                        title=content.get('title', ''),
+                    )
+                else:
+                    result = {
+                        'success': False,
+                        'error': f'不支持的平台类型: {platform_type}',
+                    }
+            except PublishAborted:
+                elapsed_ms = int((time.perf_counter() - plat_t0) * 1000)
+                results.append({
+                    'platform': platform_id,
+                    'platform_name': platform_name,
                     'success': False,
-                    'error': f'不支持的平台类型: {platform_type}',
-                }
+                    'error': '已终止',
+                    'aborted': True,
+                    'elapsed_ms': elapsed_ms,
+                })
+                aborted = True
+                break
 
             elapsed_ms = int((time.perf_counter() - plat_t0) * 1000)
             result['platform'] = platform_id
@@ -229,11 +247,12 @@ def publish_content(
     )
 
     return {
-        'success': success_count > 0,
+        'success': success_count > 0 and not aborted,
         'total': total_count,
         'success_count': success_count,
         'elapsed_ms': total_ms,
-        'results': results
+        'results': results,
+        'aborted': aborted,
     }
 
 
@@ -286,6 +305,8 @@ def publish_content_with_retry(
     max_retries: int = PUBLISH_RETRY_MAX,
 ) -> Dict:
     """发布失败后间隔 3–5 分钟重试，最多重试 max_retries 次（只重试失败平台）。"""
+    from public.platforms.cdp_common import publish_abort_requested
+
     result = publish_content(
         content=content,
         platform_ids=platform_ids,
@@ -295,10 +316,13 @@ def publish_content_with_retry(
         media_paths=media_paths,
         submit=submit,
     )
-    if not submit:
+    if not submit or result.get("aborted"):
         return result
     retries = max(0, int(max_retries or 0))
     for attempt in range(1, retries + 1):
+        if publish_abort_requested():
+            result["aborted"] = True
+            break
         failed = _failed_platform_ids(result)
         if not failed:
             break

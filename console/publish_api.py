@@ -16,6 +16,9 @@ from urllib.request import Request, urlopen
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+_V1_ACTIVE: Optional[str] = None
+_V1_LOCK = threading.Lock()
+
 _MAX_FILES = 12
 _MAX_BYTES = 12 * 1024 * 1024
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
@@ -305,12 +308,44 @@ def _run_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
         _publish_lock_release()
 
 
+def abort_active_v1_job(*, set_job=None) -> str:
+    """终止进行中的 /api/v1/publish 任务（新发布取代旧任务）。"""
+    from datetime import datetime
+
+    from signals.control import control_action
+
+    with _V1_LOCK:
+        jid = _V1_ACTIVE or ""
+    if not jid:
+        return ""
+    control_action(jid, "stop")
+    if set_job:
+        set_job(
+            jid,
+            status="cancelled",
+            message="已被新发布任务取代",
+            control_status="stopped",
+            finished_at=datetime.now().isoformat(timespec="seconds"),
+        )
+    return jid
+
+
 def _start_job(payload: Dict[str, Any]) -> tuple[bytes, int, str]:
     import time
+    from datetime import datetime
 
-    from console.app import _set_job
+    from console.app import _abort_active_publish_run, _set_job
+    from console.publish_context import bind_run_control, clear_run_control
+    from signals.control import RunControl, register, unregister
+
+    _abort_active_publish_run(set_job=_set_job)
+    abort_active_v1_job(set_job=_set_job)
 
     job_id = uuid.uuid4().hex
+    with _V1_LOCK:
+        _V1_ACTIVE = job_id
+    ctl = RunControl(job_id)
+    register(job_id, ctl)
     _set_job(
         job_id,
         status="queued",
@@ -321,23 +356,34 @@ def _start_job(payload: Dict[str, Any]) -> tuple[bytes, int, str]:
     )
 
     def _worker() -> None:
+        global _V1_ACTIVE
         from console.app import _set_job as set_job
 
-        set_job(job_id, status="running", message="正在 CDP 发布…")
+        bind_run_control(ctl)
+        set_job(job_id, status="running", message="正在 CDP 发布…", control_status="running")
         t0 = time.perf_counter()
         try:
             result = _run_publish(payload)
-            ok = bool(result.get("success"))
+            aborted = bool(result.get("aborted"))
+            ok = bool(result.get("success")) and not aborted
             elapsed_ms = int(result.get("elapsed_ms") or (time.perf_counter() - t0) * 1000)
+            if aborted:
+                status = "cancelled"
+                msg = f"已终止 · {elapsed_ms}ms"
+            elif ok:
+                status = "done"
+                msg = f"发布完成 · {elapsed_ms}ms"
+            else:
+                status = "error"
+                msg = f"{str(result.get('error') or '发布失败')} · {elapsed_ms}ms"
             set_job(
                 job_id,
-                status="done" if ok else "error",
-                message=(
-                    f"{'发布完成' if ok else str(result.get('error') or '发布失败')}"
-                    f" · {elapsed_ms}ms"
-                ),
+                status=status,
+                message=msg,
                 result=result,
                 elapsed_ms=elapsed_ms,
+                control_status=ctl.status(),
+                finished_at=datetime.now().isoformat(timespec="seconds"),
             )
         except Exception as e:
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
@@ -346,7 +392,15 @@ def _start_job(payload: Dict[str, Any]) -> tuple[bytes, int, str]:
                 status="error",
                 message=f"{e} · {elapsed_ms}ms",
                 elapsed_ms=elapsed_ms,
+                control_status=ctl.status(),
+                finished_at=datetime.now().isoformat(timespec="seconds"),
             )
+        finally:
+            clear_run_control()
+            unregister(job_id)
+            with _V1_LOCK:
+                if _V1_ACTIVE == job_id:
+                    _V1_ACTIVE = None
 
     threading.Thread(target=_worker, daemon=True, name=f"publish-api-{job_id[:8]}").start()
     return _json_bytes(

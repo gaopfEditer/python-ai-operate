@@ -117,12 +117,15 @@ def _publish_one(
         row = (result.get("results") or [{}])[0] if isinstance(result.get("results"), list) else {}
         if not row:
             row = result
-        return {
+        out = {
             "platform": pid,
             "platform_name": row.get("platform_name") or _platform_label(pid),
             "success": bool(row.get("success") if "success" in row else result.get("success")),
             "error": row.get("error") or result.get("error") or "",
         }
+        if result.get("aborted"):
+            out["aborted"] = True
+        return out
     except Exception as e:
         return {
             "platform": pid,
@@ -164,7 +167,10 @@ def _run_worker(
         "debugger_url": _resolve_publish_debugger_url(body.get("debugger_url")),
         "submit": submit,
     }
+    from console.publish_context import bind_run_control, clear_run_control
+
     ctl = register(job_id, RunControl(job_id))
+    bind_run_control(ctl)
     step_results: List[Dict[str, Any]] = []
     staged_paths = list(media_paths)
     aborted = False
@@ -228,6 +234,9 @@ def _run_worker(
                 aborted = True
                 break
             _run_platform(pid, 1)
+            if ctl.is_stopped():
+                aborted = True
+                break
 
         if submit and not ctl.is_stopped():
             for retry in range(1, PUBLISH_RETRY_MAX + 1):
@@ -334,6 +343,7 @@ def _run_worker(
             message=str(e),
         )
     finally:
+        clear_run_control()
         unregister(job_id)
         with _ACTIVE_LOCK:
             if _ACTIVE_RUN == job_id:
@@ -368,6 +378,13 @@ def start_run(
 
     if not content and not media_paths:
         return _json_bytes({"success": False, "error": "请填写正文或上传图片"}, 400)
+
+    try:
+        from console.publish_api import abort_active_v1_job
+
+        abort_active_v1_job(set_job=set_job)
+    except Exception:
+        pass
 
     with _ACTIVE_LOCK:
         if _ACTIVE_RUN:
