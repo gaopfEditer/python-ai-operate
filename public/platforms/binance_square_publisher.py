@@ -1921,6 +1921,8 @@ class BinanceSquarePublisher:
             elif self.platform_id == "gate":
                 # Gate：https://www.gate.com/zh/post 本身就是发帖页
                 steps.append("gate_entry")
+                self._reload_gate_post_page(driver)
+                steps.append("gate_reload")
             elif self.platform_id == "bitget":
                 self._click_compose(driver, steps)
 
@@ -3473,6 +3475,61 @@ return {
         except Exception:
             return False
 
+    def _reload_gate_post_page(self, driver) -> None:
+        """强制刷新发帖页，避免复用页签时带上上次未清掉的配图/草稿。"""
+        url = (self.square_url or "https://www.gate.com/zh/post").split("#")[0].split("?")[0]
+        try:
+            logger.info("%s 刷新发帖页 %s（清除上次残留）", self.platform_name, url)
+            driver.get(url)
+        except Exception as exc:
+            logger.warning("%s driver.get 刷新失败: %s，尝试 refresh", self.platform_name, exc)
+            try:
+                driver.refresh()
+            except Exception:
+                pass
+        human_pause(0.9, 1.5)
+        try:
+            driver.execute_script(_DISMISS_COOKIE_JS)
+        except Exception:
+            pass
+
+    def _clear_gate_staged_media(self, driver, *, prefer: str = "image") -> int:
+        """点击 Gate 编辑区配图预览上的关闭/删除（刷新失败时的兜底）。"""
+        try:
+            n = driver.execute_script(
+                r"""
+const prefer = arguments[0] || 'image';
+const root = document.querySelector('.editor-container--page')
+  || document.querySelector('.editor-bar')?.closest('.editor-container')
+  || document.body;
+let removed = 0;
+const isClose = (el) => {
+  const t = (el.innerText || el.textContent || '').trim();
+  const label = (el.getAttribute('aria-label') || el.getAttribute('title') || '').toLowerCase();
+  if (['×', 'x', 'X', '✕', '关闭'].includes(t)) return true;
+  if (/delete|remove|close|清除|删除|移除/.test(label)) return true;
+  const cls = String(el.className || '').toLowerCase();
+  return /close|delete|remove|clear/.test(cls);
+};
+for (let pass = 0; pass < 8; pass++) {
+  let hit = false;
+  for (const btn of root.querySelectorAll('button, [role="button"], span, i, svg')) {
+    if (!isClose(btn)) continue;
+    const box = btn.closest('[class*="image" i], [class*="media" i], [class*="upload" i], [class*="preview" i], [class*="attach" i], [class*="thumb" i]')
+      || btn.parentElement;
+    if (!box || !root.contains(box)) continue;
+    try { btn.click(); removed++; hit = true; } catch (_) {}
+  }
+  if (!hit) break;
+}
+return removed;
+""",
+                prefer,
+            )
+            return int(n or 0)
+        except Exception:
+            return 0
+
     def _gate_file_inputs(self, driver, prefer: str = "image") -> list:
         """Gate 入口条里已经挂好隐藏 file input：accept=image/* / video/*。"""
         from selenium.webdriver.common.by import By
@@ -3502,9 +3559,40 @@ return {
             return 0
 
         existing = self._count_editor_media(driver, prefer=prefer)
-        if existing:
-            logger.info("%s 编辑区已有 %s 张%s，继续补传剩余", self.platform_name, existing, prefer)
-        to_upload = paths[existing:] if existing > 0 else paths
+        gate_start_count = 0
+        if self.platform_id == "gate":
+            if existing:
+                cleared = self._clear_gate_staged_media(driver, prefer=prefer)
+                human_pause(0.3, 0.6)
+                existing = self._count_editor_media(driver, prefer=prefer)
+                if existing:
+                    logger.warning(
+                        "%s 仍有 %s 张残留%s（已点关闭 %s 次），将仅上传本次 %s 张",
+                        self.platform_name,
+                        existing,
+                        prefer,
+                        cleared,
+                        len(paths),
+                    )
+            gate_start_count = self._count_editor_media(driver, prefer=prefer)
+            to_upload = list(paths)
+            base_count = 0
+        elif self.platform_id == "bitget":
+            if existing:
+                logger.info(
+                    "%s 编辑区已有 %s 张%s，本次仍上传全部 %s 张（不跳过路径）",
+                    self.platform_name,
+                    existing,
+                    prefer,
+                    len(paths),
+                )
+            to_upload = list(paths)
+            base_count = 0
+        else:
+            if existing:
+                logger.info("%s 编辑区已有 %s 张%s，继续补传剩余", self.platform_name, existing, prefer)
+            to_upload = paths[existing:] if existing > 0 else paths
+            base_count = existing
         uploaded = 0
         inputs = (
             self._gate_file_inputs(driver, prefer)
@@ -3519,20 +3607,27 @@ return {
                 try:
                     inputs[0].send_keys("\n".join(to_upload))
                     deadline = time.time() + 8.0
+                    want_total = gate_start_count + len(to_upload)
                     while time.time() < deadline:
                         now = self._count_editor_media(driver, prefer=prefer)
-                        if now >= existing + len(to_upload):
-                            logger.info("%s Gate 入口条 file input 已写入 %s 张", self.platform_name, now)
-                            return now
+                        if now >= want_total:
+                            logger.info(
+                                "%s Gate 入口条 file input 已写入（共 %s 张）",
+                                self.platform_name,
+                                now - gate_start_count,
+                            )
+                            return now - gate_start_count
                         time.sleep(0.35)
                     now = self._count_editor_media(driver, prefer=prefer)
-                    if now > existing:
+                    added = max(0, now - gate_start_count)
+                    if added > 0:
                         logger.info(
                             "%s Gate file input 部分写入 %s/%s，剩余改逐张/粘贴",
-                            self.platform_name, now, existing + len(to_upload),
+                            self.platform_name,
+                            added,
+                            len(to_upload),
                         )
-                        existing = now
-                        to_upload = paths[now:]
+                        to_upload = paths[added:] if added < len(paths) else []
                     else:
                         logger.info("%s Gate file input 未见预览，改走逐张/粘贴", self.platform_name)
                 except Exception as e:
@@ -3580,7 +3675,12 @@ return {
                 continue
 
             uploaded += 1
-            want = max(before + 1, existing + uploaded)
+            if self.platform_id == "gate":
+                want = gate_start_count + uploaded
+            elif self.platform_id == "bitget":
+                want = uploaded
+            else:
+                want = max(before + 1, base_count + uploaded)
             deadline = time.time() + (
                 min(12.0, self.media_upload_wait) if prefer == "video" else 5.0
             )
@@ -3588,7 +3688,10 @@ return {
                 if self._count_editor_media(driver, prefer=prefer) >= want:
                     break
                 time.sleep(0.35)
-        return existing + uploaded
+        if self.platform_id == "gate":
+            final = self._count_editor_media(driver, prefer=prefer)
+            return max(0, final - gate_start_count)
+        return base_count + uploaded
 
     def _paste_image_clipboard(self, driver, path: str) -> bool:
         if sys.platform != "darwin":
