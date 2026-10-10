@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Sequence
 
 from public.platforms.cdp_common import (
     connect_cdp,
+    invalidate_cdp_driver,
     current_href,
     find_file_inputs,
     human_pause,
@@ -1038,8 +1039,8 @@ if (editor && vis(editor)) {
   if (modal && modal.contains(editor)) {
     modalOpen = vis(modal);
   } else {
-    // 找不到 modal 包裹 → 用 editor 自身可见性判定（币安新版没有 modal 容器）
-    modalOpen = vis(editor);
+    // Gate / 币安全页发帖：编辑器一直在页面上，不能算「弹窗未关」
+    modalOpen = false;
   }
 }
 const toasts = [];
@@ -1610,8 +1611,8 @@ if (editor && vis(editor)) {
   if (modal && modal.contains(editor)) {
     modalOpen = vis(modal);
   } else {
-    // 找不到 modal 包裹 → 用 editor 自身可见性判定（币安新版没有 modal 容器）
-    modalOpen = vis(editor);
+    // Gate / 币安全页发帖：编辑器一直在页面上，不能算「弹窗未关」
+    modalOpen = false;
   }
 }
 const toasts = [];
@@ -1892,7 +1893,11 @@ class BinanceSquarePublisher:
         try:
             raise_if_publish_aborted()
             if own:
-                self.driver = connect_cdp(self.debugger_url)
+                try:
+                    self.driver = connect_cdp(self.debugger_url)
+                except Exception:
+                    invalidate_cdp_driver(self.debugger_url)
+                    raise
             driver = self.driver
             logger.info("%s 打开广场 %s", self.platform_name, self.square_url)
             navigate_or_activate(driver, self.square_url)
@@ -2150,10 +2155,11 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
             }
         finally:
             if own and self.close_driver and self.driver is not None:
-                try:
-                    self.driver.quit()
-                except Exception:
-                    pass
+                if not getattr(self.driver, "_cdp_pooled", False):
+                    try:
+                        self.driver.quit()
+                    except Exception:
+                        pass
                 self.driver = None
 
     def _alt_square_urls(self) -> List[str]:
@@ -2959,6 +2965,10 @@ return {
                 post_url = self._pick_new_post_url(driver, urls_before)
                 if post_url:
                     return True, post_url, "出现新帖链接"
+            if self.platform_id == "gate" and had_body and editor_on:
+                body_len = len((body or "").strip())
+                if body_len >= 16 and editor_len <= max(14, int(body_len * 0.25)):
+                    return True, last.get("href") or "", "Gate 编辑区正文已清空"
             time.sleep(0.4)
 
         post_url = self._pick_new_post_url(driver, urls_before)
@@ -2970,6 +2980,10 @@ return {
         editor_len = int(last.get("editorLen") or 0)
         if had_body and editor_on and editor_len >= 16:
             return False, "", f"编辑区还在（{editor_len} 字），点击没有发出去"
+        if self.platform_id == "gate" and had_body:
+            body_len = len((body or "").strip())
+            if editor_len <= max(14, int(body_len * 0.25)):
+                return True, last.get("href") or "", "Gate 编辑区正文已清空"
         if editor_on or modal_on:
             return False, "", "编辑弹窗还开着，帖子未发出"
         if closed_since is not None and self.platform_id != "okx":

@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Sequence
 
 from public.platforms.cdp_common import (
     connect_cdp,
+    invalidate_cdp_driver,
     human_pause,
     navigate_or_activate,
     normalize_media_paths,
@@ -68,7 +69,11 @@ class XPublisher:
         try:
             raise_if_publish_aborted()
             if own:
-                self.driver = connect_cdp(self.debugger_url)
+                try:
+                    self.driver = connect_cdp(self.debugger_url)
+                except Exception:
+                    invalidate_cdp_driver(self.debugger_url)
+                    raise
             driver = self.driver
             navigate_or_activate(driver, self.compose_url)
             href = wait_landed(
@@ -186,10 +191,11 @@ class XPublisher:
             return {"success": False, "error": str(e), "steps": steps, "platform": "x"}
         finally:
             if own and self.close_driver and self.driver is not None:
-                try:
-                    self.driver.quit()
-                except Exception:
-                    pass
+                if not getattr(self.driver, "_cdp_pooled", False):
+                    try:
+                        self.driver.quit()
+                    except Exception:
+                        pass
                 self.driver = None
 
     def _wait_editor(self, driver, timeout: float = 20):

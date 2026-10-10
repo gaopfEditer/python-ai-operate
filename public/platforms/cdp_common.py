@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -128,6 +129,19 @@ def fetch_cdp_browser_version(debugger_url: str) -> Optional[str]:
     return None
 
 
+def fetch_cdp_target_count(debugger_url: str) -> Optional[int]:
+    """CDP /json 目标数（标签页 + 扩展/worker 等）。过多时 Selenium attach 易变慢或卡住。"""
+    url = f"{_cdp_http_base(debugger_url)}/json"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if isinstance(data, list):
+            return len(data)
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError) as e:
+        logger.debug("CDP %s 目标列表读取失败: %s", url, e)
+    return None
+
+
 def _installed_chrome_version() -> Optional[str]:
     """本机默认 Google Chrome 版本（Selenium Manager 通常按此拉 ChromeDriver）。"""
     import shutil
@@ -165,9 +179,98 @@ def _chrome_major(version: str) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
-def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
-    """连接已启动的 Chrome（需 --remote-debugging-port）。连接本身不 switch_to，不抢焦点。"""
+_CDP_LOCK = threading.RLock()
+_CDP_ATTACH_LOCK = threading.Lock()
+_CDP_POOL: Dict[str, Any] = {}
+# Selenium NEW_SESSION 读超时（秒）。/json 能打开 ≠ attach 一定快，标签/worker 多时会拖到超时。
+CDP_CONNECT_TIMEOUT_SEC = float(os.environ.get("CDP_CONNECT_TIMEOUT_SEC", "90"))
+_CDP_TARGET_COUNT_WARN = int(os.environ.get("CDP_TARGET_COUNT_WARN", "40"))
+
+
+def cdp_driver_alive(driver: Any) -> bool:
+    """探测 Selenium 与 CDP 的会话是否仍可用。"""
+    try:
+        _ = driver.window_handles
+        return True
+    except Exception:
+        return False
+
+
+def invalidate_cdp_driver(debugger_url: str) -> None:
+    """丢弃该调试地址的缓存 WebDriver（Chrome 本身不退出）。"""
+    addr = debugger_url.strip()
+    with _CDP_LOCK:
+        old = _CDP_POOL.pop(addr, None)
+    if old is None:
+        return
+    try:
+        old.quit()
+    except Exception:
+        pass
+
+
+def _configure_driver_timeouts(driver: Any) -> None:
+    try:
+        driver.set_page_load_timeout(45)
+    except Exception:
+        pass
+    try:
+        driver.set_script_timeout(90)
+    except Exception:
+        pass
+    try:
+        driver.command_executor.set_timeout(60)
+    except Exception:
+        pass
+
+
+def _cdp_attach_timeout_hint(addr: str, timeout_sec: float) -> str:
+    n = fetch_cdp_target_count(addr)
+    parts = [
+        f"Selenium 通过 ChromeDriver attach 到 {addr} 超时（>{int(timeout_sec)}s）。",
+        "调试端口 HTTP（如 /json）正常只说明 Chrome 在监听，"
+        "与「新建 WebDriver 会话」不是同一条链路；后者卡住时 /json 仍可秒开。",
+    ]
+    if n is not None:
+        parts.append(f"当前 CDP 目标约 {n} 个（含后台页/worker）。")
+        if n >= _CDP_TARGET_COUNT_WARN:
+            parts.append(
+                "目标过多时 attach 常越来越慢；请关掉无用标签页、重启调试 Chrome，"
+                "并避免连续失败发布（每次失败若并发 attach 会叠加拖死浏览器）。"
+            )
+    else:
+        parts.append("请重启带 --remote-debugging-port 的 Chrome 后再试。")
+    return "".join(parts)
+
+
+def _attach_chrome_webdriver(addr: str, options: Any, timeout_sec: float) -> Any:
+    """串行 attach，避免多个 NEW_SESSION 并发把 Chrome 拖死。Selenium 4.48 起勿用 RemoteConnection 类级 get/set_timeout。"""
     from selenium import webdriver
+
+    with _CDP_ATTACH_LOCK:
+        try:
+            driver = webdriver.Chrome(options=options)
+        except Exception as e:
+            err = str(e)
+            if "Read timed out" in err or "timed out" in err.lower():
+                raise TimeoutError(_cdp_attach_timeout_hint(addr, timeout_sec)) from e
+            raise
+        # 会话建好后用实例级 timeout（默认 NEW_SESSION 约 120s，由 Selenium ClientConfig 决定）
+        sec = max(10, int(timeout_sec))
+        try:
+            driver.command_executor.set_timeout(sec)
+        except Exception:
+            pass
+        return driver
+
+
+def connect_cdp(
+    debugger_url: str = "127.0.0.1:9222",
+    *,
+    force_new: bool = False,
+    timeout_sec: Optional[float] = None,
+):
+    """连接已启动的 Chrome（需 --remote-debugging-port）。同地址复用 WebDriver，避免重复 NEW_SESSION 拖死浏览器。"""
     from selenium.common.exceptions import SessionNotCreatedException
     from selenium.webdriver.chrome.options import Options
 
@@ -182,6 +285,20 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
         os.environ.pop(var, None)
 
     addr = debugger_url.strip()
+    tout = CDP_CONNECT_TIMEOUT_SEC if timeout_sec is None else timeout_sec
+
+    with _CDP_LOCK:
+        if not force_new:
+            cached = _CDP_POOL.get(addr)
+            if cached is not None and cdp_driver_alive(cached):
+                return cached
+            if cached is not None:
+                _CDP_POOL.pop(addr, None)
+                try:
+                    cached.quit()
+                except Exception:
+                    pass
+
     cdp_ver = fetch_cdp_browser_version(addr)
     local_ver = _installed_chrome_version()
     if cdp_ver and local_ver:
@@ -201,8 +318,16 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
     options = Options()
     options.add_experimental_option("debuggerAddress", addr)
 
+    target_n = fetch_cdp_target_count(addr)
+    if target_n is not None and target_n >= _CDP_TARGET_COUNT_WARN:
+        logger.warning(
+            "CDP %s 目标数 %s，Selenium attach 可能较慢（/json 仍可正常访问）",
+            addr,
+            target_n,
+        )
+
     try:
-        driver = webdriver.Chrome(options=options)
+        driver = _attach_chrome_webdriver(addr, options, tout)
     except SessionNotCreatedException as e:
         msg = str(e)
         if "only supports Chrome version" in msg or "Current browser version" in msg:
@@ -220,10 +345,15 @@ def connect_cdp(debugger_url: str = "127.0.0.1:9222"):
             )
             raise SessionNotCreatedException(hint) from e
         raise
+
+    _configure_driver_timeouts(driver)
     try:
         driver._cdp_debugger_url = addr  # type: ignore[attr-defined]
+        driver._cdp_pooled = True  # type: ignore[attr-defined]
     except Exception:
         pass
+    with _CDP_LOCK:
+        _CDP_POOL[addr] = driver
     logger.info("CDP 已连接: %s（不抢焦点）", addr)
     return driver
 
@@ -1240,9 +1370,17 @@ def _insert_exact_newlines_at_caret(driver, element, body: str) -> None:
             human_pause(0.03, 0.07)
 
 
+def _gate_body_needs_segmented_newlines(body: str) -> bool:
+    """原文含空行或段落间距时，整段 insertText 常会丢空行。"""
+    norm = _norm_editor_newlines(body)
+    if "\n\n" in norm:
+        return True
+    return any(not ln.strip() for ln in norm.split("\n"))
+
+
 def type_text_gate(driver, element, text: str) -> str:
     """
-    Gate 广场：一次整段 insertText 优先；验收失败再换写法，失败时不清空已输入内容。
+    Gate 广场：无空行时整段 insertText 优先；含空行时先逐段 insertText+\\n，失败时不清空已输入内容。
     """
     body = _norm_editor_newlines(text)
     if not body.strip() and "\n" not in body:
@@ -1289,12 +1427,16 @@ def type_text_gate(driver, element, text: str) -> str:
             notes.append(f"{label}={exc}")
         return False
 
-    if _try("cdp", lambda: (_clear(), _focus(), driver.execute_cdp_cmd("Input.insertText", {"text": body}))):
-        return last_got
-    if _try("js", lambda: (_clear(), _focus(), driver.execute_script(_INSERT_TEXT_JS, element, body, True))):
-        return last_got
-    if _try("seg", lambda: (_clear(), _focus(), _insert_exact_newlines_at_caret(driver, element, body))):
-        return last_got
+    seg_fn = lambda: (_clear(), _focus(), _insert_exact_newlines_at_caret(driver, element, body))
+    js_fn = lambda: (_clear(), _focus(), driver.execute_script(_INSERT_TEXT_JS, element, body, True))
+    cdp_fn = lambda: (_clear(), _focus(), driver.execute_cdp_cmd("Input.insertText", {"text": body}))
+    if _gate_body_needs_segmented_newlines(body):
+        order = (("seg", seg_fn), ("js", js_fn), ("cdp", cdp_fn))
+    else:
+        order = (("cdp", cdp_fn), ("js", js_fn), ("seg", seg_fn))
+    for label, fn in order:
+        if _try(label, fn):
+            return last_got
 
     if last_got.strip() and multiline_content_preserved(last_got, body):
         logger.warning(
@@ -1344,10 +1486,10 @@ def _paragraph_gap_signature(text: str) -> List[int]:
 
 
 def x_editor_line_structure_ok(got: str, expected: str) -> bool:
-    """核对 innerText：非空行顺序一致，且段落间空行数与原文一致。"""
+    """核对 innerText：非空行顺序一致；段落空行尽量一致，X Draft 合并空行时仍允许发帖。"""
     exp = _norm_editor_newlines(expected)
     got_s = _norm_editor_newlines(got)
-    if not exp:
+    if not exp.strip():
         return True
     exp_lines = [ln.strip() for ln in exp.split("\n") if ln.strip()]
     got_lines = [ln.strip() for ln in got_s.split("\n") if ln.strip()]
@@ -1357,11 +1499,10 @@ def x_editor_line_structure_ok(got: str, expected: str) -> bool:
         return False
     if len(exp_lines) <= 1:
         return True
-    if _paragraph_gap_signature(got_s) != _paragraph_gap_signature(exp):
-        return False
-    if "\n" not in got_s:
-        return False
-    return True
+    if _paragraph_gap_signature(got_s) == _paragraph_gap_signature(exp) and "\n" in got_s:
+        return True
+    # 非空行已全部对齐：X 常把段落间多个空行压成单个换行，不再因此中止
+    return "\n" in got_s or len(got_lines) > 1
 
 
 def _type_x_draft_paragraphs(

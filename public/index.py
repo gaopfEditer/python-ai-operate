@@ -101,13 +101,21 @@ def publish_content(
         from utils.crawl_cdp import resolve_publish_debugger_url
 
         debugger_url = resolve_publish_debugger_url(debugger_url)
+    cdp_connect_error: Optional[str] = None
+    _CDP_PLATFORM_TYPES = frozenset(
+        ("x", "twitter", "binance_square", "binance", "square", "okx", "bitget", "gate")
+    )
     if needs_cdp and debugger_url:
         try:
             from public.platforms.cdp_common import connect_cdp
 
             shared_driver = connect_cdp(debugger_url)
         except Exception as e:
-            logger.warning("共享 CDP 连接失败，将按平台各自连接: %s", e)
+            from public.platforms.cdp_common import invalidate_cdp_driver
+
+            cdp_connect_error = str(e)
+            invalidate_cdp_driver(debugger_url)
+            logger.warning("共享 CDP 连接失败，跳过各平台 CDP 发布: %s", e)
             shared_driver = None
 
     try:
@@ -136,6 +144,23 @@ def publish_content(
 
             platform_type = (platform_config.get('type') or '').lower()
             platform_name = platform_config.get('name', platform_id)
+
+            if platform_type in _CDP_PLATFORM_TYPES:
+                from public.platforms.cdp_common import cdp_driver_alive, invalidate_cdp_driver
+
+                if shared_driver is not None and not cdp_driver_alive(shared_driver):
+                    cdp_connect_error = cdp_connect_error or "CDP 会话已断开"
+                    invalidate_cdp_driver(debugger_url)
+                    shared_driver = None
+                if cdp_connect_error:
+                    results.append({
+                        'platform': platform_id,
+                        'platform_name': platform_name,
+                        'success': False,
+                        'error': f'CDP 连接失败: {cdp_connect_error}',
+                        'elapsed_ms': 0,
+                    })
+                    continue
 
             logger.info(f"正在发布到平台: {platform_name} ({platform_id})")
             plat_t0 = time.perf_counter()
