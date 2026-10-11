@@ -4069,6 +4069,294 @@ def handle_api(
         threading.Thread(target=_worker, daemon=True).start()
         return _json_bytes({"success": True, "job_id": job_id})
 
+    if path == "/api/whisper/config" and method == "GET":
+        from console.whisper_service import load_whisper_settings
+
+        s = load_whisper_settings()
+        root = s["root"]
+        script = s["script"]
+        python = s["python"]
+        return _json_bytes(
+            {
+                "success": True,
+                "root": str(root),
+                "output_dir": str(s["output_dir"]),
+                "engine_ready": bool(script.is_file() and python.is_file() and root.is_dir()),
+                "timeout_seconds": s["timeout_seconds"],
+                "force_cpu": s["force_cpu"],
+            }
+        )
+
+    if path == "/api/whisper/jobs" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+        url = str(body.get("url") or "").strip()
+        title = str(body.get("title") or body.get("name") or "").strip() or None
+        force = bool(body.get("force"))
+        force_cpu = body.get("force_cpu")
+        if force_cpu is not None:
+            force_cpu = bool(force_cpu)
+        if not url:
+            return _json_bytes({"success": False, "error": "url 不能为空"}, 400)
+
+        from console.whisper_service import sanitize_title, transcribe_url_sync
+
+        safe_name = sanitize_title(title, url)
+        log_buf: List[str] = []
+
+        def _progress_w(msg: str) -> None:
+            text = str(msg or "")[:800]
+            log_buf.append(text)
+            if len(log_buf) > 400:
+                del log_buf[:120]
+            _set_job(
+                job_id,
+                status="running",
+                type="whisper",
+                message=text[:280],
+                logs=list(log_buf[-160:]),
+            )
+
+        def _worker_w() -> None:
+            _set_job(
+                job_id,
+                status="running",
+                type="whisper",
+                message="转写开始…",
+                logs=[],
+                name=safe_name,
+                url=url,
+                started_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            try:
+                result = transcribe_url_sync(
+                    url=url,
+                    title=title,
+                    force=force,
+                    force_cpu=force_cpu,
+                    on_log=_progress_w,
+                )
+                ok = bool(result.get("ok"))
+                _set_job(
+                    job_id,
+                    status="done" if ok else "error",
+                    message=(
+                        f"转写完成 · {result.get('name')}"
+                        if ok
+                        else str(result.get("message") or "转写失败")
+                    ),
+                    result=result,
+                    logs=list(log_buf[-200:]),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    logs=list(log_buf[-200:]),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+
+        _set_job(
+            job_id,
+            status="queued",
+            type="whisper",
+            message="排队中…",
+            name=safe_name,
+            url=url,
+        )
+        threading.Thread(target=_worker_w, daemon=True, name=f"whisper-{job_id[:8]}").start()
+        return _json_bytes(
+            {
+                "success": True,
+                "job_id": job_id,
+                "status": "queued",
+                "name": safe_name,
+            }
+        )
+
+    if path == "/api/signals/binance-square/config" and method == "GET":
+        from signals.binance_square.store import load_config, load_state
+
+        st = load_state()
+        return _json_bytes(
+            {
+                "success": True,
+                "config": load_config(),
+                "state": {
+                    "last_run_at": st.get("last_run_at") or "",
+                    "post_count": len(st.get("last_posts") or []),
+                    "seen_count": len(st.get("seen_hrefs") or []),
+                },
+            }
+        )
+
+    if path == "/api/signals/binance-square/config" and method == "POST":
+        from signals.binance_square.store import load_config, save_config
+
+        cfg = load_config()
+        for key in (
+            "debugger_url",
+            "backfill_range",
+            "cutoff_hours",
+            "max_posts_per_profile",
+            "try_bapi_first",
+            "replay_whisper_auto",
+            "replay_whisper_max_days",
+        ):
+            if key in body:
+                cfg[key] = body[key]
+        if "profiles" in body and isinstance(body.get("profiles"), list):
+            cfg["profiles"] = body["profiles"]
+        saved = save_config(cfg)
+        return _json_bytes({"success": True, "config": saved})
+
+    if path == "/api/signals/binance-square/posts" and method == "GET":
+        from signals.binance_square.store import apply_binance_time_filter, load_config, load_state, save_state
+
+        st = load_state()
+        raw_pool = st.get("last_posts_raw") or st.get("last_posts") or []
+        if not isinstance(raw_pool, list):
+            raw_pool = []
+        full = list(raw_pool)
+        if any(isinstance(p, dict) and not p.get("signal") for p in full):
+            from signals.binance_square.enrich import fill_missing_signals_heuristic
+
+            full = fill_missing_signals_heuristic(full)
+            st["last_posts"] = full[:200]
+            save_state(st)
+        posts = full
+        cfg = load_config()
+        range_raw = (query.get("backfill_range") or query.get("range") or [None])[0]
+        hours_raw = (query.get("cutoff_hours") or query.get("cutoff") or [None])[0]
+        br = str(range_raw).strip() if range_raw not in (None, "") else None
+        ch = None
+        if hours_raw not in (None, ""):
+            try:
+                ch = float(hours_raw)
+            except (TypeError, ValueError):
+                ch = None
+        if not br and not ch:
+            br = str(cfg.get("backfill_range") or "").strip() or None
+        posts = apply_binance_time_filter(
+            posts, backfill_range=br, cutoff_hours=ch, cfg=cfg
+        )
+        return _json_bytes(
+            {
+                "success": True,
+                "posts": posts,
+                "last_run_at": st.get("last_run_at") or "",
+                "backfill_range": br or cfg.get("backfill_range") or "",
+                "cutoff_hours": ch if ch is not None else cfg.get("cutoff_hours"),
+            }
+        )
+
+    if path == "/api/signals/binance-square/run" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+        log_buf: List[str] = []
+
+        def _progress_bs(msg: str) -> None:
+            text = str(msg or "")[:800]
+            log_buf.append(text)
+            if len(log_buf) > 400:
+                del log_buf[:120]
+            _set_job(
+                job_id,
+                status="running",
+                message=text[:280],
+                logs=list(log_buf[-160:]),
+            )
+
+        def _worker_bs() -> None:
+            try:
+                from signals.binance_square.crawl import run_binance_square_fetch
+
+                _set_job(
+                    job_id,
+                    status="running",
+                    type="binance_square_signals",
+                    message="币安 Square 抓取开始…",
+                    logs=[],
+                    started_at=datetime.now().isoformat(timespec="seconds"),
+                )
+                profile_ids = body.get("profile_ids") or body.get("profiles")
+                if isinstance(profile_ids, str):
+                    profile_ids = [
+                        x.strip() for x in profile_ids.replace(",", " ").split() if x.strip()
+                    ]
+                result = run_binance_square_fetch(
+                    profile_ids=profile_ids if isinstance(profile_ids, list) else None,
+                    debugger_url=str(body.get("debugger_url") or "").strip() or None,
+                    backfill_range=body.get("backfill_range") or body.get("range"),
+                    cutoff_hours=body.get("cutoff_hours"),
+                    max_posts_per_profile=body.get("max_posts_per_profile"),
+                    try_bapi=body.get("try_bapi_first"),
+                    progress=_progress_bs,
+                )
+                ok = bool(result.get("success"))
+                whisper_jobs: List[Dict[str, str]] = []
+                if ok:
+                    from signals.binance_square.store import load_config as load_bs_cfg
+                    from signals.binance_square.replay_whisper import start_replay_whisper_jobs
+
+                    bs_cfg = load_bs_cfg()
+                    auto_whisper = bs_cfg.get("replay_whisper_auto")
+                    if auto_whisper is None:
+                        auto_whisper = bool(body.get("replay_whisper_auto"))
+                    if auto_whisper:
+                        from signals.binance_square.replay_whisper import posts_with_replay
+
+                        posts = result.get("posts") if isinstance(result.get("posts"), list) else []
+                        try:
+                            max_days = float(bs_cfg.get("replay_whisper_max_days") or 2)
+                        except (TypeError, ValueError):
+                            max_days = 2.0
+                        eligible = posts_with_replay(posts, max_age_days=max_days)
+                        _progress_bs(
+                            f"直播回放：近 {max_days:g} 天内 {len(eligible)} 条可转写"
+                            f"（共扫描 {len(posts)} 条）…"
+                        )
+                        whisper_jobs = start_replay_whisper_jobs(
+                            posts,
+                            set_job=_set_job,
+                            max_age_days=max_days,
+                        )
+                        if whisper_jobs:
+                            _progress_bs(f"已提交 {len(whisper_jobs)} 个 WhisprRT 转写任务")
+                        else:
+                            _progress_bs(f"无近 {max_days:g} 天内的直播回放，跳过转写")
+                    result["whisper_jobs"] = whisper_jobs
+                _set_job(
+                    job_id,
+                    status="done" if ok else "error",
+                    message=(
+                        f"完成 · {result.get('total', 0)} 条"
+                        f"（新增 {result.get('new_count', 0)}）"
+                        + (
+                            f" · 转写 {len(whisper_jobs)} 个"
+                            if ok and whisper_jobs
+                            else ""
+                        )
+                        if ok
+                        else str(result.get("error") or "失败")
+                    ),
+                    result=result,
+                    logs=list(log_buf[-200:]),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    logs=list(log_buf[-200:]),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+
+        _set_job(job_id, status="queued", type="binance_square_signals", message="排队中…")
+        threading.Thread(target=_worker_bs, daemon=True, name=f"bs-square-{job_id[:8]}").start()
+        return _json_bytes({"success": True, "job_id": job_id})
+
     if path == "/api/signals/user/run" and method == "POST":
         job_id = uuid.uuid4().hex[:12]
 

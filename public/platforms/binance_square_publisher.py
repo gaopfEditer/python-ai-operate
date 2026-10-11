@@ -68,7 +68,7 @@ _PLATFORM_SITE = {
 
 _PLATFORM_COMPOSE_EXTRA = {
     "okx": ("发文", "发动态", "写动态"),
-    "bitget": ("洞察", "Insights", "写洞察", "分享观点", "发帖"),
+    "bitget": ("发动态", "发布动态", "写动态", "动态", "Share"),
     "gate": ("分享您的看法", "发帖", "发布"),
 }
 
@@ -128,9 +128,16 @@ function insideEditable(el) {
   }
   return false;
 }
+function rejectCompose(t) {
+  const n = (t || '').replace(/\s+/g, '');
+  if (n.includes('发布文章') || n.includes('发文章') || n.includes('写文章')) return true;
+  if (n.includes('写洞察') && !n.includes('动态')) return true;
+  return false;
+}
 function score(el) {
   const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim();
   if (!t || t.length > 30) return 0;
+  if (rejectCompose(t)) return 0;
   for (let i = 0; i < labels.length; i++) {
     const lab = labels[i];
     if (t === lab || t.replace(/\s+/g, '') === lab) return 150 - i;
@@ -203,6 +210,157 @@ for (const sel of selectors) {
 if (!best) return false;
 best.setAttribute('data-pai-compose', '1');
 return true;
+"""
+
+_FIND_BITGET_COMPOSE_JS = r"""
+function visible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return false;
+  const st = window.getComputedStyle(el);
+  if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) < 0.05) return false;
+  return true;
+}
+function norm(t) {
+  return (t || '').trim().replace(/\s+/g, '');
+}
+function label(el) {
+  return norm(el.innerText || el.textContent || el.getAttribute('aria-label') || '');
+}
+function isArticleEntry(t) {
+  if (!t) return true;
+  const bad = ['发布文章', '发文章', '写文章', '写洞察', '长文', 'article', 'Article', '洞察'];
+  if (bad.some((w) => t.includes(norm(w)))) return true;
+  if (t.includes('文章') && !t.includes('动态')) return true;
+  return false;
+}
+const prefer = ['发动态', '发布动态', '动态', '写动态', 'Post'];
+let best = null, bestSc = 0;
+for (const el of document.querySelectorAll('button, [role="button"], [role="tab"]')) {
+  if (!visible(el)) continue;
+  if ((el.tagName || '').toLowerCase() === 'a') continue;
+  const t = label(el);
+  if (!t || t.length > 16) continue;
+  if (isArticleEntry(t)) continue;
+  for (let i = 0; i < prefer.length; i++) {
+    const p = norm(prefer[i]);
+    if (t !== p && !t.includes(p)) continue;
+    let sc = 400 - i * 15;
+    if (el.tagName === 'BUTTON') sc += 25;
+    if (sc > bestSc) { bestSc = sc; best = el; }
+    break;
+  }
+}
+if (!best) return false;
+best.setAttribute('data-pai-compose', '1');
+return true;
+"""
+
+_CLICK_BITGET_DYNAMIC_TAB_JS = r"""
+function visible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 4 || r.height < 4) return false;
+  const st = window.getComputedStyle(el);
+  if (st.display === 'none' || st.visibility === 'hidden') return false;
+  return true;
+}
+function norm(t) { return (t || '').trim().replace(/\s+/g, ''); }
+function bad(t) {
+  if (!t) return true;
+  if (t.includes('文章') && !t.includes('动态')) return true;
+  return ['发布文章', '发文章', '写文章', '写洞察', '长文'].some((w) => t.includes(w));
+}
+const scope = document.querySelector('[role="dialog"], [class*="modal" i], [class*="Modal"]') || document.body;
+for (const el of scope.querySelectorAll('button, [role="button"], [role="tab"], div, span')) {
+  if (!visible(el)) continue;
+  const t = norm(el.innerText || el.textContent || el.getAttribute('aria-label') || '');
+  if (!t || t.length > 12 || bad(t)) continue;
+  if (t === '发动态' || t === '动态' || t === '发布动态' || t === '写动态') {
+    try { (el.closest('button,[role="button"],[role="tab"]') || el).click(); return true; } catch (_) {}
+  }
+}
+return false;
+"""
+
+_FIND_BITGET_DYNAMIC_EDITOR_JS = r"""
+function visible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 24 || r.height < 8) return false;
+  const st = window.getComputedStyle(el);
+  if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) < 0.05) return false;
+  return true;
+}
+function hintText(el) {
+  return (el.getAttribute('placeholder') || el.getAttribute('aria-label')
+    || el.getAttribute('data-placeholder') || '').trim().toLowerCase();
+}
+function isTitleHint(el) {
+  const h = hintText(el);
+  return ['标题', 'title', 'topic', '主题', 'heading'].some(x => h.includes(x));
+}
+document.querySelectorAll('[data-pai-title]').forEach(el => el.removeAttribute('data-pai-title'));
+document.querySelectorAll('[data-pai-editor]').forEach(el => el.removeAttribute('data-pai-editor'));
+document.querySelectorAll('[data-pai-editor-root]').forEach(el => el.removeAttribute('data-pai-editor-root'));
+let body = null, bodyArea = 0, bodyScore = 0;
+for (const el of document.querySelectorAll(
+  '[contenteditable="true"], .ProseMirror, [role="textbox"], textarea'
+)) {
+  if (!visible(el)) continue;
+  if (isTitleHint(el)) continue;
+  if (el.closest('[class*="title" i], [class*="Title"]')) continue;
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'input') continue;
+  const h = hintText(el);
+  let score = 0;
+  if (h.includes('分享') || h.includes('看法') || h.includes('动态') || h.includes('share')) score += 80;
+  const r = el.getBoundingClientRect();
+  const area = r.width * r.height;
+  if (area > bodyArea) { body = el; bodyArea = area; bodyScore = score; }
+  else if (area === bodyArea && score > bodyScore) { body = el; bodyScore = score; }
+}
+if (!body) return false;
+body.setAttribute('data-pai-editor', '1');
+const root = body.closest('[class*="editor" i], [class*="Editor"], [role="dialog"]');
+if (root) root.setAttribute('data-pai-editor-root', '1');
+return true;
+"""
+
+_ACTIVATE_BITGET_DYNAMIC_JS = r"""
+function visible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 24 || r.height < 12) return false;
+  const st = window.getComputedStyle(el);
+  if (st.visibility === 'hidden' || st.display === 'none') return false;
+  return true;
+}
+function hint(el) {
+  return (el.getAttribute('placeholder') || el.getAttribute('aria-label') || '').toLowerCase();
+}
+const sels = [
+  '[contenteditable="true"]',
+  '.ProseMirror',
+  'textarea',
+  '[role="textbox"]',
+];
+for (const sel of sels) {
+  for (const el of document.querySelectorAll(sel)) {
+    if (!visible(el)) continue;
+    const h = hint(el);
+    if (h.includes('标题') || h.includes('title')) continue;
+    if (el.closest('[class*="title" i], [class*="Title"]')) continue;
+    if (h.includes('分享') || h.includes('看法') || h.includes('动态') || h.includes('share') || h.includes('idea')) {
+      try { el.click(); el.focus(); } catch (_) {}
+      el.setAttribute('data-pai-editor', '1');
+      const root = el.closest('[class*="editor" i], [class*="compose" i]') || el.parentElement;
+      if (root) root.setAttribute('data-pai-editor-root', '1');
+      return true;
+    }
+  }
+}
+return false;
 """
 
 _OKX_ENSURE_ORBIT_JS = r"""
@@ -1869,17 +2027,16 @@ class BinanceSquarePublisher:
         body = sanitize_typed_text((text or "").strip())
         title_text = sanitize_typed_text((title or "").strip())
         if self.platform_id == "bitget":
-            if not title_text and body:
-                first, _, rest = body.partition("\n")
-                if first.strip() and len(first.strip()) <= 120:
-                    title_text = first.strip()
-                    body = rest.strip()
+            # 动态帖：与其它平台一致只发正文，不填「发文章」标题栏
+            if title_text and title_text not in body:
+                body = f"{title_text}\n\n{body}".strip() if body else title_text
+            title_text = ""
         elif title_text and title_text not in body:
             body = f"{title_text}\n\n{body}".strip() if body else title_text
 
         media = normalize_media_paths(media_paths)
         images, videos = split_media(media)
-        if not body and not media and not (self.platform_id == "bitget" and title_text):
+        if not body and not media:
             return {
                 "success": False,
                 "error": "正文与媒体不能同时为空",
@@ -1929,7 +2086,13 @@ class BinanceSquarePublisher:
                 self._reload_gate_post_page(driver)
                 steps.append("gate_reload")
             elif self.platform_id == "bitget":
-                self._click_compose(driver, steps)
+                steps.append("bitget_entry")
+                try:
+                    driver.execute_script(_ACTIVATE_BITGET_DYNAMIC_JS)
+                except Exception:
+                    pass
+                if not self._find_body_editor(driver):
+                    self._click_bitget_compose(driver, steps)
 
             if not self._wait_for_editor(driver, self.wait_sec):
                 if self.platform_id == "okx":
@@ -1941,6 +2104,8 @@ class BinanceSquarePublisher:
                     except Exception:
                         pass
                     human_pause(0.5, 0.9)
+                elif self.platform_id == "bitget":
+                    self._click_bitget_compose(driver, steps)
                 else:
                     self._click_compose(driver, steps)
                 for alt in self._alt_square_urls():
@@ -1956,6 +2121,8 @@ class BinanceSquarePublisher:
                             driver.execute_script(_ACTIVATE_SHORT_EDITOR_JS)
                         except Exception:
                             pass
+                    elif self.platform_id == "bitget":
+                        self._click_bitget_compose(driver, steps)
                     else:
                         self._click_compose(driver, steps)
                     human_pause(0.8, 1.4)
@@ -1986,17 +2153,6 @@ class BinanceSquarePublisher:
             steps.append("editor")
             logger.info("%s 已找到编辑区 @ %s", self.platform_name, href)
 
-            if self.platform_id == "bitget":
-                if title_text:
-                    if self._fill_bitget_title(driver, title_text):
-                        steps.append("title")
-                        human_pause(0.3, 0.6)
-                    elif body and title_text not in body:
-                        body = f"{title_text}\n\n{body}".strip()
-                        steps.append("title_in_body")
-                    elif not body:
-                        body = title_text
-                        steps.append("title_as_body")
             if self.platform_id in ("bitget", "gate"):
                 if body:
                     logger.info("%s 写入正文 %s 字", self.platform_name, len(body))
@@ -2188,7 +2344,7 @@ return {hasEditor: !!ed, editorInModal, fileInputs: ins, editorClass: ed ? ed.cl
     def _find_body_editor(self, driver) -> bool:
         try:
             if self.platform_id == "bitget":
-                return bool(driver.execute_script(_FIND_BITGET_FIELDS_JS))
+                return bool(driver.execute_script(_FIND_BITGET_DYNAMIC_EDITOR_JS))
             if self.platform_id == "gate":
                 return bool(driver.execute_script(_FIND_GATE_EDITOR_JS))
             return bool(driver.execute_script(_FIND_EDITOR_JS))
@@ -2369,10 +2525,68 @@ return { clicked: null, score: 0 };
         return False
 
 
+    def _click_bitget_compose(self, driver, steps: List[str]) -> bool:
+        """Bitget：只走「发动态」，禁止误点「发布文章/写洞察」。"""
+        self._clear_compose_marks(driver)
+        try:
+            driver.execute_script(_CLICK_BITGET_DYNAMIC_TAB_JS)
+        except Exception:
+            pass
+        human_pause(0.2, 0.4)
+        clicked = False
+        try:
+            if driver.execute_script(_FIND_BITGET_COMPOSE_JS):
+                clicked = self._click_marked(driver, "compose")
+        except Exception:
+            clicked = False
+        if not clicked:
+            try:
+                res = driver.execute_script(
+                    r"""
+                    function norm(t){return (t||'').replace(/\s+/g,'');}
+                    function bad(t){
+                      if(!t)return true;
+                      if(t.includes('文章')&&!t.includes('动态'))return true;
+                      return ['发布文章','发文章','写文章','写洞察','长文'].some(w=>t.includes(w));
+                    }
+                    for (const el of document.querySelectorAll('button,[role="button"]')) {
+                      const t = norm(el.innerText||el.textContent||'');
+                      if (!t || bad(t)) continue;
+                      if (t==='发动态'||t.includes('发动态')||t==='动态'||t==='发布动态') {
+                        try{el.click();return {ok:true,label:t};}catch(_){}
+                      }
+                    }
+                    return {ok:false};
+                    """
+                )
+                clicked = isinstance(res, dict) and res.get("ok")
+                if clicked:
+                    logger.info("Bitget 兜底点击「%s」", res.get("label"))
+            except Exception:
+                clicked = False
+        if not clicked:
+            logger.warning("%s 未找到「发动态」入口", self.platform_name)
+            return False
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            try:
+                driver.execute_script(_CLICK_BITGET_DYNAMIC_TAB_JS)
+            except Exception:
+                pass
+            if self._find_body_editor(driver):
+                break
+            human_pause(0.25, 0.45)
+        human_pause(0.35, 0.65)
+        if "compose" not in steps:
+            steps.append("compose_dynamic")
+        return True
+
     def _click_compose(self, driver, steps: List[str]) -> bool:
         """点击打开发布框（非 OKX）。"""
         if self.platform_id == "okx":
             return self._click_okx_compose(driver, steps)
+        if self.platform_id == "bitget":
+            return self._click_bitget_compose(driver, steps)
         # 币安：优先 XPath（按钮文本可能有差异），失败再用 JS 匹配
         compose_done = False
         if self.platform_id == "binance_square":
@@ -2428,6 +2642,7 @@ return { clicked: null, score: 0 };
                     compose_done = True
             except Exception as e:
                 logger.debug("%s 终极兜底失败: %s", self.platform_name, e)
+        if not compose_done:
             return False
         # 等弹框出现
         deadline = time.time() + 4.0

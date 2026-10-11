@@ -81,6 +81,9 @@ def _save_publish_history(
             total_count=int(result.get("total") or len(platforms)),
             results=result.get("results") if isinstance(result.get("results"), list) else [],
             message=message,
+            history_id=str(body.get("history_id") or body.get("archive_id") or "").strip(),
+            tags=str(body.get("tags") or "").strip(),
+            series_note=str(body.get("series_note") or body.get("series") or "").strip(),
         )
     except Exception as e:
         print(f"[publish_run] 写入发布历史失败: {e}")

@@ -677,6 +677,7 @@
         <div class="sig-mode-tabs" role="tablist">
           <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号 <span id="sigCycleTabMark" class="sig-cycle-mark" hidden>周期</span></button>
           <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">博主回溯</button>
+          <button type="button" class="sig-mode-tab" data-sig-mode="binance" role="tab" aria-selected="false">币安广场</button>
           <button type="button" class="sig-mode-tab" data-sig-mode="value" role="tab" aria-selected="false">价值回归</button>
         </div>
         <div id="sigModeList">
@@ -816,6 +817,57 @@
           <pre id="sigUserRunLog" class="sig-run-log" hidden></pre>
         </div>
 
+        <div id="sigModeBinance" hidden>
+          <div class="sig-config form-grid">
+            <p class="muted full" style="margin:0;font-size:.78rem">
+              按 <code>config/binance_square_signals.yaml</code> 的重点 Square 主页 CDP 深滚抽帖（逻辑来自 auto-deal-eth 关注流）。
+              Chrome 需 <code>--remote-debugging-port=9223</code> 并已登录币安。
+            </p>
+            <div class="field full">
+              <div class="sig-blogger-head">
+                <span>Square 博主</span>
+                <span class="sig-blogger-actions">
+                  <button type="button" class="btn-link" id="btnSigBsSelectAll">全选</button>
+                  <button type="button" class="btn-link" id="btnSigBsSelectNone">清空</button>
+                </span>
+              </div>
+              <div id="sigBsProfileList" class="sig-blogger-list" role="group" aria-label="币安 Square 博主"></div>
+            </div>
+            <label class="field">
+              <span>每博主最多条</span>
+              <input id="sigBsMaxPosts" type="number" min="5" max="80" value="40" />
+            </label>
+            <label class="field check">
+              <input id="sigBsTryBapi" type="checkbox" />
+              <span>先尝试 bapi 热榜（失败再走主页 CDP）</span>
+            </label>
+            <label class="field check full">
+              <input id="sigBsReplayWhisper" type="checkbox" />
+              <span>抓取完成后仅自动转写近 2 天内的直播回放（WhisprRT → <code>WhisprRT/output</code>，更早的忽略）</span>
+            </label>
+            <label class="field">
+              <span>回溯范围</span>
+              <select id="sigBsBackfillRange">
+                <option value="last_7d">近7天</option>
+                <option value="last_14d">近14天</option>
+                <option value="last_2w">两周内</option>
+                <option value="last_30d">近30天</option>
+                <option value="last_90d">近90天</option>
+                <option value="this_week">本周</option>
+                <option value="this_month">本月</option>
+                <option value="this_quarter">本季度</option>
+              </select>
+            </label>
+            <label class="field" aria-hidden="true"></label>
+            <div class="field full sig-action-bar">
+              <button id="btnSigBsSaveCfg" class="btn ghost" type="button">保存配置</button>
+              <button id="btnSigBsRun" class="btn primary" type="button">抓取博主贴文</button>
+            </div>
+          </div>
+          <p id="sigBsStatus" class="status"></p>
+          <pre id="sigBsRunLog" class="sig-run-log" hidden></pre>
+        </div>
+
         <div id="sigModeValue" hidden>
           <div class="sig-config form-grid">
             <label class="field full">
@@ -946,6 +998,35 @@
             <footer class="el-dialog__footer">
               <button type="submit" value="close" class="btn primary">关闭</button>
             </footer>
+          </form>
+        </dialog>
+
+        <dialog id="sigWhisperDialog" class="corpus-dialog sig-whisper-dialog">
+          <form method="dialog" id="sigWhisperForm" class="form-grid">
+            <h3 style="grid-column:1/-1;margin:0">WhisprRT 转写（直播回放）</h3>
+            <p class="muted" style="grid-column:1/-1;margin:0;font-size:.82rem">
+              逻辑同 deal-manage Whisper：拉取音视频 URL，成品写入本机 WhisprRT 的 <code>output/</code> 目录。
+            </p>
+            <input type="hidden" id="sigWhisperTweetId" />
+            <label class="field full">
+              <span>音频 / 视频 URL</span>
+              <input id="sigWhisperUrl" type="url" placeholder="https://www.binance.com/.../square/audio/replay?id=..." />
+            </label>
+            <label class="field full">
+              <span>输出文件名（不含扩展名）</span>
+              <input id="sigWhisperName" type="text" placeholder="yanchibit20261011" />
+              <span class="muted" style="font-size:.74rem;margin-top:4px">成品：<code id="sigWhisperOutPath">—</code></span>
+            </label>
+            <label class="field check full">
+              <input id="sigWhisperForce" type="checkbox" />
+              <span>强制重跑（覆盖已有同名文件）</span>
+            </label>
+            <pre id="sigWhisperLog" class="sig-run-log" hidden style="grid-column:1/-1;max-height:160px"></pre>
+            <p id="sigWhisperStatus" class="status" style="grid-column:1/-1"></p>
+            <div class="field full" style="flex-direction:row;gap:8px;justify-content:flex-end">
+              <button value="cancel" class="btn ghost" type="submit">关闭</button>
+              <button id="btnSigWhisperStart" value="default" class="btn primary" type="button">开始转写</button>
+            </div>
           </form>
         </dialog>
 
@@ -1176,6 +1257,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261010a"></script>
+  <script src="/app.js?v=20261011o"></script>
 </body>
 </html>

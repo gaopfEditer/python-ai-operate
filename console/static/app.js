@@ -4711,6 +4711,8 @@ const PUBLISH_MEDIA_CACHE_MAX_BYTES = 4 * 1024 * 1024;
 let publishMediaItems = [];
 /** 从草稿/队列载入的服务器本地媒体绝对路径（发布时直接复用） */
 let publishServerMediaPaths = [];
+/** 从「草稿与发布记录」载入的 archive 条目 id，再发布时更新同一条而非新增 */
+let publishReloadArchiveId = "";
 /** 对应 preview 用的 cache rel */
 let publishServerMediaRels = [];
 /** @type {"/api/publish/cache/file"|"/api/publish/history/file"} */
@@ -5359,6 +5361,9 @@ async function collectPublishDraft({ requireSchedule = false, allowNoPlatform = 
   if (requireSchedule && !draft.scheduled_at) {
     throw new Error("请设置预约发布时间");
   }
+  if (publishReloadArchiveId) {
+    draft.history_id = publishReloadArchiveId;
+  }
   return draft;
 }
 
@@ -5367,6 +5372,7 @@ function clearPublishEditorKeepMeta() {
   if ($("#publishSeriesNote")) {
     /* 系列备注保留，方便连续录入同一系列 */
   }
+  publishReloadArchiveId = "";
   publishMediaItems = [];
   publishServerMediaPaths = [];
   publishServerMediaRels = [];
@@ -5559,6 +5565,7 @@ async function batchPublishSeriesSelected() {
 async function loadPublishHistoryItem(it, { switchMode = true } = {}) {
   if (!it) throw new Error("条目为空");
   if (switchMode) applyPublishWorkbenchMode("publish");
+  publishReloadArchiveId = String(it.id || "").trim();
   publishServerMediaFileApi = "/api/publish/history/file";
   if ($("#publishContent")) $("#publishContent").value = it.content || "";
   updatePublishContentCount();
@@ -5647,6 +5654,7 @@ async function loadPublishHistory() {
 async function loadQueueItemIntoPublishEditor(it, { switchMode = true } = {}) {
   if (!it) throw new Error("条目为空");
   if (switchMode) applyPublishWorkbenchMode("publish");
+  publishReloadArchiveId = "";
   publishServerMediaFileApi = "/api/publish/cache/file";
   if ($("#publishTitle")) $("#publishTitle").value = it.title || "";
   if ($("#publishContent")) $("#publishContent").value = it.content || "";
@@ -6724,6 +6732,15 @@ function bind() {
   $("#btnSigUserSelectAll")?.addEventListener("click", () => setSigUserBloggerSelection(true));
   $("#btnSigUserSelectNone")?.addEventListener("click", () => setSigUserBloggerSelection(false));
   $("#sigUserBloggerList")?.addEventListener("change", () => persistSigUserForm());
+  $("#btnSigBsRun")?.addEventListener("click", () => runSigBinanceCrawl());
+  $("#btnSigBsSaveCfg")?.addEventListener("click", () =>
+    saveSigBinanceConfig().catch((e) => setStatus($("#sigBsStatus"), String(e), "error"))
+  );
+  $("#btnSigBsSelectAll")?.addEventListener("click", () => setSigBsProfileSelection(true));
+  $("#btnSigBsSelectNone")?.addEventListener("click", () => setSigBsProfileSelection(false));
+  $("#sigBsBackfillRange")?.addEventListener("change", () => {
+    if (state.sigMode === "binance") loadSignalCards();
+  });
   $("#btnSigValueRun")?.addEventListener("click", () => runValueReturnCrawl());
   $("#btnSigValuePause")?.addEventListener("click", () => signalsControl("pause"));
   $("#btnSigValueResume")?.addEventListener("click", () => signalsControl("resume"));
@@ -6750,11 +6767,19 @@ function bind() {
   $("#sigCardEditForm")?.addEventListener("submit", (e) => {
     if (e.submitter?.value === "save") saveSigCardEdit(e);
   });
+  $("#btnSigWhisperStart")?.addEventListener("click", () => startSigWhisperTranscribe());
+  $("#sigWhisperName")?.addEventListener("input", () => updateSigWhisperOutPathHint());
   $("#sigCards")?.addEventListener("click", (e) => {
     const arch = e.target.closest("[data-sig-value-archive]");
     if (arch) {
       e.preventDefault();
       archiveSigValueCard(arch.getAttribute("data-sig-value-archive") || "");
+      return;
+    }
+    const wbtn = e.target.closest("[data-sig-whisper]");
+    if (wbtn) {
+      e.preventDefault();
+      openSigWhisperDialog(wbtn.getAttribute("data-sig-whisper") || "");
       return;
     }
     const btn = e.target.closest("[data-sig-edit]");
@@ -7081,6 +7106,7 @@ async function loadSignalsPanel() {
   } catch (e) {
     /* ignore */
   }
+  if (state.sigMode === "binance") await loadSigBinancePanel();
   await loadSignalCards();
   loadSigBacktestLast();
 }
@@ -7268,7 +7294,14 @@ function restoreMainTabFromStorage() {
 }
 
 function applySigModeUi(mode) {
-  const m = mode === "user" ? "user" : mode === "value" ? "value" : "list";
+  const m =
+    mode === "user"
+      ? "user"
+      : mode === "value"
+        ? "value"
+        : mode === "binance"
+          ? "binance"
+          : "list";
   state.sigMode = m;
   document.querySelectorAll(".sig-mode-tab[data-sig-mode]").forEach((btn) => {
     const on = btn.getAttribute("data-sig-mode") === m;
@@ -7277,12 +7310,23 @@ function applySigModeUi(mode) {
   });
   const listBox = $("#sigModeList");
   const userBox = $("#sigModeUser");
+  const binanceBox = $("#sigModeBinance");
   const valueBox = $("#sigModeValue");
   if (listBox) listBox.hidden = m !== "list";
   if (userBox) userBox.hidden = m !== "user";
+  if (binanceBox) binanceBox.hidden = m !== "binance";
   if (valueBox) valueBox.hidden = m !== "value";
+  const isBinance = m === "binance";
   const tradeFilter = $("#sigFilterTrade")?.closest("label");
   if (tradeFilter) tradeFilter.hidden = m === "value";
+  const backtestSec = document.querySelector(".sig-meta-backtest");
+  if (backtestSec) backtestSec.hidden = isBinance;
+  for (const id of ["btnSigBacktest", "btnSigBacktestResult"]) {
+    const el = $(`#${id}`);
+    if (el) el.hidden = isBinance;
+  }
+  const winBlock = $("#sigWindows")?.closest(".sig-meta-block");
+  if (winBlock) winBlock.hidden = isBinance;
   const recOnly = $("#sigValueRecommendedOnly")?.closest("label");
   // already in value panel
   void recOnly;
@@ -7291,7 +7335,7 @@ function applySigModeUi(mode) {
 function restoreSigModeFromStorage() {
   try {
     const saved = localStorage.getItem(APP_SIG_MODE_LS);
-    if (saved === "user" || saved === "list" || saved === "value") {
+    if (saved === "user" || saved === "list" || saved === "value" || saved === "binance") {
       applySigModeUi(saved);
     }
   } catch (_) {
@@ -7299,17 +7343,415 @@ function restoreSigModeFromStorage() {
   }
 }
 
-function switchSigMode(mode) {
+async function switchSigMode(mode) {
   applySigModeUi(mode);
   try {
     localStorage.setItem(APP_SIG_MODE_LS, state.sigMode);
   } catch (_) {
     /* ignore quota */
   }
-  loadSignalCards();
+  if (state.sigMode === "binance") await loadSigBinancePanel();
+  await loadSignalCards();
+}
+
+let _sigBsProfilesCache = [];
+
+function getSigBsBackfillRange(cfg) {
+  const dom = $("#sigBsBackfillRange")?.value;
+  if (dom && SIG_BACKFILL_RANGES[normalizeSigBackfillRange(dom)]) {
+    return normalizeSigBackfillRange(dom);
+  }
+  const fromCfg = cfg?.backfill_range;
+  if (fromCfg && SIG_BACKFILL_RANGES[normalizeSigBackfillRange(fromCfg)]) {
+    return normalizeSigBackfillRange(fromCfg);
+  }
+  return "last_7d";
+}
+
+function sigBinancePostsQuery(cfg) {
+  const range = getSigBsBackfillRange(cfg);
+  return `backfill_range=${encodeURIComponent(range)}`;
+}
+
+function sigBinanceFilterProfileItems(profiles) {
+  return (profiles || _sigBsProfilesCache || [])
+    .filter((p) => p && String(p.id || "").trim())
+    .map((p) => ({
+      id: String(p.id || "").trim(),
+      name: String(p.name || p.id || "").trim(),
+    }));
+}
+
+function filterBinancePosts(posts, filter, { onlyTrade = false } = {}) {
+  let rows = Array.isArray(posts) ? posts.slice() : [];
+  const handle = String(filter?.handle || "")
+    .trim()
+    .toLowerCase();
+  if (handle) {
+    rows = rows.filter((p) => {
+      const id = String(p.profile_id || p.author_slug || "").toLowerCase();
+      const name = String(p.profile_name || "").toLowerCase();
+      return id === handle || name === handle;
+    });
+  }
+  if (onlyTrade) {
+    rows = rows.filter((p) => isSigTradeSignal(p.signal || {}));
+  }
+  return rows;
+}
+
+function binancePostToSigCard(p) {
+  const slug = String(p.profile_id || p.author_slug || "")
+    .trim()
+    .replace(/^@/, "");
+  const name = String(p.profile_name || slug || "Square");
+  const text = String(p.raw || p.title || "");
+  const href = String(p.href || "");
+  const cid = String(p.content_id || "").trim();
+  const dedup = cid || href;
+  const images = [];
+  for (const u of p.image_urls || []) {
+    const url = String(u || "").trim();
+    if (url) images.push({ url, alt: "" });
+  }
+  for (const im of p.images || []) {
+    if (typeof im === "string" && im.trim()) images.push({ url: im.trim(), alt: "" });
+    else if (im && im.url) images.push({ url: String(im.url), alt: String(im.alt || "") });
+  }
+  const videoUrl = String(p.video_url || "").trim();
+  const replayUrl = String(p.replay_url || "").trim();
+  const liveCid = String(p.live_content_id || "").trim();
+  return {
+    id: cid ? `bs_${cid}` : liveCid ? `bs_live_${liveCid}` : `bs_${dedup.slice(-24)}`,
+    tweet_id: cid || liveCid,
+    url: href,
+    replay_url: replayUrl,
+    live_content_id: liveCid,
+    author: slug ? `@${slug}` : name,
+    user_handle: slug,
+    text,
+    created_at: p.published_iso || "",
+    time_label: p.time_label || "",
+    display_time: p.time_label || p.published_iso || "",
+    signal: p.signal && typeof p.signal === "object" ? p.signal : {},
+    images: images.slice(0, 12),
+    video_url: videoUrl,
+    source_mode: "binance_square",
+    list_id: slug ? `binance:${slug}` : "binance:square",
+    channel: { channelName: name },
+  };
+}
+
+let _sigWhisperConfig = null;
+
+function binanceWhisperMediaUrl(card) {
+  return String(card?.replay_url || card?.video_url || "").trim();
+}
+
+function binanceWhisperDefaultName(card) {
+  const slug = String(card?.user_handle || parseSigUserHandle(card?.author || "") || "square")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${slug || "square"}${y}${m}${day}`;
+}
+
+async function ensureSigWhisperConfig() {
+  if (_sigWhisperConfig) return _sigWhisperConfig;
+  try {
+    const data = await api("/api/whisper/config");
+    _sigWhisperConfig = data.success !== false ? data : null;
+  } catch {
+    _sigWhisperConfig = null;
+  }
+  return _sigWhisperConfig;
+}
+
+function updateSigWhisperOutPathHint() {
+  const name = ($("#sigWhisperName")?.value || "").trim();
+  const base = _sigWhisperConfig?.output_dir || "WhisprRT/output";
+  const el = $("#sigWhisperOutPath");
+  if (el) el.textContent = name ? `${base}/${name}.txt` : `${base}/…`;
+}
+
+async function openSigWhisperDialog(tweetId) {
+  const tid = String(tweetId || "").trim();
+  const card = _sigCardsCache.find((c) => String(c.tweet_id || "") === tid);
+  if (!card) {
+    toast("未找到卡片", "error");
+    return;
+  }
+  const url = binanceWhisperMediaUrl(card);
+  if (!url) {
+    toast("该帖无直播回放 / 视频 URL", "error");
+    return;
+  }
+  await ensureSigWhisperConfig();
+  $("#sigWhisperTweetId").value = tid;
+  $("#sigWhisperUrl").value = url;
+  $("#sigWhisperName").value = binanceWhisperDefaultName(card);
+  if ($("#sigWhisperForce")) $("#sigWhisperForce").checked = false;
+  const logEl = $("#sigWhisperLog");
+  if (logEl) {
+    logEl.hidden = true;
+    logEl.textContent = "";
+  }
+  setStatus($("#sigWhisperStatus"), "");
+  updateSigWhisperOutPathHint();
+  $("#sigWhisperDialog")?.showModal();
+}
+
+async function pollWhisperJobsNotify(jobs, { intervalMs = 2500 } = {}) {
+  const list = (jobs || []).filter((j) => j && j.job_id);
+  if (!list.length) return;
+  toast(`已提交 ${list.length} 个转写任务，完成后会通知`, "info");
+  for (const meta of list) {
+    const jobId = meta.job_id;
+    const label = meta.name || "转写";
+    for (;;) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      let data;
+      try {
+        data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+      } catch {
+        break;
+      }
+      if (isJobPollGone(data)) break;
+      const job = data.job || {};
+      if (!["done", "error", "cancelled"].includes(job.status)) continue;
+      const ok = job.status === "done";
+      const path =
+        job.result?.paths?.refined ||
+        (job.result?.output_dir && job.result?.name
+          ? `${job.result.output_dir}/${job.result.name}.txt`
+          : "");
+      const msg = ok
+        ? `转写完成：${label}${path ? ` · ${path}` : ""}`
+        : `转写失败：${label} · ${job.message || "未知错误"}`;
+      toast(msg, ok ? "ok" : "error");
+      break;
+    }
+  }
+}
+
+async function startSigWhisperTranscribe() {
+  const url = ($("#sigWhisperUrl")?.value || "").trim();
+  const name = ($("#sigWhisperName")?.value || "").trim();
+  if (!url || !name) {
+    toast("请填写 URL 与输出文件名", "error");
+    return;
+  }
+  const btn = $("#btnSigWhisperStart");
+  if (btn) btn.disabled = true;
+  const logEl = $("#sigWhisperLog");
+  if (logEl) {
+    logEl.hidden = false;
+    logEl.textContent = "";
+  }
+  setStatus($("#sigWhisperStatus"), "提交转写任务…");
+  try {
+    const start = await api("/api/whisper/jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        url,
+        title: name,
+        force: !!$("#sigWhisperForce")?.checked,
+      }),
+    });
+    if (!start.success || !start.job_id) {
+      setStatus($("#sigWhisperStatus"), start.error || "启动失败", "error");
+      return;
+    }
+    const jobId = start.job_id;
+    setStatus($("#sigWhisperStatus"), "转写中…");
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+      if (isJobPollGone(data)) {
+        setStatus($("#sigWhisperStatus"), data.error || "任务不存在", "error");
+        break;
+      }
+      const job = data.job || {};
+      if (logEl && job.logs?.length) {
+        logEl.textContent = job.logs.join("\n");
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      setStatus($("#sigWhisperStatus"), job.message || job.status || "运行中…");
+      if (["done", "error", "cancelled"].includes(job.status)) {
+        const ok = job.status === "done";
+        const path = job.result?.paths?.refined || "";
+        const msg = ok
+          ? `转写完成${path ? ` · ${path}` : ""}`
+          : job.message || "转写失败";
+        setStatus($("#sigWhisperStatus"), msg, ok ? "ok" : "error");
+        toast(msg, ok ? "ok" : "error");
+        break;
+      }
+    }
+  } catch (e) {
+    setStatus($("#sigWhisperStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderSigBsProfileList(profiles, selectedIds) {
+  const box = $("#sigBsProfileList");
+  if (!box) return;
+  const sel = new Set((selectedIds || []).map((x) => String(x).toLowerCase()));
+  const items = (profiles || []).filter((p) => p && String(p.id || "").trim());
+  if (!items.length) {
+    box.innerHTML = `<p class="muted">请在 config/binance_square_signals.yaml 配置 profiles</p>`;
+    return;
+  }
+  box.innerHTML = items
+    .map((p) => {
+      const id = String(p.id || "");
+      const disabled = p.enabled === false;
+      let on;
+      if (sel.size) {
+        on = sel.has(id.toLowerCase());
+      } else {
+        on = !disabled;
+      }
+      return `<label class="sig-blogger-chip${disabled ? " is-off" : ""}">
+        <input type="checkbox" data-bs-profile="${escapeAttr(id)}" ${on ? "checked" : ""} />
+        <span>${escapeHtml(p.name || id)}</span>
+      </label>`;
+    })
+    .join("");
+}
+
+function selectedSigBsProfileIds() {
+  return [...document.querySelectorAll("#sigBsProfileList input[data-bs-profile]:checked")]
+    .map((el) => el.getAttribute("data-bs-profile"))
+    .filter(Boolean);
+}
+
+function setSigBsProfileSelection(on) {
+  document.querySelectorAll("#sigBsProfileList input[data-bs-profile]").forEach((el) => {
+    el.checked = !!on;
+  });
+}
+
+async function loadSigBinancePanel() {
+  try {
+    const data = await api("/api/signals/binance-square/config");
+    const cfg = data.config || {};
+    _sigBsProfilesCache = cfg.profiles || [];
+    if ($("#sigBsBackfillRange")) {
+      $("#sigBsBackfillRange").value = getSigBsBackfillRange(cfg);
+    }
+    if ($("#sigBsMaxPosts") && cfg.max_posts_per_profile != null) {
+      $("#sigBsMaxPosts").value = cfg.max_posts_per_profile;
+    }
+    if ($("#sigBsTryBapi")) $("#sigBsTryBapi").checked = !!cfg.try_bapi_first;
+    if ($("#sigBsReplayWhisper")) {
+      $("#sigBsReplayWhisper").checked = !!cfg.replay_whisper_auto;
+    }
+    renderSigBsProfileList(_sigBsProfilesCache, selectedSigBsProfileIds());
+    fillSigFilterNameOptions(sigBinanceFilterProfileItems(_sigBsProfilesCache));
+    const st = data.state || {};
+    if (st.last_run_at && $("#sigBsStatus")) {
+      $("#sigBsStatus").textContent = `上次运行 ${st.last_run_at} · 缓存 ${st.post_count || 0} 条`;
+    }
+  } catch (e) {
+    setStatus($("#sigBsStatus"), String(e), "error");
+  }
+}
+
+async function saveSigBinanceConfig() {
+  const cfg = { backfill_range: getSigBsBackfillRange() };
+  const checked = new Set(selectedSigBsProfileIds().map((x) => String(x).toLowerCase()));
+  const profiles = (_sigBsProfilesCache || []).map((p) => {
+    const id = String(p.id || "").toLowerCase();
+    if (!id) return p;
+    return { ...p, enabled: checked.has(id) };
+  });
+  const data = await api("/api/signals/binance-square/config", {
+    method: "POST",
+    body: JSON.stringify({
+      backfill_range: getSigBsBackfillRange(cfg),
+      max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
+      try_bapi_first: !!$("#sigBsTryBapi")?.checked,
+      replay_whisper_auto: !!$("#sigBsReplayWhisper")?.checked,
+      profiles,
+    }),
+  });
+  if (!data.success) throw new Error(data.error || "保存失败");
+  _sigBsProfilesCache = data.config?.profiles || profiles;
+  toast("币安 Square 配置已保存", "ok");
+}
+
+async function runSigBinanceCrawl() {
+  const btn = $("#btnSigBsRun");
+  const ids = selectedSigBsProfileIds();
+  if (!ids.length) {
+    toast("请至少勾选一个 Square 博主", "error");
+    return;
+  }
+  if (btn) btn.disabled = true;
+  setStatus($("#sigBsStatus"), "提交抓取任务…");
+  const pre = $("#sigBsRunLog");
+  if (pre) {
+    pre.hidden = false;
+    pre.textContent = "";
+  }
+  try {
+    const start = await api("/api/signals/binance-square/run", {
+      method: "POST",
+      body: JSON.stringify({
+        profile_ids: ids,
+        backfill_range: getSigBsBackfillRange(),
+        max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
+        try_bapi_first: !!$("#sigBsTryBapi")?.checked,
+        debugger_url: publishDebuggerUrl(),
+      }),
+    });
+    if (!start.success || !start.job_id) {
+      setStatus($("#sigBsStatus"), start.error || "启动失败", "error");
+      return;
+    }
+    const jobId = start.job_id;
+    const rangeLabel = SIG_BACKFILL_RANGES[getSigBsBackfillRange()] || getSigBsBackfillRange();
+    setStatus($("#sigBsStatus"), `抓取中 · 回溯 ${rangeLabel}…`);
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+      if (isJobPollGone(data)) {
+        setStatus($("#sigBsStatus"), data.error || "任务不存在", "error");
+        break;
+      }
+      const job = data.job || {};
+      if (pre && job.logs?.length) {
+        pre.textContent = job.logs.join("\n");
+        pre.scrollTop = pre.scrollHeight;
+      }
+      setStatus($("#sigBsStatus"), job.message || job.status || "运行中…");
+      if (["done", "error", "cancelled"].includes(job.status)) {
+        const ok = job.status === "done";
+        setStatus($("#sigBsStatus"), job.message || (ok ? "完成" : "失败"), ok ? "ok" : "error");
+        await loadSigBinancePanel();
+        if (state.sigMode === "binance") await loadSignalCards();
+        if (ok && job.result?.whisper_jobs?.length) {
+          pollWhisperJobsNotify(job.result.whisper_jobs);
+        }
+        break;
+      }
+    }
+  } catch (e) {
+    setStatus($("#sigBsStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function sigCardDedupKey(c) {
+  const tid = String(c.tweet_id || "").trim();
+  if (c.source_mode === "binance_square" && tid) return `bs:${tid}`;
   const h = String(c.user_handle || parseSigUserHandle(c.author || "")).toLowerCase();
   const ts = Math.floor(sigCardTimeMs(c) / 1000);
   if (h && ts > 0) return `${h}:${ts}`;
@@ -7342,6 +7784,8 @@ function sigSourceLabel(c) {
   if (modes.includes("list_realtime")) labels.push("列表");
   if (modes.includes("user_backfill")) labels.push("博主");
   if (modes.includes("value_return")) labels.push("价值");
+  if (modes.includes("binance_square")) labels.push("广场");
+  if (!labels.length && c.source_mode === "binance_square") labels.push("广场");
   if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("博主");
   if (!labels.length && c.source_mode === "value_return") labels.push("价值");
   if (!labels.length && c.list_id) labels.push("列表");
@@ -8761,10 +9205,25 @@ function renderSigCardItem(c) {
     ${!isValue && levels.length ? `<div class="sig-levels">${levels.join("")}</div>` : ""}
     ${!isValue && sig.image_notes ? `<p class="muted" style="margin:0;font-size:.74rem">图注：${escapeHtml(String(sig.image_notes).slice(0, 160))}</p>` : ""}
     ${imgs ? `<div class="sig-imgs">${imgs}</div>` : ""}
+    ${
+      !isValue && c.video_url
+        ? `<div class="sig-imgs"><video src="${escapeAttr(String(c.video_url))}" controls preload="metadata" playsinline style="max-width:100%;border-radius:8px"></video></div>`
+        : ""
+    }
     <pre class="sig-text">${escapeHtml(stripSigTimePrefix(c.text || ""))}</pre>
     <div class="sig-card-foot">
-      <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">原帖</a>
-      ${tid && !isValue ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
+      <a href="${escapeAttr(c.url || "#")}" target="_blank" rel="noopener">${c.source_mode === "binance_square" && c.replay_url ? "Square 原帖" : "原帖"}</a>
+      ${
+        !isValue && c.replay_url
+          ? `<a href="${escapeAttr(String(c.replay_url))}" target="_blank" rel="noopener">直播回放</a>`
+          : ""
+      }
+      ${
+        !isValue && c.source_mode === "binance_square" && binanceWhisperMediaUrl(c)
+          ? `<button type="button" class="btn-link" data-sig-whisper="${escapeAttr(tid)}">转写</button>`
+          : ""
+      }
+      ${tid && !isValue && c.source_mode !== "binance_square" ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
       ${tid && isValue && !c.archived ? `<button type="button" class="btn-link" data-sig-value-archive="${tid}">归档</button>` : ""}
       <span class="sig-conf">${footConf}</span>
     </div>
@@ -8816,7 +9275,11 @@ function renderSigCardsView() {
   const badge = $("#countSignals");
   if (badge) badge.textContent = String(total);
   if (!total) {
-    box.innerHTML = `<p class="muted">暂无卡片。确认 Chrome 已开调试口并登录 X 后，点「开始抓取解析」。</p>`;
+    const emptyBinance =
+      state.sigMode === "binance"
+        ? "暂无 Square 贴文（或已被周期/置顶规则过滤）。请抓取博主贴文，或取消「仅显示交易卡」。"
+        : "暂无卡片。确认 Chrome 已开调试口并登录 X 后，点「开始抓取解析」。";
+    box.innerHTML = `<p class="muted">${escapeHtml(emptyBinance)}</p>`;
     renderSigCardsPager(0, 1);
     return;
   }
@@ -8880,6 +9343,27 @@ async function saveSigCardEdit(e) {
 async function loadSignalCards() {
   const box = $("#sigCards");
   if (!box) return;
+  if (state.sigMode === "binance") {
+    const filter = collectSigCardsFilter();
+    const onlyTrade = !!$("#sigFilterTrade")?.checked;
+    try {
+      if (!_sigBsProfilesCache.length) {
+        const cfgData = await api("/api/signals/binance-square/config");
+        _sigBsProfilesCache = cfgData.config?.profiles || [];
+      }
+      fillSigFilterNameOptions(sigBinanceFilterProfileItems(_sigBsProfilesCache));
+      const postsData = await api(`/api/signals/binance-square/posts?${sigBinancePostsQuery()}`);
+      const posts = postsData.posts || [];
+      const filtered = filterBinancePosts(posts, filter, { onlyTrade });
+      _sigCardsCache = dedupSigCards(filtered.map(binancePostToSigCard));
+      _sigCardsPage = 1;
+      renderSigCardsView();
+    } catch (e) {
+      box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
+      renderSigCardsPager(0, 1);
+    }
+    return;
+  }
   const onlyTrade = !!$("#sigFilterTrade")?.checked;
   const filter = collectSigCardsFilter();
   const valueMode = state.sigMode === "value";
@@ -8902,16 +9386,13 @@ async function loadSignalCards() {
   try {
     const data = await api(url);
     renderSigWindows(data.windows || []);
-    if ((data.channels?.mappings || []).length) {
-      const curOpts = $("#sigFilterName")?.options?.length || 0;
-      if (curOpts <= 1) {
-        fillSigFilterNameOptions(
-          (data.channels.mappings || []).map((m) => ({
-            id: m.handle,
-            name: m.channelName || m.handle,
-          }))
-        );
-      }
+    if (state.sigMode !== "binance" && (data.channels?.mappings || []).length) {
+      fillSigFilterNameOptions(
+        (data.channels.mappings || []).map((m) => ({
+          id: m.handle,
+          name: m.channelName || m.handle,
+        }))
+      );
     }
     const cfg = data.config || {};
     if ($("#sigValueListUrl")) {

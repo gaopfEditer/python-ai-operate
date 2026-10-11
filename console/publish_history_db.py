@@ -252,6 +252,77 @@ def save_draft_from_body(body: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+def _update_entry(
+    record_id: str,
+    *,
+    entry_kind: str,
+    title: str = "",
+    content: str = "",
+    platforms: Optional[List[str]] = None,
+    media_paths: Optional[List[str]] = None,
+    debugger_url: str = "",
+    submit: bool = True,
+    job_id: str = "",
+    status: str = "",
+    success_count: int = 0,
+    total_count: int = 0,
+    results: Optional[List[Dict[str, Any]]] = None,
+    message: str = "",
+    tags: str = "",
+    series_note: str = "",
+    scheduled_at: str = "",
+) -> Optional[Dict[str, Any]]:
+    """更新已有草稿/发布记录（载入后再发布时不新增一条）。"""
+    init_db()
+    rid = str(record_id or "").strip()
+    if not rid:
+        return None
+    abs_paths, rels = _copy_media(rid, list(media_paths or []))
+    now = _now()
+    kind = str(entry_kind or "run").strip() or "run"
+    with _LOCK:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM publish_history WHERE id=?", (rid,)
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute(
+                """
+                UPDATE publish_history SET
+                    title=?, content=?, platforms_json=?, media_rels_json=?, media_paths_json=?,
+                    debugger_url=?, submit=?, job_id=?, status=?, success_count=?, total_count=?,
+                    results_json=?, message=?, created_at=?,
+                    entry_kind=?, tags=?, series_note=?, scheduled_at=?
+                WHERE id=?
+                """,
+                (
+                    str(title or "").strip(),
+                    str(content or ""),
+                    json.dumps(list(platforms or []), ensure_ascii=False),
+                    json.dumps(rels, ensure_ascii=False),
+                    json.dumps(abs_paths, ensure_ascii=False),
+                    str(debugger_url or "").strip(),
+                    1 if submit else 0,
+                    str(job_id or ""),
+                    str(status or ""),
+                    int(success_count or 0),
+                    int(total_count or 0),
+                    json.dumps(results or [], ensure_ascii=False),
+                    str(message or "")[:500],
+                    now,
+                    kind,
+                    str(tags or ""),
+                    str(series_note or ""),
+                    str(scheduled_at or ""),
+                    rid,
+                ),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM publish_history WHERE id=?", (rid,)).fetchone()
+    return _row_to_item(row) if row else None
+
+
 def record_publish(
     *,
     title: str = "",
@@ -266,7 +337,32 @@ def record_publish(
     total_count: int = 0,
     results: Optional[List[Dict[str, Any]]] = None,
     message: str = "",
+    history_id: str = "",
+    tags: str = "",
+    series_note: str = "",
 ) -> Dict[str, Any]:
+    hid = str(history_id or "").strip()
+    if hid:
+        updated = _update_entry(
+            hid,
+            entry_kind="run",
+            title=title,
+            content=content,
+            platforms=platforms,
+            media_paths=media_paths,
+            debugger_url=debugger_url,
+            submit=submit,
+            job_id=job_id,
+            status=status,
+            success_count=success_count,
+            total_count=total_count,
+            results=results,
+            message=message,
+            tags=tags,
+            series_note=series_note,
+        )
+        if updated:
+            return updated
     return _insert_entry(
         entry_kind="run",
         title=title,
@@ -281,6 +377,8 @@ def record_publish(
         total_count=total_count,
         results=results,
         message=message,
+        tags=tags,
+        series_note=series_note,
     )
 
 
