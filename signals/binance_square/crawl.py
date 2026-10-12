@@ -221,9 +221,28 @@ def run_binance_square_fetch(
     st["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     save_state(st)
 
+    cards_sync: Dict[str, Any] = {}
+    if merged:
+        from signals.backfill_range import BACKFILL_RANGE_LABELS, resolve_backfill_since
+        from signals.binance_square.cards_sync import sync_posts_to_signal_cards
+
+        rk = str(time_spec.get("backfill_range") or "last_7d")
+        if time_spec.get("mode") == "range":
+            since_dt, range_label = resolve_backfill_since(rk)
+            cards_sync = sync_posts_to_signal_cards(
+                merged,
+                backfill_range=rk,
+                range_label=range_label or BACKFILL_RANGE_LABELS.get(rk, rk),
+                since_iso=since_dt.isoformat(timespec="seconds"),
+                progress=progress,
+            )
+        else:
+            cards_sync = sync_posts_to_signal_cards(merged, progress=progress)
+
     return {
         "success": True,
         "posts": merged,
+        "cards_sync": cards_sync,
         "new_count": len(new_hrefs),
         "total": len(merged),
         "routes": routes,

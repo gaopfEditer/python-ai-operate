@@ -820,8 +820,8 @@
         <div id="sigModeBinance" hidden>
           <div class="sig-config form-grid">
             <p class="muted full" style="margin:0;font-size:.78rem">
-              按 <code>config/binance_square_signals.yaml</code> 的重点 Square 主页 CDP 深滚抽帖（逻辑来自 auto-deal-eth 关注流）。
-              Chrome 需 <code>--remote-debugging-port=9223</code> 并已登录币安。
+              按 <code>config/binance_square_signals.yaml</code> 的重点 Square 主页 CDP 深滚抽帖；解析结果写入 SQLite（与博主回溯同一套卡片库）。
+              下方「时间 / 博主」筛选与回溯范围联动。Chrome 需 <code>--remote-debugging-port=9223</code> 并已登录币安。
             </p>
             <div class="field full">
               <div class="sig-blogger-head">
@@ -861,7 +861,8 @@
             <label class="field" aria-hidden="true"></label>
             <div class="field full sig-action-bar">
               <button id="btnSigBsSaveCfg" class="btn ghost" type="button">保存配置</button>
-              <button id="btnSigBsRun" class="btn primary" type="button">抓取博主贴文</button>
+              <button id="btnSigBsRun" class="btn primary" type="button">一键抓取并解析</button>
+              <button id="btnSigBsClearCache" class="btn ghost" type="button">清除 Square 缓存</button>
             </div>
           </div>
           <p id="sigBsStatus" class="status"></p>
@@ -1257,6 +1258,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261011o"></script>
+  <script src="/app.js?v=20261012b"></script>
 </body>
 </html>

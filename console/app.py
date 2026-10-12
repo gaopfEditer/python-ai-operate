@@ -3760,6 +3760,10 @@ def handle_api(
             except Exception:
                 days = None
         cfg_ch = load_channels_config()
+        if source_mode == "binance_square":
+            from signals.binance_square.cards_sync import ensure_binance_cards_materialized
+
+            ensure_binance_cards_materialized()
         items = [
             enrich_card_channel(c, cfg_ch)
             for c in list_cards(
@@ -4211,9 +4215,18 @@ def handle_api(
         saved = save_config(cfg)
         return _json_bytes({"success": True, "config": saved})
 
+    if path == "/api/signals/binance-square/sync-cards" and method == "POST":
+        from signals.binance_square.cards_sync import ensure_binance_cards_materialized
+
+        result = ensure_binance_cards_materialized()
+        return _json_bytes({"success": True, **result})
+
     if path == "/api/signals/binance-square/posts" and method == "GET":
         from signals.binance_square.store import apply_binance_time_filter, load_config, load_state, save_state
 
+        from signals.binance_square.cards_sync import ensure_binance_cards_materialized
+
+        ensure_binance_cards_materialized()
         st = load_state()
         raw_pool = st.get("last_posts_raw") or st.get("last_posts") or []
         if not isinstance(raw_pool, list):
@@ -4250,6 +4263,19 @@ def handle_api(
                 "cutoff_hours": ch if ch is not None else cfg.get("cutoff_hours"),
             }
         )
+
+    if path == "/api/signals/binance-square/clear-cache" and method == "POST":
+        from signals.binance_square.cache import clear_binance_square_cache
+
+        profile_ids = body.get("profile_ids") or body.get("profiles")
+        if isinstance(profile_ids, str):
+            profile_ids = [
+                x.strip() for x in profile_ids.replace(",", " ").split() if x.strip()
+            ]
+        if profile_ids is not None and not isinstance(profile_ids, list):
+            profile_ids = None
+        result = clear_binance_square_cache(profile_ids if profile_ids else None)
+        return _json_bytes(result)
 
     if path == "/api/signals/binance-square/run" and method == "POST":
         job_id = uuid.uuid4().hex[:12]

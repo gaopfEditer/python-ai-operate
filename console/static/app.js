@@ -6733,6 +6733,14 @@ function bind() {
   $("#btnSigUserSelectNone")?.addEventListener("click", () => setSigUserBloggerSelection(false));
   $("#sigUserBloggerList")?.addEventListener("change", () => persistSigUserForm());
   $("#btnSigBsRun")?.addEventListener("click", () => runSigBinanceCrawl());
+  $("#btnSigBsClearCache")?.addEventListener("click", () => clearSigBinanceCache());
+  $("#sigBsBackfillRange")?.addEventListener("change", () => {
+    const rk = normalizeSigBackfillRange($("#sigBsBackfillRange")?.value || "last_7d");
+    if ($("#sigFilterRange") && !collectSigCardsFilter().range) {
+      $("#sigFilterRange").value = rk;
+      persistSigCardsFilter();
+    }
+  });
   $("#btnSigBsSaveCfg")?.addEventListener("click", () =>
     saveSigBinanceConfig().catch((e) => setStatus($("#sigBsStatus"), String(e), "error"))
   );
@@ -7316,17 +7324,16 @@ function applySigModeUi(mode) {
   if (userBox) userBox.hidden = m !== "user";
   if (binanceBox) binanceBox.hidden = m !== "binance";
   if (valueBox) valueBox.hidden = m !== "value";
-  const isBinance = m === "binance";
   const tradeFilter = $("#sigFilterTrade")?.closest("label");
   if (tradeFilter) tradeFilter.hidden = m === "value";
   const backtestSec = document.querySelector(".sig-meta-backtest");
-  if (backtestSec) backtestSec.hidden = isBinance;
+  if (backtestSec) backtestSec.hidden = m === "value";
   for (const id of ["btnSigBacktest", "btnSigBacktestResult"]) {
     const el = $(`#${id}`);
-    if (el) el.hidden = isBinance;
+    if (el) el.hidden = m === "value";
   }
   const winBlock = $("#sigWindows")?.closest(".sig-meta-block");
-  if (winBlock) winBlock.hidden = isBinance;
+  if (winBlock) winBlock.hidden = false;
   const recOnly = $("#sigValueRecommendedOnly")?.closest("label");
   // already in value panel
   void recOnly;
@@ -7371,6 +7378,30 @@ function getSigBsBackfillRange(cfg) {
 function sigBinancePostsQuery(cfg) {
   const range = getSigBsBackfillRange(cfg);
   return `backfill_range=${encodeURIComponent(range)}`;
+}
+
+function sigBinanceCardsApiUrl(filter, { onlyTrade = false } = {}) {
+  let url = `/api/signals/cards?limit=500&merge=1&source_mode=binance_square`;
+  if (onlyTrade) url += "&trade=1";
+  if (filter?.handle) url += `&handle=${encodeURIComponent(filter.handle)}`;
+  const range =
+    filter?.range && filter.range !== "custom"
+      ? filter.range
+      : filter?.range === "custom"
+        ? ""
+        : getSigBsBackfillRange();
+  if (filter?.range === "custom") {
+    if (filter.from) url += `&from=${encodeURIComponent(filter.from)}`;
+    if (filter.to) url += `&to=${encodeURIComponent(filter.to)}`;
+  } else if (range) {
+    url += `&range=${encodeURIComponent(normalizeSigBackfillRange(range))}`;
+  }
+  return url;
+}
+
+function filterBinanceWindows(windows) {
+  const rows = (windows || []).filter((w) => String(w.list_id || "").startsWith("binance:"));
+  return rows.length ? rows : windows || [];
 }
 
 function sigBinanceFilterProfileItems(profiles) {
@@ -7652,6 +7683,10 @@ async function loadSigBinancePanel() {
     if ($("#sigBsReplayWhisper")) {
       $("#sigBsReplayWhisper").checked = !!cfg.replay_whisper_auto;
     }
+    const br = getSigBsBackfillRange(cfg);
+    if ($("#sigFilterRange") && !readSigCardsFilterLocal().range) {
+      $("#sigFilterRange").value = br;
+    }
     renderSigBsProfileList(_sigBsProfilesCache, selectedSigBsProfileIds());
     fillSigFilterNameOptions(sigBinanceFilterProfileItems(_sigBsProfilesCache));
     const st = data.state || {};
@@ -7660,6 +7695,40 @@ async function loadSigBinancePanel() {
     }
   } catch (e) {
     setStatus($("#sigBsStatus"), String(e), "error");
+  }
+}
+
+async function clearSigBinanceCache() {
+  const ids = selectedSigBsProfileIds();
+  const label = ids.length ? ids.join("、") : "全部 Square 博主";
+  if (
+    !confirm(
+      `清除 ${label} 的 Square 回溯缓存？\n将删除 SQLite 中 binance 卡片与本地 state，下次会重新抓取解析。`
+    )
+  ) {
+    return;
+  }
+  const btn = $("#btnSigBsClearCache");
+  if (btn) btn.disabled = true;
+  try {
+    const data = await api("/api/signals/binance-square/clear-cache", {
+      method: "POST",
+      body: JSON.stringify({ profile_ids: ids.length ? ids : undefined }),
+    });
+    if (!data.success) {
+      toast(data.error || "清除失败", "error");
+      setStatus($("#sigBsStatus"), data.error || "清除失败", "error");
+      return;
+    }
+    toast(data.message || "缓存已清除", "ok");
+    setStatus($("#sigBsStatus"), data.message || "缓存已清除", "ok");
+    await loadSigBinancePanel();
+    if (state.sigMode === "binance") await loadSignalCards();
+  } catch (e) {
+    toast(String(e), "error");
+    setStatus($("#sigBsStatus"), String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -9223,7 +9292,7 @@ function renderSigCardItem(c) {
           ? `<button type="button" class="btn-link" data-sig-whisper="${escapeAttr(tid)}">转写</button>`
           : ""
       }
-      ${tid && !isValue && c.source_mode !== "binance_square" ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
+      ${tid && !isValue ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
       ${tid && isValue && !c.archived ? `<button type="button" class="btn-link" data-sig-value-archive="${tid}">归档</button>` : ""}
       <span class="sig-conf">${footConf}</span>
     </div>
@@ -9352,10 +9421,27 @@ async function loadSignalCards() {
         _sigBsProfilesCache = cfgData.config?.profiles || [];
       }
       fillSigFilterNameOptions(sigBinanceFilterProfileItems(_sigBsProfilesCache));
-      const postsData = await api(`/api/signals/binance-square/posts?${sigBinancePostsQuery()}`);
-      const posts = postsData.posts || [];
-      const filtered = filterBinancePosts(posts, filter, { onlyTrade });
-      _sigCardsCache = dedupSigCards(filtered.map(binancePostToSigCard));
+      let data = await api(sigBinanceCardsApiUrl(filter, { onlyTrade }));
+      let items = data.items || [];
+      if (!items.length) {
+        await api("/api/signals/binance-square/sync-cards", { method: "POST" }).catch(() => {});
+        data = await api(sigBinanceCardsApiUrl(filter, { onlyTrade }));
+        items = data.items || [];
+      }
+      if (!items.length && !filter.range) {
+        data = await api(
+          `/api/signals/cards?limit=500&merge=1&source_mode=binance_square${onlyTrade ? "&trade=1" : ""}${
+            filter.handle ? `&handle=${encodeURIComponent(filter.handle)}` : ""
+          }`
+        );
+        items = data.items || [];
+      }
+      if (!items.length) {
+        const postsData = await api(`/api/signals/binance-square/posts?${sigBinancePostsQuery()}`);
+        items = (postsData.posts || []).map(binancePostToSigCard);
+      }
+      renderSigWindows(filterBinanceWindows(data.windows || []));
+      _sigCardsCache = dedupSigCards(items);
       _sigCardsPage = 1;
       renderSigCardsView();
     } catch (e) {

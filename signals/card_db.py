@@ -101,6 +101,14 @@ def _card_user_handle(card: Dict[str, Any]) -> str:
 
 
 def _card_created_ts(card: Dict[str, Any]) -> int:
+    raw_ts = card.get("_created_at_ts")
+    if raw_ts is not None and raw_ts != "":
+        try:
+            ts = int(raw_ts)
+            if ts > 0:
+                return ts
+        except (TypeError, ValueError):
+            pass
     for key in ("created_at", "display_time", "parsed_at"):
         dt = _parse_dt(str(card.get(key) or ""))
         if dt is not None:
@@ -212,6 +220,9 @@ def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
         "value_eval",
         "category",
         "key_takeaways",
+        "replay_url",
+        "video_url",
+        "live_content_id",
     )
     extra = {k: card[k] for k in extra_keys if k in card}
     vs = card.get("value_score")
@@ -656,6 +667,45 @@ def db_delete_user_cards(handle: str) -> List[str]:
                 """,
                 (hlow, scope, f"@{hlow}"),
             )
+    return removed
+
+
+def db_delete_binance_square_cards(profile_id: str = "") -> List[str]:
+    """删除币安 Square 回溯卡片（list_id 为 binance:*）。"""
+    pid = str(profile_id or "").strip().lower()
+    init_db()
+    removed: List[str] = []
+    with _LOCK:
+        with connect() as conn:
+            if pid:
+                scope = f"binance:{pid.lstrip('/')}"
+                rows = conn.execute(
+                    """
+                    SELECT tweet_id FROM signal_cards
+                    WHERE list_id=? OR user_handle=?
+                    """,
+                    (scope, pid),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT tweet_id FROM signal_cards
+                    WHERE list_id LIKE 'binance:%' OR list_id=?
+                    """,
+                    ("binance:square",),
+                ).fetchall()
+            removed = [str(r["tweet_id"] or "").strip() for r in rows if str(r["tweet_id"] or "").strip()]
+            if pid:
+                scope = f"binance:{pid.lstrip('/')}"
+                conn.execute(
+                    "DELETE FROM signal_cards WHERE list_id=? OR user_handle=?",
+                    (scope, pid),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM signal_cards WHERE list_id LIKE 'binance:%' OR list_id=?",
+                    ("binance:square",),
+                )
     return removed
 
 
