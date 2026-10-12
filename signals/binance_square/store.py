@@ -39,6 +39,12 @@ def default_config() -> Dict[str, Any]:
         "try_bapi_first": False,
         "replay_whisper_auto": False,
         "replay_whisper_max_days": 2,
+        "cycle_enabled": False,
+        "cycle_min_minutes": 5,
+        "cycle_max_minutes": 15,
+        "first_crawl_hours": 8,
+        "cycle_cutoff_hours": 8,
+        "last_crawl_at": "",
         "profiles": [],
     }
 
@@ -54,6 +60,9 @@ def load_config() -> Dict[str, Any]:
     cfg = default_config()
     if isinstance(raw, dict):
         cfg.update({k: raw[k] for k in cfg if k in raw})
+        for extra in ("cycle_enabled", "last_crawl_at"):
+            if extra in raw:
+                cfg[extra] = raw[extra]
         profs = raw.get("profiles")
         if isinstance(profs, list):
             cfg["profiles"] = profs

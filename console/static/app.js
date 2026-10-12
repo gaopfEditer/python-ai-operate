@@ -6733,6 +6733,22 @@ function bind() {
   $("#btnSigUserSelectNone")?.addEventListener("click", () => setSigUserBloggerSelection(false));
   $("#sigUserBloggerList")?.addEventListener("change", () => persistSigUserForm());
   $("#btnSigBsRun")?.addEventListener("click", () => runSigBinanceCrawl());
+  $("#btnSigBsPause")?.addEventListener("click", () => signalsControl("pause"));
+  $("#btnSigBsResume")?.addEventListener("click", () => signalsControl("resume"));
+  $("#btnSigBsStop")?.addEventListener("click", () => signalsControl("stop"));
+  $("#btnSigBsRealtime")?.addEventListener("click", () => openSigBsRealtimeDialog());
+  $("#btnSigBsCycleToggle")?.addEventListener("click", () => toggleSigBsCycle());
+  $("#btnSigBsRunNow")?.addEventListener("click", () => {
+    runSigBinanceCrawl(undefined, { realtime: true }).catch((e) =>
+      setStatus($("#sigBsRealtimeStatus"), String(e), "error")
+    );
+  });
+  $("#btnSigBsDlgPause")?.addEventListener("click", () => signalsControl("pause"));
+  $("#btnSigBsDlgResume")?.addEventListener("click", () => signalsControl("resume"));
+  $("#btnSigBsDlgStop")?.addEventListener("click", () => signalsControl("stop"));
+  $("#btnSigBsRealtimeSave")?.addEventListener("click", () =>
+    saveSigBsRealtimeSettings().catch((e) => toast(String(e), "error"))
+  );
   $("#btnSigBsClearCache")?.addEventListener("click", () => clearSigBinanceCache());
   $("#sigBsBackfillRange")?.addEventListener("change", () => {
     const rk = normalizeSigBackfillRange($("#sigBsBackfillRange")?.value || "last_7d");
@@ -6788,6 +6804,13 @@ function bind() {
     if (wbtn) {
       e.preventDefault();
       openSigWhisperDialog(wbtn.getAttribute("data-sig-whisper") || "");
+      return;
+    }
+    const bsBf = e.target.closest("[data-sig-bs-backfill]");
+    if (bsBf) {
+      e.preventDefault();
+      const pid = bsBf.getAttribute("data-sig-bs-backfill") || "";
+      if (pid) runSigBinanceCrawl([pid]);
       return;
     }
     const btn = e.target.closest("[data-sig-edit]");
@@ -7693,6 +7716,10 @@ async function loadSigBinancePanel() {
     if (st.last_run_at && $("#sigBsStatus")) {
       $("#sigBsStatus").textContent = `上次运行 ${st.last_run_at} · 缓存 ${st.post_count || 0} 条`;
     }
+    const cycle = data.cycle || {};
+    renderSigBsCycle(cycle, cfg);
+    updateSigBsCycleLiveUi(cycle);
+    ensureSigBsCyclePoller(!!cycle.cycle_enabled);
   } catch (e) {
     setStatus($("#sigBsStatus"), String(e), "error");
   }
@@ -7755,38 +7782,108 @@ async function saveSigBinanceConfig() {
   toast("币安 Square 配置已保存", "ok");
 }
 
-async function runSigBinanceCrawl() {
+function sigBinanceProfileIdFromCard(c) {
+  const lid = String(c.list_id || "");
+  let slug = "";
+  if (lid.startsWith("binance:")) slug = lid.slice(8).split(":")[0];
+  if (!slug) {
+    slug = String(c.user_handle || parseSigUserHandle(c.author || ""))
+      .toLowerCase()
+      .replace(/^@/, "");
+  }
+  if (!slug) return "";
+  const profs = _sigBsProfilesCache || [];
+  const hit = profs.find((p) => {
+    const id = String(p.id || "").toLowerCase();
+    if (id === slug) return true;
+    const url = String(p.url || "");
+    const m = url.match(/square\/profile\/([^/?#]+)/i);
+    return m && m[1].toLowerCase() === slug;
+  });
+  return hit ? String(hit.id) : slug;
+}
+
+function _applySigBsControlRow(prefix, { running = false, paused = false, disableRun = running } = {}) {
+  const pause = $(`#btnSigBs${prefix}Pause`);
+  const resume = $(`#btnSigBs${prefix}Resume`);
+  const stop = $(`#btnSigBs${prefix}Stop`);
+  const run = prefix === "Dlg" ? $("#btnSigBsRunNow") : $("#btnSigBsRun");
+  if (run) run.disabled = disableRun;
+  if (pause) {
+    pause.disabled = !running || paused;
+    pause.hidden = paused;
+  }
+  if (resume) {
+    resume.disabled = !running || !paused;
+    resume.hidden = !paused;
+  }
+  if (stop) stop.disabled = !running;
+}
+
+function setSigBsControlButtons(opts = {}) {
+  _applySigBsControlRow("", opts);
+  _applySigBsControlRow("Dlg", opts);
+}
+
+async function runSigBinanceCrawl(profileIdsOverride, opts = {}) {
+  const realtime = !!opts.realtime;
   const btn = $("#btnSigBsRun");
-  const ids = selectedSigBsProfileIds();
+  const ids =
+    Array.isArray(profileIdsOverride) && profileIdsOverride.length
+      ? profileIdsOverride.map((x) => String(x).trim()).filter(Boolean)
+      : selectedSigBsProfileIds();
   if (!ids.length) {
     toast("请至少勾选一个 Square 博主", "error");
     return;
   }
   if (btn) btn.disabled = true;
   setStatus($("#sigBsStatus"), "提交抓取任务…");
+  setSigBsControlButtons({ running: false, paused: false });
   const pre = $("#sigBsRunLog");
   if (pre) {
     pre.hidden = false;
     pre.textContent = "";
   }
+  const cycleHours = Math.max(
+    1,
+    Math.min(48, Number($("#sigBsCycleCutoffHours")?.value || 8) || 8)
+  );
   try {
     const start = await api("/api/signals/binance-square/run", {
       method: "POST",
-      body: JSON.stringify({
-        profile_ids: ids,
-        backfill_range: getSigBsBackfillRange(),
-        max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
-        try_bapi_first: !!$("#sigBsTryBapi")?.checked,
-        debugger_url: publishDebuggerUrl(),
-      }),
+      body: JSON.stringify(
+        realtime
+          ? {
+              profile_ids: ids,
+              cutoff_hours: cycleHours,
+              max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
+              try_bapi_first: !!$("#sigBsTryBapi")?.checked,
+              replay_whisper_auto: !!$("#sigBsReplayWhisper")?.checked,
+              debugger_url: publishDebuggerUrl(),
+            }
+          : {
+              profile_ids: ids,
+              backfill_range: getSigBsBackfillRange(),
+              max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
+              try_bapi_first: !!$("#sigBsTryBapi")?.checked,
+              debugger_url: publishDebuggerUrl(),
+            }
+      ),
     });
     if (!start.success || !start.job_id) {
       setStatus($("#sigBsStatus"), start.error || "启动失败", "error");
       return;
     }
     const jobId = start.job_id;
-    const rangeLabel = SIG_BACKFILL_RANGES[getSigBsBackfillRange()] || getSigBsBackfillRange();
-    setStatus($("#sigBsStatus"), `抓取中 · 回溯 ${rangeLabel}…`);
+    _sigActiveJobId = jobId;
+    _sigActiveJobKind = "binance";
+    const rangeLabel = realtime
+      ? `近 ${cycleHours} 小时`
+      : SIG_BACKFILL_RANGES[getSigBsBackfillRange()] || getSigBsBackfillRange();
+    setSigBsControlButtons({ running: true, paused: false });
+    const runMsg = realtime ? `抓取中 · 增量 ${rangeLabel}…` : `抓取中 · 回溯 ${rangeLabel}…`;
+    setStatus($("#sigBsStatus"), runMsg);
+    setStatus($("#sigBsRealtimeStatus"), runMsg);
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
       const data = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
@@ -7799,23 +7896,252 @@ async function runSigBinanceCrawl() {
         pre.textContent = job.logs.join("\n");
         pre.scrollTop = pre.scrollHeight;
       }
-      setStatus($("#sigBsStatus"), job.message || job.status || "运行中…");
+      const paused = job.status === "paused" || job.control_status === "paused";
+      setSigBsControlButtons({
+        running: !["done", "error", "cancelled"].includes(job.status),
+        paused,
+      });
+      setStatus(
+        $("#sigBsStatus"),
+        paused ? `已暂停 · ${job.message || ""}` : job.message || job.status || "运行中…"
+      );
       if (["done", "error", "cancelled"].includes(job.status)) {
-        const ok = job.status === "done";
-        setStatus($("#sigBsStatus"), job.message || (ok ? "完成" : "失败"), ok ? "ok" : "error");
+        const ok = job.status === "done" || job.status === "cancelled";
+        setStatus(
+          $("#sigBsStatus"),
+          job.result?.message || job.message || (job.status === "cancelled" ? "已终止" : ok ? "完成" : "失败"),
+          ok ? "ok" : "error"
+        );
         await loadSigBinancePanel();
         if (state.sigMode === "binance") await loadSignalCards();
-        if (ok && job.result?.whisper_jobs?.length) {
+        if (job.status === "done" && job.result?.whisper_jobs?.length) {
           pollWhisperJobsNotify(job.result.whisper_jobs);
         }
+        if (ok) toast(job.result?.message || job.message || "Square 回溯完成", "ok");
         break;
       }
     }
   } catch (e) {
     setStatus($("#sigBsStatus"), String(e), "error");
   } finally {
+    _sigActiveJobId = "";
+    _sigActiveJobKind = "";
+    if (!_sigBsCycleActiveJobId) {
+      setSigBsControlButtons({ running: false, paused: false });
+    }
     if (btn) btn.disabled = false;
   }
+}
+
+function updateSigBsCycleButton(cycle, cfg) {
+  const btn = $("#btnSigBsCycleToggle");
+  const cb = $("#sigBsCycleEnabled");
+  const on = !!(cycle?.cycle_enabled ?? cfg?.cycle_enabled);
+  if (cb) cb.checked = on;
+  if (!btn) return;
+  btn.textContent = on ? "关闭周期抓取" : "开启周期抓取";
+  btn.classList.toggle("primary", !on);
+  btn.classList.toggle("ghost", on);
+}
+
+function updateSigBsCycleLiveUi(cycle) {
+  const on = !!(cycle?.cycle_enabled);
+  const running = !!cycle?.running;
+  const tab = document.querySelector('.sig-mode-tab[data-sig-mode="binance"]');
+  if (tab) tab.classList.toggle("is-cycling", on);
+  const mark = $("#sigBsCycleTabMark");
+  if (mark) {
+    mark.hidden = !on;
+    mark.textContent = running ? "抓取中" : "周期";
+  }
+}
+
+function renderSigBsCycle(cycle, cfg) {
+  const hint = $("#sigBsCycleHint");
+  if (!hint) return;
+  const on = !!(cycle?.cycle_enabled ?? cfg?.cycle_enabled);
+  const last = String(cycle?.last_crawl_at || cfg?.last_crawl_at || "").slice(0, 19);
+  if (!on) {
+    hint.textContent = last
+      ? `周期抓取未开启 · 上次完成 ${last}`
+      : "周期抓取未开启 · 开启后按 5–15 分钟随机间隔增量抓取（首次最多 8h）";
+    hint.className = "status";
+    return;
+  }
+  const wait = cycle?.next_wait_seconds;
+  const next = String(cycle?.next_run_at || "").slice(0, 19);
+  const running = cycle?.running ? " · 抓取中" : "";
+  const lastRun = cycle?.last_run_at ? ` · 上轮 ${String(cycle.last_run_at).slice(0, 19)}` : "";
+  const waitTxt = wait != null ? ` · 约 ${Math.round(wait / 60)} 分后触发` : "";
+  hint.textContent = `周期抓取中${running}${waitTxt} · 下次 ${next || "—"}${lastRun}${
+    last ? ` · 上次完成 ${last}` : ""
+  }`;
+  hint.className = "status ok";
+}
+
+let _sigBsCyclePollTimer = null;
+let _sigBsCycleLastRunAt = "";
+let _sigBsCyclePollBusy = false;
+
+function ensureSigBsCyclePoller(enabled) {
+  if (!enabled) {
+    if (_sigBsCyclePollTimer) {
+      clearInterval(_sigBsCyclePollTimer);
+      _sigBsCyclePollTimer = null;
+    }
+    updateSigBsCycleLiveUi({ cycle_enabled: false, running: false });
+    return;
+  }
+  if (_sigBsCyclePollTimer) return;
+  _sigBsCyclePollTimer = setInterval(() => {
+    pollSigBsCycleInBackground();
+  }, 8000);
+  pollSigBsCycleInBackground();
+}
+
+async function pollSigBsCycleInBackground() {
+  if (_sigBsCyclePollBusy) return;
+  _sigBsCyclePollBusy = true;
+  try {
+    const data = await api("/api/signals/binance-square/cycle");
+    const cycle = data.cycle || {};
+    const on = !!cycle.cycle_enabled;
+    updateSigBsCycleButton(cycle, { cycle_enabled: on, last_crawl_at: cycle.last_crawl_at });
+    renderSigBsCycle(cycle, { cycle_enabled: on, last_crawl_at: cycle.last_crawl_at });
+    updateSigBsCycleLiveUi(cycle);
+    if (!on) {
+      _sigBsCycleActiveJobId = "";
+      ensureSigBsCyclePoller(false);
+      if (!_sigActiveJobId) setSigBsControlButtons({ running: false, paused: false });
+      return;
+    }
+    ensureSigBsCyclePoller(true);
+    const activeId = String(cycle.active_job_id || "");
+    if (cycle.running && activeId) {
+      _sigBsCycleActiveJobId = activeId;
+      if (!_sigActiveJobId) {
+        try {
+          const jd = await api(`/api/jobs/${encodeURIComponent(activeId)}`);
+          const job = jd.job || {};
+          const paused = job.status === "paused" || job.control_status === "paused";
+          const jobRunning = !["done", "error", "cancelled"].includes(job.status);
+          setSigBsControlButtons({ running: jobRunning, paused });
+        } catch (_) {
+          setSigBsControlButtons({ running: true, paused: false });
+        }
+      }
+    } else {
+      _sigBsCycleActiveJobId = "";
+      if (!_sigActiveJobId) {
+        setSigBsControlButtons({ running: false, paused: false, disableRun: false });
+      }
+    }
+    const last = String(cycle.last_run_at || cycle.last_crawl_at || "");
+    const finishedNewRound = last && last !== _sigBsCycleLastRunAt;
+    if (finishedNewRound) {
+      _sigBsCycleLastRunAt = last;
+      const onSignals = $("#panel-signals") && !$("#panel-signals").hidden;
+      if (onSignals && state.sigMode === "binance") {
+        try {
+          await loadSignalCards();
+          await loadSigBinancePanel();
+        } catch (_) {
+          /* 后台刷新失败不影响下一轮 */
+        }
+      }
+    }
+  } catch (_) {
+    /* 切 tab 后仍继续轮询 */
+  } finally {
+    _sigBsCyclePollBusy = false;
+  }
+}
+
+async function toggleSigBsCycle() {
+  const btn = $("#btnSigBsCycleToggle");
+  if (btn) btn.disabled = true;
+  try {
+    let on = !!$("#sigBsCycleEnabled")?.checked;
+    try {
+      const cur = await api("/api/signals/binance-square/config");
+      on = !!(cur.config?.cycle_enabled);
+    } catch (_) {
+      /* use checkbox */
+    }
+    const data = await api("/api/signals/binance-square/cycle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: !on }),
+    });
+    if (!data.success) {
+      toast(data.error || "操作失败", "error");
+      return;
+    }
+    const cycle = data.cycle || {};
+    updateSigBsCycleButton(cycle, { cycle_enabled: cycle.cycle_enabled });
+    renderSigBsCycle(cycle, {
+      cycle_enabled: cycle.cycle_enabled,
+      last_crawl_at: cycle.last_crawl_at,
+    });
+    updateSigBsCycleLiveUi(cycle);
+    ensureSigBsCyclePoller(!!cycle.cycle_enabled);
+    toast(
+      cycle.cycle_enabled
+        ? "Square 周期抓取已开启：后台 5–15 分钟随机间隔，切 Tab 仍继续"
+        : "Square 周期抓取已关闭",
+      "ok"
+    );
+  } catch (e) {
+    toast(String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function saveSigBsRealtimeSettings() {
+  const body = {
+    cycle_enabled: !!$("#sigBsCycleEnabled")?.checked,
+    cycle_cutoff_hours: Math.max(1, Math.min(48, Number($("#sigBsCycleCutoffHours")?.value || 8) || 8)),
+    first_crawl_hours: Math.max(1, Math.min(48, Number($("#sigBsFirstCrawlHours")?.value || 8) || 8)),
+  };
+  setStatus($("#sigBsRealtimeStatus"), "保存中…");
+  const data = await api("/api/signals/binance-square/config", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!data.success) {
+    setStatus($("#sigBsRealtimeStatus"), data.error || "保存失败", "error");
+    return;
+  }
+  const cycle = data.cycle || {};
+  updateSigBsCycleButton(cycle, data.config || {});
+  renderSigBsCycle(cycle, data.config || {});
+  updateSigBsCycleLiveUi(cycle);
+  ensureSigBsCyclePoller(!!cycle.cycle_enabled);
+  setStatus($("#sigBsRealtimeStatus"), "参数已保存", "ok");
+  toast("实时抓取参数已保存", "ok");
+}
+
+async function openSigBsRealtimeDialog() {
+  const dlg = $("#sigBsRealtimeDialog");
+  if (!dlg) return;
+  setStatus($("#sigBsRealtimeStatus"), "");
+  try {
+    const data = await api("/api/signals/binance-square/config");
+    const cfg = data.config || {};
+    const cycle = data.cycle || {};
+    if ($("#sigBsCycleCutoffHours")) {
+      $("#sigBsCycleCutoffHours").value = String(cfg.cycle_cutoff_hours ?? 8);
+    }
+    if ($("#sigBsFirstCrawlHours")) {
+      $("#sigBsFirstCrawlHours").value = String(cfg.first_crawl_hours ?? 8);
+    }
+    updateSigBsCycleButton(cycle, cfg);
+    renderSigBsCycle(cycle, cfg);
+    await pollSigBsCycleInBackground();
+  } catch (e) {
+    setStatus($("#sigBsRealtimeStatus"), String(e), "error");
+  }
+  dlg.showModal();
 }
 
 function sigCardDedupKey(c) {
@@ -7854,6 +8180,7 @@ function sigSourceLabel(c) {
   if (modes.includes("user_backfill")) labels.push("博主");
   if (modes.includes("value_return")) labels.push("价值");
   if (modes.includes("binance_square")) labels.push("广场");
+  if (modes.includes("binance_backfill")) labels.push("回溯");
   if (!labels.length && c.source_mode === "binance_square") labels.push("广场");
   if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("博主");
   if (!labels.length && c.source_mode === "value_return") labels.push("价值");
@@ -8496,6 +8823,7 @@ async function runUserSignalsCrawl() {
     }
     const jobId = start.job_id;
     _sigActiveJobId = jobId;
+    _sigActiveJobKind = "user";
     setSigUserControlButtons({ running: true, paused: false });
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
@@ -8546,6 +8874,7 @@ async function runUserSignalsCrawl() {
     setStatus($("#sigUserStatus"), String(e), "error");
   } finally {
     _sigActiveJobId = "";
+    _sigActiveJobKind = "";
     setSigUserControlButtons({ running: false, paused: false });
     if (btn) btn.disabled = false;
   }
@@ -9000,6 +9329,12 @@ async function sendSignalsTest({ dryRun = false } = {}) {
 }
 
 let _sigActiveJobId = "";
+let _sigActiveJobKind = "";
+let _sigBsCycleActiveJobId = "";
+
+function resolveSigControlJobId() {
+  return _sigActiveJobId || _sigBsCycleActiveJobId || "";
+}
 
 function setSigControlButtons({ running = false, paused = false } = {}) {
   const pause = $("#btnSigPause");
@@ -9032,28 +9367,60 @@ function renderSigRunLog(lines) {
   pre.scrollTop = pre.scrollHeight;
 }
 
+function syncSigActiveJobControlUi({ running, paused, action }) {
+  const patch = { running, paused };
+  const kind = _sigActiveJobKind;
+  if (kind === "user") {
+    setSigUserControlButtons(patch);
+    if (action === "pause") setStatus($("#sigUserStatus"), "已暂停");
+    else if (action === "resume") setStatus($("#sigUserStatus"), "已继续");
+    else if (action === "stop") setStatus($("#sigUserStatus"), "正在终止…");
+  } else if (kind === "binance") {
+    setSigBsControlButtons(patch);
+    if (action === "pause") {
+      setStatus($("#sigBsStatus"), "已暂停");
+      setStatus($("#sigBsRealtimeStatus"), "已暂停");
+    } else if (action === "resume") {
+      setStatus($("#sigBsStatus"), "已继续");
+      setStatus($("#sigBsRealtimeStatus"), "已继续");
+    } else if (action === "stop") {
+      setStatus($("#sigBsStatus"), "正在终止…");
+      setStatus($("#sigBsRealtimeStatus"), "正在终止…");
+    }
+  } else if (kind === "value") {
+    setSigValueControlButtons(patch);
+    if (action === "pause") setStatus($("#sigValueStatus"), "已暂停");
+    else if (action === "resume") setStatus($("#sigValueStatus"), "已继续");
+    else if (action === "stop") setStatus($("#sigValueStatus"), "正在终止…");
+  } else {
+    setSigControlButtons(patch);
+    if (action === "pause") setStatus($("#sigStatus"), "已暂停");
+    else if (action === "resume") setStatus($("#sigStatus"), "已继续");
+    else if (action === "stop") setStatus($("#sigStatus"), "正在终止…");
+  }
+}
+
 async function signalsControl(action) {
-  if (!_sigActiveJobId) {
+  const jobId = resolveSigControlJobId();
+  if (!jobId) {
     toast("没有进行中的任务", "error");
     return;
   }
   try {
     const data = await api("/api/signals/control", {
       method: "POST",
-      body: JSON.stringify({ job_id: _sigActiveJobId, action }),
+      body: JSON.stringify({ job_id: jobId, action }),
     });
     if (!data.success) {
       toast(data.error || "操作失败", "error");
       return;
     }
     if (action === "pause") {
-      setSigControlButtons({ running: true, paused: true });
-      setStatus($("#sigStatus"), "已暂停");
+      syncSigActiveJobControlUi({ running: true, paused: true, action });
     } else if (action === "resume") {
-      setSigControlButtons({ running: true, paused: false });
-      setStatus($("#sigStatus"), "已继续");
+      syncSigActiveJobControlUi({ running: true, paused: false, action });
     } else if (action === "stop") {
-      setStatus($("#sigStatus"), "正在终止…");
+      syncSigActiveJobControlUi({ running: true, paused: false, action });
     }
   } catch (e) {
     toast(String(e), "error");
@@ -9083,6 +9450,7 @@ async function runSignalsCrawl() {
     }
     const jobId = start.job_id;
     _sigActiveJobId = jobId;
+    _sigActiveJobKind = "list";
     setSigControlButtons({ running: true, paused: false });
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
@@ -9126,6 +9494,7 @@ async function runSignalsCrawl() {
     setStatus($("#sigStatus"), String(e), "error");
   } finally {
     _sigActiveJobId = "";
+    _sigActiveJobKind = "";
     setSigControlButtons({ running: false, paused: false });
     if (btn) btn.disabled = false;
   }
@@ -9254,6 +9623,10 @@ function renderSigCardItem(c) {
   const topBadge = isValue
     ? scoreBadge
     : `<span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>${coins}`;
+  const isBsCard =
+    c.source_mode === "binance_square" ||
+    (Array.isArray(c.source_modes) && c.source_modes.includes("binance_square"));
+  const bsBackfillPid = isBsCard && !isValue ? sigBinanceProfileIdFromCard(c) : "";
   const footConf = isValue
     ? `${rec ? "推荐" : "未达门槛"} · 得分 ${score != null ? score.toFixed(2) : "-"}${
         ev.provider ? ` · ${escapeHtml(String(ev.provider))}` : ""
@@ -9290,6 +9663,11 @@ function renderSigCardItem(c) {
       ${
         !isValue && c.source_mode === "binance_square" && binanceWhisperMediaUrl(c)
           ? `<button type="button" class="btn-link" data-sig-whisper="${escapeAttr(tid)}">转写</button>`
+          : ""
+      }
+      ${
+        !isValue && bsBackfillPid
+          ? `<button type="button" class="btn-link" data-sig-bs-backfill="${escapeAttr(bsBackfillPid)}" title="按上方回溯范围重抓该博主">回溯此博主</button>`
           : ""
       }
       ${tid && !isValue ? `<button type="button" class="btn-link" data-sig-edit="${tid}">编辑</button>` : ""}
@@ -9526,6 +9904,7 @@ async function runValueReturnCrawl() {
     }
     const jobId = start.job_id;
     _sigActiveJobId = jobId;
+    _sigActiveJobKind = "value";
     setSigValueControlButtons({ running: true, paused: false });
     for (;;) {
       await new Promise((r) => setTimeout(r, 1200));
@@ -9568,6 +9947,7 @@ async function runValueReturnCrawl() {
     setStatus($("#sigValueStatus"), String(e), "error");
   } finally {
     _sigActiveJobId = "";
+    _sigActiveJobKind = "";
     setSigValueControlButtons({ running: false, paused: false });
     if (btn) btn.disabled = false;
   }
@@ -10256,6 +10636,14 @@ async function boot() {
     ensureSigCyclePoller(!!cycle.cycle_enabled);
   } catch (_) {
     /* 启动时接口未就绪则等进入列表信号面板再挂 */
+  }
+  try {
+    const bs = await api("/api/signals/binance-square/cycle");
+    const bsCycle = bs.cycle || {};
+    updateSigBsCycleLiveUi(bsCycle);
+    ensureSigBsCyclePoller(!!bsCycle.cycle_enabled);
+  } catch (_) {
+    /* 同上 */
   }
 }
 

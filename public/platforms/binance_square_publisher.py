@@ -716,6 +716,31 @@ const prefer = arguments[0] || 'image';
 const editor = document.querySelector('[data-pai-editor="1"]');
 const host = (location.hostname || '').toLowerCase();
 const gateRoot = document.querySelector('.editor-container--page');
+if (host.includes('gate.com') && gateRoot && prefer !== 'video') {
+  let gn = 0;
+  const seenG = new Set();
+  const countGateImg = (img) => {
+    if (!img || seenG.has(img) || !visible(img) || isUiIcon(img)) return;
+    const src = (img.getAttribute('src') || img.src || '').toLowerCase();
+    if (!(src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
+        || src.includes('/api/file'))) return;
+    seenG.add(img);
+    gn++;
+  };
+  const boxes = gateRoot.querySelectorAll(
+    '[class*="preview" i], [class*="thumb" i], [class*="upload" i], [class*="attach" i], '
+    + '[class*="media-list" i], [class*="image-list" i], [class*="pic-list" i], [class*="staged" i]'
+  );
+  if (boxes.length) {
+    for (const box of boxes) {
+      for (const img of box.querySelectorAll('img')) countGateImg(img);
+    }
+  }
+  if (gn === 0) {
+    for (const img of gateRoot.querySelectorAll('img')) countGateImg(img);
+  }
+  return gn;
+}
 const root = (host.includes('gate.com') && gateRoot)
   ? gateRoot
   : (document.querySelector('[data-pai-editor-root="1"]')
@@ -751,7 +776,7 @@ for (const img of root.querySelectorAll('img')) {
   if (src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
       || src.includes('cdn') || src.includes('media') || src.includes('/api/file')
       || src.includes('bitget') || src.includes('okex') || src.includes('binance')
-      || src.includes('gate.com') || src.includes('s3.') || src.includes('cloudfront')) {
+      || src.includes('s3.') || src.includes('cloudfront')) {
     n++;
     seen.add(img);
   }
@@ -3804,7 +3829,7 @@ return removed;
                         len(paths),
                     )
             gate_start_count = self._count_editor_media(driver, prefer=prefer)
-            to_upload = list(paths)
+            to_upload = list(dict.fromkeys(str(p) for p in paths if str(p).strip()))
             base_count = 0
         elif self.platform_id == "bitget":
             if existing:
@@ -3833,32 +3858,40 @@ return removed;
             if not inputs:
                 inputs = self._gate_file_inputs(driver, prefer)
             if inputs:
+                batch_n = len(to_upload)
                 try:
                     inputs[0].send_keys("\n".join(to_upload))
-                    deadline = time.time() + 8.0
-                    want_total = gate_start_count + len(to_upload)
+                    deadline = time.time() + 14.0
+                    want_total = gate_start_count + batch_n
                     while time.time() < deadline:
                         now = self._count_editor_media(driver, prefer=prefer)
                         if now >= want_total:
                             logger.info(
-                                "%s Gate 入口条 file input 已写入（共 %s 张）",
+                                "%s Gate 批量上传完成（+%s 张，不再逐张重复）",
                                 self.platform_name,
-                                now - gate_start_count,
+                                batch_n,
                             )
-                            return now - gate_start_count
+                            return batch_n
                         time.sleep(0.35)
                     now = self._count_editor_media(driver, prefer=prefer)
                     added = max(0, now - gate_start_count)
-                    if added > 0:
+                    if added >= batch_n:
                         logger.info(
-                            "%s Gate file input 部分写入 %s/%s，剩余改逐张/粘贴",
+                            "%s Gate 批量上传已齐（计数 %s），跳过逐张",
                             self.platform_name,
                             added,
-                            len(to_upload),
                         )
-                        to_upload = paths[added:] if added < len(paths) else []
+                        return batch_n
+                    if added > 0:
+                        logger.info(
+                            "%s Gate 批量部分成功 %s/%s，仅补传剩余",
+                            self.platform_name,
+                            added,
+                            batch_n,
+                        )
+                        to_upload = to_upload[added:]
                     else:
-                        logger.info("%s Gate file input 未见预览，改走逐张/粘贴", self.platform_name)
+                        logger.info("%s Gate 批量未见预览，改走逐张/粘贴", self.platform_name)
                 except Exception as e:
                     logger.warning("%s Gate file input 失败: %s", self.platform_name, e)
 

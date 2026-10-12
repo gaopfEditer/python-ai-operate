@@ -4180,6 +4180,7 @@ def handle_api(
         )
 
     if path == "/api/signals/binance-square/config" and method == "GET":
+        from signals.binance_square.cycle_watcher import status as bs_cycle_status
         from signals.binance_square.store import load_config, load_state
 
         st = load_state()
@@ -4187,6 +4188,7 @@ def handle_api(
             {
                 "success": True,
                 "config": load_config(),
+                "cycle": bs_cycle_status(),
                 "state": {
                     "last_run_at": st.get("last_run_at") or "",
                     "post_count": len(st.get("last_posts") or []),
@@ -4196,6 +4198,10 @@ def handle_api(
         )
 
     if path == "/api/signals/binance-square/config" and method == "POST":
+        from signals.binance_square.cycle_watcher import (
+            set_cycle as set_bs_cycle,
+            start_cycle_watcher as start_bs_cycle_watcher,
+        )
         from signals.binance_square.store import load_config, save_config
 
         cfg = load_config()
@@ -4207,13 +4213,38 @@ def handle_api(
             "try_bapi_first",
             "replay_whisper_auto",
             "replay_whisper_max_days",
+            "cycle_enabled",
+            "cycle_min_minutes",
+            "cycle_max_minutes",
+            "first_crawl_hours",
+            "cycle_cutoff_hours",
+            "last_crawl_at",
         ):
             if key in body:
                 cfg[key] = body[key]
         if "profiles" in body and isinstance(body.get("profiles"), list):
             cfg["profiles"] = body["profiles"]
         saved = save_config(cfg)
-        return _json_bytes({"success": True, "config": saved})
+        if "cycle_enabled" in (body or {}):
+            set_bs_cycle(bool(saved.get("cycle_enabled")))
+        elif saved.get("cycle_enabled"):
+            start_bs_cycle_watcher(force=True)
+        from signals.binance_square.cycle_watcher import status as bs_cycle_status
+
+        return _json_bytes({"success": True, "config": saved, "cycle": bs_cycle_status()})
+
+    if path == "/api/signals/binance-square/cycle" and method == "GET":
+        from signals.binance_square.cycle_watcher import status as bs_cycle_status
+
+        return _json_bytes({"success": True, "cycle": bs_cycle_status()})
+
+    if path == "/api/signals/binance-square/cycle" and method == "POST":
+        from signals.binance_square.cycle_watcher import set_cycle as set_bs_cycle
+        from signals.binance_square.cycle_watcher import status as bs_cycle_status
+
+        enabled = bool(body.get("enabled", body.get("cycle_enabled", False)))
+        st = set_bs_cycle(enabled)
+        return _json_bytes({"success": True, "cycle": st or bs_cycle_status()})
 
     if path == "/api/signals/binance-square/sync-cards" and method == "POST":
         from signals.binance_square.cards_sync import ensure_binance_cards_materialized
@@ -4279,6 +4310,10 @@ def handle_api(
 
     if path == "/api/signals/binance-square/run" and method == "POST":
         job_id = uuid.uuid4().hex[:12]
+
+        from signals.control import RunControl, register, unregister
+
+        ctl = register(job_id, RunControl(job_id))
         log_buf: List[str] = []
 
         def _progress_bs(msg: str) -> None:
@@ -4286,11 +4321,13 @@ def handle_api(
             log_buf.append(text)
             if len(log_buf) > 400:
                 del log_buf[:120]
+            st = ctl.status()
             _set_job(
                 job_id,
-                status="running",
+                status="paused" if st == "paused" else "running",
                 message=text[:280],
                 logs=list(log_buf[-160:]),
+                control_status=st,
             )
 
         def _worker_bs() -> None:
@@ -4303,6 +4340,7 @@ def handle_api(
                     type="binance_square_signals",
                     message="币安 Square 抓取开始…",
                     logs=[],
+                    control_status="running",
                     started_at=datetime.now().isoformat(timespec="seconds"),
                 )
                 profile_ids = body.get("profile_ids") or body.get("profiles")
@@ -4318,7 +4356,9 @@ def handle_api(
                     max_posts_per_profile=body.get("max_posts_per_profile"),
                     try_bapi=body.get("try_bapi_first"),
                     progress=_progress_bs,
+                    control=ctl,
                 )
+                aborted = bool(result.get("aborted"))
                 ok = bool(result.get("success"))
                 whisper_jobs: List[Dict[str, str]] = []
                 if ok:
@@ -4352,22 +4392,32 @@ def handle_api(
                         else:
                             _progress_bs(f"无近 {max_days:g} 天内的直播回放，跳过转写")
                     result["whisper_jobs"] = whisper_jobs
+                if aborted:
+                    final_status = "cancelled"
+                elif ok:
+                    final_status = "done"
+                else:
+                    final_status = "error"
                 _set_job(
                     job_id,
-                    status="done" if ok else "error",
+                    status=final_status,
                     message=(
-                        f"完成 · {result.get('total', 0)} 条"
-                        f"（新增 {result.get('new_count', 0)}）"
-                        + (
-                            f" · 转写 {len(whisper_jobs)} 个"
-                            if ok and whisper_jobs
-                            else ""
+                        result.get("message")
+                        or (
+                            f"完成 · {result.get('total', 0)} 条"
+                            f"（新增 {result.get('new_count', 0)}）"
+                            + (
+                                f" · 转写 {len(whisper_jobs)} 个"
+                                if ok and whisper_jobs
+                                else ""
+                            )
                         )
-                        if ok
+                        if ok or aborted
                         else str(result.get("error") or "失败")
                     ),
                     result=result,
                     logs=list(log_buf[-200:]),
+                    control_status=ctl.status(),
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
             except Exception as e:
@@ -4376,8 +4426,11 @@ def handle_api(
                     status="error",
                     message=str(e),
                     logs=list(log_buf[-200:]),
+                    control_status=ctl.status(),
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
+            finally:
+                unregister(job_id)
 
         _set_job(job_id, status="queued", type="binance_square_signals", message="排队中…")
         threading.Thread(target=_worker_bs, daemon=True, name=f"bs-square-{job_id[:8]}").start()
@@ -5088,6 +5141,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         safe_print(f" 语料库初始化跳过: {e}")
     watch_on = False
     cycle_on = False
+    bs_cycle_on = False
     try:
         from signals.cycle_watcher import start_cycle_watcher
         from signals.store import get_config as _sig_cfg
@@ -5102,6 +5156,16 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
             start_cycle_watcher(force=True)
     except Exception as e:
         safe_print(f" 列表信号监听初始化跳过: {e}")
+    try:
+        from signals.binance_square.cycle_watcher import start_cycle_watcher as start_bs_cycle
+        from signals.binance_square.store import load_config as _bs_cfg
+
+        _bc = _bs_cfg() or {}
+        bs_cycle_on = bool(_bc.get("cycle_enabled"))
+        if bs_cycle_on:
+            start_bs_cycle(force=True)
+    except Exception as e:
+        safe_print(f" 币安 Square 周期抓取初始化跳过: {e}")
     _free_port(port, log=safe_print)
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"
@@ -5127,6 +5191,8 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         safe_print(" 列表信号: 分时自动监听已开启（北京时间阶梯频率）")
     if cycle_on:
         safe_print(" 列表信号: 周期抓取已开启（5–15 分钟随机间隔，首次最多 8h）")
+    if bs_cycle_on:
+        safe_print(" 币安 Square: 周期抓取已开启（5–15 分钟随机间隔）")
     safe_print(" 外部发布: POST /api/v1/publish  （文档 docs/cdp-publish-api.md）")
     safe_print(" 交易信号发布: POST /api/v1/trade-signal/publish  （AI+OI截图→发布）")
     safe_print(" 按 Ctrl+C 停止")

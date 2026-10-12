@@ -677,7 +677,7 @@
         <div class="sig-mode-tabs" role="tablist">
           <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号 <span id="sigCycleTabMark" class="sig-cycle-mark" hidden>周期</span></button>
           <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">博主回溯</button>
-          <button type="button" class="sig-mode-tab" data-sig-mode="binance" role="tab" aria-selected="false">币安广场</button>
+          <button type="button" class="sig-mode-tab" data-sig-mode="binance" role="tab" aria-selected="false">币安广场 <span id="sigBsCycleTabMark" class="sig-cycle-mark" hidden>周期</span></button>
           <button type="button" class="sig-mode-tab" data-sig-mode="value" role="tab" aria-selected="false">价值回归</button>
         </div>
         <div id="sigModeList">
@@ -861,8 +861,12 @@
             <label class="field" aria-hidden="true"></label>
             <div class="field full sig-action-bar">
               <button id="btnSigBsSaveCfg" class="btn ghost" type="button">保存配置</button>
+              <button id="btnSigBsRealtime" class="btn ghost" type="button">实时抓取…</button>
               <button id="btnSigBsRun" class="btn primary" type="button">一键抓取并解析</button>
               <button id="btnSigBsClearCache" class="btn ghost" type="button">清除 Square 缓存</button>
+              <button id="btnSigBsPause" class="btn ghost" type="button" disabled>暂停</button>
+              <button id="btnSigBsResume" class="btn ghost" type="button" disabled hidden>继续</button>
+              <button id="btnSigBsStop" class="btn danger" type="button" disabled>终止</button>
             </div>
           </div>
           <p id="sigBsStatus" class="status"></p>
@@ -1050,6 +1054,40 @@
             <div class="field full" style="flex-direction:row;gap:8px;justify-content:flex-end">
               <button value="cancel" class="btn ghost" type="submit">取消</button>
               <button id="btnSigEditSave" value="save" class="btn primary" type="submit">保存并重新解析</button>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="sigBsRealtimeDialog" class="corpus-dialog sig-cdp-dialog">
+          <form method="dialog" id="sigBsRealtimeForm" class="form-grid">
+            <h3 style="grid-column:1/-1;margin:0">币安 Square 实时抓取</h3>
+            <p class="muted" style="grid-column:1/-1;margin:0;font-size:.82rem">
+              周期抓取按 <strong>5–15 分钟</strong> 随机间隔在后台运行（与 Tab 无关）；每轮按「增量时间窗」拉取已启用博主，首次最多 8 小时。手动「回溯」仍用主面板的回溯范围。
+            </p>
+            <label class="field check full">
+              <input id="sigBsCycleEnabled" type="checkbox" />
+              <span>开启周期抓取（5–15 分钟随机间隔）</span>
+            </label>
+            <label class="field">
+              <span>增量时间窗（小时）</span>
+              <input id="sigBsCycleCutoffHours" type="number" min="1" max="48" value="8" />
+            </label>
+            <label class="field">
+              <span>首次周期窗（小时）</span>
+              <input id="sigBsFirstCrawlHours" type="number" min="1" max="48" value="8" />
+            </label>
+            <p id="sigBsCycleHint" class="status" style="grid-column:1/-1;margin:0">周期抓取未开启</p>
+            <div class="field full sig-action-bar" style="grid-column:1/-1">
+              <button id="btnSigBsCycleToggle" class="btn ghost" type="button">开启周期抓取</button>
+              <button id="btnSigBsRunNow" class="btn primary" type="button">立即抓取</button>
+              <button id="btnSigBsDlgPause" class="btn ghost" type="button" disabled>暂停</button>
+              <button id="btnSigBsDlgResume" class="btn ghost" type="button" disabled hidden>继续</button>
+              <button id="btnSigBsDlgStop" class="btn danger" type="button" disabled>终止</button>
+            </div>
+            <p id="sigBsRealtimeStatus" class="status" style="grid-column:1/-1"></p>
+            <div class="field full" style="flex-direction:row;gap:8px;justify-content:flex-end;grid-column:1/-1">
+              <button id="btnSigBsRealtimeSave" value="save" class="btn ghost" type="button">保存参数</button>
+              <button value="close" class="btn primary" type="submit">关闭</button>
             </div>
           </form>
         </dialog>
@@ -1258,6 +1296,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261012b"></script>
+  <script src="/app.js?v=20261012d"></script>
 </body>
 </html>

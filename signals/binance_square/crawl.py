@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from signals.control import RunControl
 
 from signals.binance_square.bapi import fetch_trending
 from signals.binance_square.profile_js import PROFILE_POST_EXTRACT_JS
@@ -26,6 +29,16 @@ def _log(cb: ProgressCb, msg: str) -> None:
         cb(msg)
 
 
+def _wait_control(control: Optional["RunControl"], progress: ProgressCb) -> str:
+    if control is None:
+        return "ok"
+    if control.is_paused():
+        _log(progress, "已暂停，等待继续…")
+    if control.check() == "stop":
+        return "stop"
+    return "ok"
+
+
 def _slug_from_profile(url: str) -> str:
     m = re.search(r"/square/profile/([^/?#]+)", url or "", re.I)
     return (m.group(1) if m else "").strip()
@@ -39,6 +52,7 @@ def _scroll_profile_and_extract(
     max_rounds: int = 35,
     min_rounds: int = 12,
     progress: ProgressCb = None,
+    should_abort: Optional[Callable[[], bool]] = None,
 ) -> List[Dict[str, Any]]:
     """
     虚拟列表会在滚走后卸载 DOM；边滚边抽、按 contentId 合并，避免「中间漏帖」。
@@ -47,7 +61,11 @@ def _scroll_profile_and_extract(
     last_unique = -1
     stable = 0
     for rnd in range(max_rounds):
+        if should_abort and should_abort():
+            break
         for _ in range(5):
+            if should_abort and should_abort():
+                break
             driver.execute_script(
                 "window.scrollBy(0, Math.max(320, Math.floor(window.innerHeight * 0.82)));"
             )
@@ -97,8 +115,11 @@ def run_binance_square_fetch(
     max_posts_per_profile: Optional[int] = None,
     try_bapi: Optional[bool] = None,
     progress: ProgressCb = None,
+    control: Optional["RunControl"] = None,
 ) -> Dict[str, Any]:
     cfg = load_config()
+    aborted = False
+    profile_stats: List[Dict[str, Any]] = []
     dbg = (debugger_url or cfg.get("debugger_url") or "").strip()
     time_spec = resolve_binance_time_filter(
         backfill_range=backfill_range, cutoff_hours=cutoff_hours, cfg=cfg
@@ -113,6 +134,19 @@ def run_binance_square_fetch(
 
     if not profiles and not use_bapi:
         return {"success": False, "error": "未配置启用的 Square 博主", "posts": []}
+
+    if time_spec.get("mode") == "range":
+        from signals.backfill_range import resolve_backfill_since
+
+        rk = str(time_spec.get("backfill_range") or "last_7d")
+        since_dt, range_label = resolve_backfill_since(rk)
+        _log(
+            progress,
+            f"Square 博主回溯 · {BACKFILL_RANGE_LABELS.get(rk, range_label)}"
+            f"（自 {since_dt.isoformat(timespec='seconds')}）",
+        )
+    if _wait_control(control, progress) == "stop":
+        return {"success": False, "error": "已终止", "aborted": True, "posts": []}
 
     all_posts: List[Dict[str, Any]] = []
     routes: List[str] = []
@@ -142,13 +176,19 @@ def run_binance_square_fetch(
 
         scroll_kw = _scroll_params_for_time_spec(time_spec)
         try:
+            abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
             for i, prof in enumerate(profiles, 1):
+                if _wait_control(control, progress) == "stop":
+                    aborted = True
+                    _log(progress, f"用户终止于博主 {i - 1}/{len(profiles)}")
+                    break
                 url = str(prof.get("url") or "").strip()
                 slug = _slug_from_profile(url) or str(prof.get("id") or "")
                 name = str(prof.get("name") or slug)
                 if not url:
                     continue
-                _log(progress, f"[{i}/{len(profiles)}] 打开 {name} …")
+                _log(progress, f"======== [{i}/{len(profiles)}] @{slug} · {name} ========")
+                _log(progress, f"打开主页 …")
                 try:
                     driver.get(url)
                 except Exception as e:
@@ -161,6 +201,7 @@ def run_binance_square_fetch(
                         max_items=max_n,
                         author_slug=slug,
                         progress=progress,
+                        should_abort=abort_fn,
                         **scroll_kw,
                     )
                 except Exception as e:
@@ -172,6 +213,9 @@ def run_binance_square_fetch(
                         row["profile_name"] = name
                         row["source"] = "profile_cdp"
                 _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
+                profile_stats.append(
+                    {"id": slug, "name": name, "fetched": len(chunk), "url": url}
+                )
                 all_posts.extend(chunk)
             routes.append("profile_cdp")
         finally:
@@ -239,14 +283,22 @@ def run_binance_square_fetch(
         else:
             cards_sync = sync_posts_to_signal_cards(merged, progress=progress)
 
+    ok = not aborted
     return {
-        "success": True,
+        "success": ok or bool(merged),
+        "aborted": aborted,
         "posts": merged,
         "cards_sync": cards_sync,
         "new_count": len(new_hrefs),
         "total": len(merged),
         "routes": routes,
         "profiles": [p.get("id") for p in profiles],
+        "profile_stats": profile_stats,
         "backfill_range": time_spec.get("backfill_range") if time_spec.get("mode") == "range" else "",
         "cutoff_hours": time_spec.get("cutoff_hours") if time_spec.get("mode") == "hours" else None,
+        "message": (
+            f"Square 回溯完成 · {len(merged)} 条"
+            if not aborted
+            else f"已终止 · 已得 {len(merged)} 条"
+        ),
     }

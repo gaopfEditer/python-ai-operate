@@ -2,6 +2,7 @@
 """币安 Square 帖 → 列表信号 SQLite 卡片（与博主回溯同源存储）。"""
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
@@ -92,6 +93,7 @@ def square_post_to_card(post: Dict[str, Any]) -> Dict[str, Any]:
         "signal": post.get("signal") if isinstance(post.get("signal"), dict) else {},
         "parsed_at": now,
         "source_mode": "binance_square",
+        "source_modes": ["binance_square", "binance_backfill"],
         "channel": {"channelName": name},
         "replay_url": str(post.get("replay_url") or "").strip(),
         "video_url": str(post.get("video_url") or "").strip(),
@@ -135,6 +137,42 @@ def sync_posts_to_signal_cards(
             if newest is None or dt > newest:
                 newest = dt
 
+    br = str(backfill_range or "")
+    rl = str(range_label or "")
+    since = str(since_iso or "")
+
+    def _window_for_subset(subset: List[Dict[str, Any]]) -> tuple[str, str]:
+        o: Optional[datetime] = None
+        n: Optional[datetime] = None
+        for p in subset:
+            dt = parse_post_time(p)
+            if dt is None:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if o is None or dt < o:
+                o = dt
+            if n is None or dt > n:
+                n = dt
+        return (o or now).isoformat(timespec="seconds"), (n or now).isoformat(timespec="seconds")
+
+    by_slug: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for p in rows:
+        slug = str(p.get("profile_id") or p.get("author_slug") or "square").strip() or "square"
+        by_slug[slug].append(p)
+    for slug, subset in by_slug.items():
+        wf, wt = _window_for_subset(subset)
+        add_window(
+            list_id=f"binance:{slug}",
+            window_from=wf,
+            window_to=wt,
+            fetched=len(subset),
+            parsed=len(subset),
+            skipped=0,
+            backfill_range=br,
+            range_label=rl,
+            since=since,
+        )
     win_from = (oldest or now).isoformat(timespec="seconds")
     win_to = (newest or now).isoformat(timespec="seconds")
     add_window(
@@ -144,9 +182,9 @@ def sync_posts_to_signal_cards(
         fetched=len(rows),
         parsed=synced,
         skipped=max(0, len(rows) - synced),
-        backfill_range=str(backfill_range or ""),
-        range_label=str(range_label or ""),
-        since=str(since_iso or ""),
+        backfill_range=br,
+        range_label=rl,
+        since=since,
     )
     _log(progress, f"Square 卡片入库 {synced} 条（SQLite · 与博主回溯共用）")
     return {"synced": synced, "skipped": max(0, len(rows) - synced)}
