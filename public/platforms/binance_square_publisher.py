@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from public.platforms.cdp_common import (
@@ -715,31 +716,45 @@ _COUNT_EDITOR_MEDIA_JS = r"""
 const prefer = arguments[0] || 'image';
 const editor = document.querySelector('[data-pai-editor="1"]');
 const host = (location.hostname || '').toLowerCase();
-const gateRoot = document.querySelector('.editor-container--page');
-if (host.includes('gate.com') && gateRoot && prefer !== 'video') {
+function countStagedImg(root, img, seenG) {
+  if (!img || seenG.has(img) || !visible(img) || isUiIcon(img)) return false;
+  const src = (img.getAttribute('src') || img.src || '').toLowerCase();
+  if (!(src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
+      || src.includes('/api/file'))) return false;
+  seenG.add(img);
+  return true;
+}
+function countStagedInRoot(root) {
+  if (!root) return 0;
   let gn = 0;
   const seenG = new Set();
-  const countGateImg = (img) => {
-    if (!img || seenG.has(img) || !visible(img) || isUiIcon(img)) return;
-    const src = (img.getAttribute('src') || img.src || '').toLowerCase();
-    if (!(src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
-        || src.includes('/api/file'))) return;
-    seenG.add(img);
-    gn++;
-  };
-  const boxes = gateRoot.querySelectorAll(
+  const bump = (img) => { if (countStagedImg(root, img, seenG)) gn++; };
+  const boxes = root.querySelectorAll(
     '[class*="preview" i], [class*="thumb" i], [class*="upload" i], [class*="attach" i], '
     + '[class*="media-list" i], [class*="image-list" i], [class*="pic-list" i], [class*="staged" i]'
   );
   if (boxes.length) {
     for (const box of boxes) {
-      for (const img of box.querySelectorAll('img')) countGateImg(img);
+      for (const img of box.querySelectorAll('img')) bump(img);
     }
   }
   if (gn === 0) {
-    for (const img of gateRoot.querySelectorAll('img')) countGateImg(img);
+    for (const img of root.querySelectorAll('img')) bump(img);
+  }
+  for (const el of root.querySelectorAll('[style*="blob:"], [style*="data:image"]')) {
+    const r = el.getBoundingClientRect();
+    if (r.width > 48 && r.height > 48) gn++;
   }
   return gn;
+}
+const gateRoot = document.querySelector('.editor-container--page');
+if (host.includes('gate.com') && gateRoot && prefer !== 'video') {
+  return countStagedInRoot(gateRoot);
+}
+if (host.includes('bitget.com') && prefer !== 'video') {
+  const bgRoot = document.querySelector('[data-pai-editor-root="1"]')
+    || document.querySelector('[class*="publish" i] [class*="editor" i], [class*="composer" i], [class*="insight" i] [class*="edit" i]');
+  if (bgRoot) return countStagedInRoot(bgRoot);
 }
 const root = (host.includes('gate.com') && gateRoot)
   ? gateRoot
@@ -781,19 +796,17 @@ for (const img of root.querySelectorAll('img')) {
     seen.add(img);
   }
 }
-// Bitget：缩略图常在编辑区旁边的预览条，不在 editor root 里。
-// 只认 blob/data/upload，避免把广场信息流大图算成已上传。
 for (const el of root.querySelectorAll('[style*="blob:"], [style*="data:image"]')) {
   const r = el.getBoundingClientRect();
   if (r.width > 48 && r.height > 48) n++;
 }
-if (!host.includes('gate.com')) {
+if (!host.includes('gate.com') && !host.includes('bitget.com')) {
   const edBox = editor ? editor.getBoundingClientRect() : null;
   for (const img of document.querySelectorAll('img')) {
     if (seen.has(img) || !visible(img) || isUiIcon(img)) continue;
     const src = (img.getAttribute('src') || img.src || '').toLowerCase();
     if (!(src.startsWith('blob:') || src.startsWith('data:') || src.includes('upload')
-        || src.includes('/api/file') || src.includes('bitget') || src.includes('okex'))) continue;
+        || src.includes('/api/file') || src.includes('okex'))) continue;
     const r = img.getBoundingClientRect();
     if (r.width < 72 || r.height < 72) continue;
     if (!edBox || (r.top >= edBox.top - 40 && r.top <= edBox.bottom + 420)) n++;
@@ -3748,12 +3761,14 @@ return {
             pass
 
     def _clear_gate_staged_media(self, driver, *, prefer: str = "image") -> int:
-        """点击 Gate 编辑区配图预览上的关闭/删除（刷新失败时的兜底）。"""
+        """点击 Gate/Bitget 编辑区配图预览上的关闭/删除（刷新失败时的兜底）。"""
         try:
             n = driver.execute_script(
                 r"""
 const prefer = arguments[0] || 'image';
+const host = (location.hostname || '').toLowerCase();
 const root = document.querySelector('.editor-container--page')
+  || document.querySelector('[data-pai-editor-root="1"]')
   || document.querySelector('.editor-bar')?.closest('.editor-container')
   || document.body;
 let removed = 0;
@@ -3800,6 +3815,24 @@ return removed;
         except Exception:
             return []
 
+    @staticmethod
+    def _dedupe_media_paths(paths: List[str]) -> List[str]:
+        seen: set[str] = set()
+        out: List[str] = []
+        for p in paths:
+            raw = str(p or "").strip()
+            if not raw:
+                continue
+            try:
+                ap = str(Path(raw).expanduser().resolve())
+            except Exception:
+                ap = raw
+            if ap in seen:
+                continue
+            seen.add(ap)
+            out.append(ap)
+        return out
+
     def _upload_media(self, driver, paths: List[str], prefer: str = "image") -> int:
         if not paths:
             return 0
@@ -3812,9 +3845,10 @@ return removed;
             )
             return 0
 
+        batch_platform = self.platform_id in ("bitget", "gate")
         existing = self._count_editor_media(driver, prefer=prefer)
-        gate_start_count = 0
-        if self.platform_id == "gate":
+        compose_start_count = 0
+        if batch_platform:
             if existing:
                 cleared = self._clear_gate_staged_media(driver, prefer=prefer)
                 human_pause(0.3, 0.6)
@@ -3828,24 +3862,15 @@ return removed;
                         cleared,
                         len(paths),
                     )
-            gate_start_count = self._count_editor_media(driver, prefer=prefer)
-            to_upload = list(dict.fromkeys(str(p) for p in paths if str(p).strip()))
-            base_count = 0
-        elif self.platform_id == "bitget":
-            if existing:
-                logger.info(
-                    "%s 编辑区已有 %s 张%s，本次仍上传全部 %s 张（不跳过路径）",
-                    self.platform_name,
-                    existing,
-                    prefer,
-                    len(paths),
-                )
-            to_upload = list(paths)
+            compose_start_count = self._count_editor_media(driver, prefer=prefer)
+            to_upload = self._dedupe_media_paths(paths)
             base_count = 0
         else:
             if existing:
                 logger.info("%s 编辑区已有 %s 张%s，继续补传剩余", self.platform_name, existing, prefer)
-            to_upload = paths[existing:] if existing > 0 else paths
+            to_upload = self._dedupe_media_paths(
+                paths[existing:] if existing > 0 else paths
+            )
             base_count = existing
         uploaded = 0
         inputs = (
@@ -3854,50 +3879,58 @@ return removed;
             else find_file_inputs(driver, prefer=prefer)
         )
 
-        if self.platform_id == "gate" and prefer == "image" and to_upload:
+        if batch_platform and prefer == "image" and to_upload:
             if not inputs:
-                inputs = self._gate_file_inputs(driver, prefer)
+                inputs = (
+                    self._gate_file_inputs(driver, prefer)
+                    if self.platform_id == "gate"
+                    else find_file_inputs(driver, prefer=prefer)
+                )
             if inputs:
                 batch_n = len(to_upload)
                 try:
                     inputs[0].send_keys("\n".join(to_upload))
-                    deadline = time.time() + 14.0
-                    want_total = gate_start_count + batch_n
+                    deadline = time.time() + 16.0
+                    want_total = compose_start_count + batch_n
                     while time.time() < deadline:
                         now = self._count_editor_media(driver, prefer=prefer)
                         if now >= want_total:
                             logger.info(
-                                "%s Gate 批量上传完成（+%s 张，不再逐张重复）",
+                                "%s 批量上传完成（+%s 张，不再逐张重复）",
                                 self.platform_name,
                                 batch_n,
                             )
                             return batch_n
                         time.sleep(0.35)
                     now = self._count_editor_media(driver, prefer=prefer)
-                    added = max(0, now - gate_start_count)
+                    added = max(0, now - compose_start_count)
                     if added >= batch_n:
                         logger.info(
-                            "%s Gate 批量上传已齐（计数 %s），跳过逐张",
+                            "%s 批量上传已齐（计数 %s），跳过逐张",
                             self.platform_name,
                             added,
                         )
                         return batch_n
                     if added > 0:
                         logger.info(
-                            "%s Gate 批量部分成功 %s/%s，仅补传剩余",
+                            "%s 批量部分成功 %s/%s，仅补传剩余",
                             self.platform_name,
                             added,
                             batch_n,
                         )
                         to_upload = to_upload[added:]
                     else:
-                        logger.info("%s Gate 批量未见预览，改走逐张/粘贴", self.platform_name)
+                        logger.info("%s 批量未见预览，改走逐张", self.platform_name)
                 except Exception as e:
-                    logger.warning("%s Gate file input 失败: %s", self.platform_name, e)
+                    logger.warning("%s file input 批量失败: %s", self.platform_name, e)
+
+        file_only = batch_platform
+        per_file_wait = 6.0 if self.platform_id == "bitget" else 3.5
 
         for ap in to_upload:
             before = self._count_editor_media(driver, prefer=prefer)
             sent = False
+            tried_file_input = False
             try:
                 if not inputs:
                     inputs = (
@@ -3918,8 +3951,9 @@ return removed;
                     )
                 if inputs:
                     inputs[0].send_keys(ap)
+                    tried_file_input = True
                     sent = True
-                    wait_until = time.time() + 3.5
+                    wait_until = time.time() + per_file_wait
                     while time.time() < wait_until:
                         if self._count_editor_media(driver, prefer=prefer) > before:
                             break
@@ -3929,18 +3963,22 @@ return removed;
             except Exception as e:
                 logger.warning("file input 上传失败 %s: %s", ap, e)
 
-            if not sent and prefer == "image":
+            if not sent and prefer == "image" and not file_only and not tried_file_input:
                 sent = self._paste_image_clipboard(driver, ap)
+            elif not sent and prefer == "image" and file_only and tried_file_input:
+                logger.warning(
+                    "%s file input 已选文件但预览未增加，跳过粘贴以免重复: %s",
+                    self.platform_name,
+                    ap,
+                )
 
             if not sent:
                 logger.warning("%s 未能写入媒体 %s", self.platform_name, ap)
                 continue
 
             uploaded += 1
-            if self.platform_id == "gate":
-                want = gate_start_count + uploaded
-            elif self.platform_id == "bitget":
-                want = uploaded
+            if batch_platform:
+                want = compose_start_count + uploaded
             else:
                 want = max(before + 1, base_count + uploaded)
             deadline = time.time() + (
@@ -3950,9 +3988,9 @@ return removed;
                 if self._count_editor_media(driver, prefer=prefer) >= want:
                     break
                 time.sleep(0.35)
-        if self.platform_id == "gate":
+        if batch_platform:
             final = self._count_editor_media(driver, prefer=prefer)
-            return max(0, final - gate_start_count)
+            return max(0, final - compose_start_count)
         return base_count + uploaded
 
     def _paste_image_clipboard(self, driver, path: str) -> bool:
