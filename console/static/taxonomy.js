@@ -644,7 +644,7 @@
               {
                 id: "short_funding_spot_bid",
                 category: "极端",
-                stance: "mixed",
+              stance: "mixed",
                 analogy: "合约在喊空，现货在接货——同一品种两种剧本",
               }
             ),

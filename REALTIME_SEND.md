@@ -188,7 +188,7 @@ CDP 发布需要 Chrome 以**远程调试模式**启动，并已登录目标平�
 | 数据源 | news_mornitor (:8770) | news_mornitor (:8770) |
 | 摘要 | AI + 可手动编辑 | AI + 可手动编辑 / `--text` 直传 |
 | 发送 | 队列 + 定时 | 直接发送 / `--wait` 定时 |
-| 配图 | 前端 Gemini 生图 | 需提前生成，路径放 `--text` 外部 |
+| 配图 | 前端 CDP 网页生图（Gemini / [Grok](https://x.com/i/grok)，控制台可选引擎） | 需提前生成，路径放 `--text` 外部 |
 | 适用 | 人工审阅、少量多平台 | 定时任务、脚本集成、管道调用 |
 
 两者共用 `public/platforms/` 下的同一个 CDP publisher 实现，逻辑完全一致。

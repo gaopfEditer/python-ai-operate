@@ -181,6 +181,10 @@
               <label class="lab-image-pick-all">
                 <input type="checkbox" id="labImagePickAll" checked /> 全选变体
               </label>
+              <select class="js-image-engine muted" title="配图引擎（CDP 网页）" aria-label="配图引擎">
+                <option value="gemini">Gemini</option>
+                <option value="grok">Grok</option>
+              </select>
               <button id="btnLabGenImages" class="btn primary" type="button">批量生成配图</button>
               <span id="labImageStatus" class="muted lab-image-status"></span>
             </div>
@@ -257,6 +261,10 @@
               <label class="lab-image-pick-all">
                 <input type="checkbox" id="memosPickAll" checked /> 全选
               </label>
+              <select class="js-image-engine muted" title="配图引擎（CDP 网页）" aria-label="配图引擎">
+                <option value="gemini">Gemini</option>
+                <option value="grok">Grok</option>
+              </select>
               <button id="btnMemosGenImages" class="btn primary" type="button">批量生成配图并写回</button>
               <button id="btnMemosSync" class="btn ghost" type="button" title="将本地配图上传为附件并写回 Memos">补写回 Memos</button>
               <span id="memosImageStatus" class="muted lab-image-status"></span>
@@ -1279,6 +1287,10 @@
               <div class="rt-queue-actions">
                 <button id="btnRtQueueSelectAll" class="btn ghost btn-sm" type="button">全选</button>
                 <button id="btnRtClearQueue" class="btn ghost btn-sm" type="button">清空</button>
+                <select class="js-image-engine muted btn-sm" title="配图引擎（CDP 网页）" aria-label="配图引擎">
+                  <option value="gemini">Gemini</option>
+                  <option value="grok">Grok</option>
+                </select>
                 <button id="btnRtQueueGenImages" class="btn primary btn-sm" type="button">生图</button>
                 <button id="btnRtStartSchedule" class="btn ghost btn-sm" type="button" disabled>开始定时发送</button>
               </div>
@@ -1296,6 +1308,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261012d"></script>
+  <script src="/app.js?v=20261016a"></script>
 </body>
 </html>

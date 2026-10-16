@@ -56,6 +56,41 @@ GET /api/v1/publish/platforms
 
 ---
 
+## 外部图文仅 CDP 发布（不生图）
+
+若调用方**已准备好最终正文与图片**，请只走本节的发布/草稿接口，**不要**调用 `/api/realtime/gen-image` 或 `/api/v1/trade-signal/publish`（后者会 AI 写文/截图）。
+
+推荐两步：
+
+1. **存草稿**（媒体会落到 `output/publish_cache/` 或 `publish_history/`）
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/api/v1/publish/draft \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "标题",
+    "text": "最终正文",
+    "platforms": ["gate"],
+    "images": ["https://example.com/cover.png"]
+  }'
+```
+
+响应含 `draft_id`。
+
+2. **从草稿 CDP 发布**
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8787/api/v1/publish/draft/<draft_id>/publish" \
+  -H "Content-Type: application/json" \
+  -d '{"platforms": ["gate"], "submit": true, "async": true}'
+```
+
+也可一步完成：`POST /api/v1/publish` 且 `draft_first: true`（先存草稿再排队发布）。
+
+仅填表单不点发布：`submit: false`。
+
+---
+
 ## 发布 `POST /api/v1/publish`
 
 正文或图片至少其一。默认**异步**：立刻返回 `job_id`，再轮询任务。
@@ -71,6 +106,7 @@ GET /api/v1/publish/platforms
 | `media_files` | object[] | 与控制台相同：`{name, data_b64}` |
 | `media_paths` | string[] | 本机已有文件的绝对路径 |
 | `submit` | bool | 默认 `true`。`false` 只填不点发布 |
+| `draft_first` / `save_draft_first` | bool | 默认 `false`。`true` 时先存草稿再发布，响应带 `draft_id` |
 | `async` | bool | 默认 `true`。`false` 则阻塞直到发完 |
 | `debugger_url` | string | 可选，默认 `publish.debugger_url` 或与抓取相同的 `127.0.0.1:9223` |
 | `tags` | string | 可选 |

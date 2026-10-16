@@ -2244,9 +2244,13 @@ def handle_api(
         topic = str(body.get("topic") or "").strip()
         debugger_url = str(body.get("debugger_url") or "").strip()
         sync_to_memos = bool(body.get("sync_to_memos") or body.get("sync_memos"))
+        image_engine = str(body.get("image_engine") or body.get("engine") or "gemini").strip()
 
         def _worker() -> None:
+            from corpus.cdp_web_image import normalize_engine
             from corpus.lab_tti import batch_generate_images
+
+            eng = normalize_engine(image_engine)
 
             def _progress(cur: int, total: int, idx: int, label: str) -> None:
                 _set_job(
@@ -2256,7 +2260,12 @@ def handle_api(
                     progress={"current": cur, "total": total, "index": idx},
                 )
 
-            _set_job(job_id, status="running", message="启动 Gemini 文生图…", type="lab_images")
+            _set_job(
+                job_id,
+                status="running",
+                message=f"启动 {eng} 网页文生图…",
+                type="lab_images",
+            )
             try:
                 use_brief = sync_to_memos or topic.strip().lower() == "memos"
                 result = batch_generate_images(
@@ -2266,6 +2275,7 @@ def handle_api(
                     debugger_url=debugger_url,
                     progress_cb=_progress,
                     use_content_brief=use_brief,
+                    image_engine=eng,
                 )
                 if sync_to_memos and result.get("ok_count"):
                     _set_job(job_id, status="running", message="上传配图并写回 Memos…")
@@ -3140,146 +3150,44 @@ def handle_api(
             return _json_bytes({"success": False, "error": str(e)})
 
     if path == "/api/realtime/gen-image" and method == "POST":
-        import shutil, subprocess, os as _os, time as _time
-        from pathlib import Path as _Path
-        item_id = str(body.get("id") or "")
+        item_id = str(body.get("id") or uuid.uuid4().hex[:12])
         title = str(body.get("title") or "")
         content = str(body.get("content") or title)
-
-        # 生成 prompt
+        debugger_url = str(body.get("debugger_url") or "").strip()
         try:
             sys.path.insert(0, str(PROJECT_ROOT))
+            from corpus.cdp_web_image import gen_realtime_image, normalize_engine
             from corpus.lab_tti import compose_memos_image_brief, build_memos_image_prompt
+
             brief = compose_memos_image_brief(content, hook=title, title=title)
             prompt_text = build_memos_image_prompt(brief, title=title)
+            engine = normalize_engine(body.get("image_engine") or body.get("engine"))
         except Exception as e:
             return _json_bytes({"success": False, "error": f"生成 prompt 失败: {e}"})
 
-        out_dir = PROJECT_ROOT / "output" / "rt_images"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        tag = f"rt_{item_id[:8]}" if len(item_id) >= 8 else f"rt_{uuid.uuid4().hex[:8]}"
-        img_path = out_dir / f"{tag}.png"
-
-        # ── 共享：智能打开/激活 Gemini tab（复用已有页签）─────────────────
-        def _open_gemini_tab(driver, debugger_url=""):
-            """优先激活已有 Gemini tab，没有再开新 blank tab 并导航。返回 (driver, new_handle)。"""
-            import requests as _req
-            from urllib.parse import urlparse as _urlparse
-
-            gemini_base = "https://gemini.google.com/app"
-            debugger = debugger_url.strip() or os.environ.get("CDP_DEBUGGER_URL") or os.environ.get("BROWSER_DEBUGGER_URL") or ""
-
-            # 1. 尝试激活已有 tab
-            if debugger:
-                try:
-                    resp = _req.get(f"http://{debugger}/json", timeout=5)
-                    tabs = resp.json() if resp.status_code == 200 else []
-                    for tab in tabs:
-                        tab_url = str(tab.get("url") or "")
-                        if not tab_url or tab_url in ("about:blank", "chrome://newtab/"):
-                            continue
-                        try:
-                            p1 = _urlparse(gemini_base)
-                            p2 = _urlparse(tab_url)
-                            if p1.netloc == p2.netloc and (p1.path.rstrip("/") or "/") == (p2.path.rstrip("/") or "/"):
-                                tid = str(tab.get("id") or tab.get("targetId") or "")
-                                if tid:
-                                    _req.post(f"http://{debugger}/json/activate", json={"id": tid}, timeout=5)
-                                    handles = list(driver.window_handles or [])
-                                    for h in handles:
-                                        try:
-                                            driver.switch_to.window(h)
-                                            if gemini_base.replace("https://", "").replace("http://", "") in (driver.current_url or "").replace("https://", "").replace("http://", ""):
-                                                return driver, h
-                                        except Exception:
-                                            continue
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-
-            # 2. 没找到 → 开新 tab
-            main_handle = driver.current_window_handle if driver.window_handles else None
-            driver.execute_script("window.open('about:blank');")
-            _time.sleep(0.5)
-            handles = list(driver.window_handles)
-            new_handle = next((h for h in handles if h != main_handle), handles[-1])
-            driver.switch_to.window(new_handle)
-            return driver, new_handle
-
-        # ── 核心：隔离新页签生成图片，成功才返回 ──────────────────────────
-        def _gen_in_isolated_tab(max_retries=5, retry_delay=20):
-            sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
-            from gemini_web_automation import generate_image_with_gemini_web
-            from browser_automation import init_browser
-
-            last_err = ""
-            for attempt in range(1, max_retries + 1):
-                driver = None
-                try:
-                    driver = init_browser()
-                    _open_gemini_tab(driver)
-                    driver.get("https://gemini.google.com/app")
-                    _time.sleep(6.0)
-
-                    # 调用文生图
-                    result = generate_image_with_gemini_web(
-                        prompt_text,
-                        out_dir=str(out_dir),
-                        tag=tag,
-                        keep_browser_open=False,
-                    )
-                    driver.quit()
-                    driver = None
-
-                    images = result.get("images") or []
-                    if images:
-                        saved_path = images[0]
-                        # 验证文件真实存在且大小合理，并转相对路径
-                        if _Path(saved_path).is_file() and _Path(saved_path).stat().st_size > 4096:
-                            rel = _Path(saved_path).resolve().relative_to(PROJECT_ROOT.resolve())
-                            return {"success": True, "path": str(rel)}
-                        else:
-                            last_err = f"图片文件无效或过小: {saved_path}"
-                    else:
-                        last_err = result.get("error", "未返回图片路径")
-
-                    if attempt < max_retries:
-                        print(f"[RT] 配图失败 [{tag}]，{attempt}/{max_retries} 次重试中…", file=sys.stderr)
-                        human_pause(retry_delay * 0.8, retry_delay * 1.2)
-                        continue
-                    else:
-                        return {"success": False, "error": f"重试{max_retries}次仍失败: {last_err}"}
-
-                except Exception as e:
-                    last_err = str(e)
-                    if driver:
-                        try:
-                            driver.quit()
-                        except Exception:
-                            pass
-                    if attempt < max_retries:
-                        print(f"[RT] 配图异常 [{tag}]，{attempt}/{max_retries} 次重试: {e}", file=sys.stderr)
-                        human_pause(retry_delay * 0.8, retry_delay * 1.2)
-                    else:
-                        return {"success": False, "error": f"重试{max_retries}次仍异常: {last_err}"}
-
-            return {"success": False, "error": last_err}
-
-        result = _gen_in_isolated_tab(max_retries=5, retry_delay=20)
+        result = gen_realtime_image(
+            item_id=item_id,
+            prompt_text=prompt_text,
+            engine=engine,
+            debugger_url=debugger_url,
+            human_pause=human_pause,
+        )
         return _json_bytes(result)
 
     # ——— 批量生图（当天事件优先，宏观日历最后）———
     if path == "/api/realtime/gen-images-batch" and method == "POST":
-        import shutil as _shutil, uuid as _uuid2
+        import uuid as _uuid2
+
         items = body.get("items") if isinstance(body.get("items"), list) else []
         if not items:
             return _json_bytes({"success": False, "error": "缺少 items"}, 400)
 
-        out_dir = PROJECT_ROOT / "output" / "rt_images"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        from corpus.cdp_web_image import gen_realtime_image, normalize_engine
+        from corpus.lab_tti import compose_memos_image_brief, build_memos_image_prompt
 
-        # 优先级：当天事件 0，宏观日历 2，其余 1
+        batch_engine = normalize_engine(body.get("image_engine") or body.get("engine"))
+        debugger_url = str(body.get("debugger_url") or "").strip()
+
         TODAY = datetime.now().strftime("%Y-%m-%d")
 
         def _priority(item: dict) -> int:
@@ -3292,94 +3200,54 @@ def handle_api(
             return 1
 
         sorted_items = sorted(items, key=_priority)
-
         results = []
         ok_n = 0
         total = len(sorted_items)
+        job_id = f"rt_batch_{_uuid2.uuid4().hex[:8]}"
 
         for i, item in enumerate(sorted_items):
             item_id = str(item.get("id") or _uuid2.uuid4().hex[:8])
             title = str(item.get("title") or "")
             content = str(item.get("content") or title)
-            tag = f"rt_{item_id[:8]}"
-            job_id = f"rt_batch_{_uuid2.uuid4().hex[:8]}"
+            engine = normalize_engine(item.get("image_engine") or item.get("engine") or batch_engine)
 
-            # 进度回调
             _set_job(
                 job_id,
                 status="running",
-                message=f"配图 {i+1}/{total} · {title[:20] or tag}…",
+                message=f"配图 {i+1}/{total} · {title[:20] or item_id}… ({engine})",
                 type="rt_batch_images",
                 progress={"current": i + 1, "total": total, "item_id": item_id},
             )
 
-            # 生成 prompt
             try:
-                sys.path.insert(0, str(PROJECT_ROOT))
-                from corpus.lab_tti import compose_memos_image_brief, build_memos_image_prompt
-
                 brief = compose_memos_image_brief(content, hook=title, title=title)
                 prompt_text = build_memos_image_prompt(brief, title=title)
             except Exception as e:
                 results.append({"id": item_id, "success": False, "error": f"生成 prompt 失败: {e}"})
                 continue
 
-            # 调用生图（复用一个 tab）
-            def _gen_single(max_retries=5, retry_delay=20):
-                sys.path.insert(0, str(PROJECT_ROOT / ".." / "auto-deal-eth"))
-                from gemini_web_automation import generate_image_with_gemini_web
-                from browser_automation import init_browser
-
-                last_err = ""
-                driver = None
-                try:
-                    driver = init_browser()
-                    _open_gemini_tab(driver)
-                    driver.get("https://gemini.google.com/app")
-                    _time.sleep(6.0)
-
-                    result = generate_image_with_gemini_web(
-                        prompt_text,
-                        out_dir=str(out_dir),
-                        tag=tag,
-                        keep_browser_open=False,
-                    )
-                    driver.quit()
-                    driver = None
-
-                    images = result.get("images") or []
-                    if images:
-                        saved_path = images[0]
-                        if _Path(saved_path).is_file() and _Path(saved_path).stat().st_size > 4096:
-                            rel = _Path(saved_path).resolve().relative_to(PROJECT_ROOT.resolve())
-                            return {"success": True, "path": str(rel)}
-                        else:
-                            last_err = f"图片文件无效或过小: {saved_path}"
-                    else:
-                        last_err = result.get("error", "未返回图片路径")
-                    return {"success": False, "error": last_err}
-
-                except Exception as e:
-                    if driver:
-                        try:
-                            driver.quit()
-                        except Exception:
-                            pass
-                    return {"success": False, "error": str(e)}
-
-            gen_result = _gen_single()
+            gen_result = gen_realtime_image(
+                item_id=item_id,
+                prompt_text=prompt_text,
+                engine=engine,
+                debugger_url=debugger_url,
+                human_pause=human_pause,
+            )
             if gen_result.get("success"):
                 ok_n += 1
             results.append({"id": item_id, **gen_result})
 
         msg = f"配图完成 {ok_n}/{total}"
         _set_job(job_id, status="done", message=msg)
-        return _json_bytes({
-            "success": ok_n > 0,
-            "ok_count": ok_n,
-            "total": total,
-            "results": results,
-        })
+        return _json_bytes(
+            {
+                "success": ok_n > 0,
+                "ok_count": ok_n,
+                "total": total,
+                "results": results,
+                "job_id": job_id,
+            }
+        )
 
     # ——— CDP 辅助：失败后强制导航到目标平台页面 ———
     if path == "/api/cdp/goto" and method == "POST":

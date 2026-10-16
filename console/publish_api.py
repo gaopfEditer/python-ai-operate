@@ -436,6 +436,70 @@ def handle(
             return _json_bytes({"success": False, "error": "任务不存在"}, 404)
         return _json_bytes({"success": True, "job": job})
 
+    if path == "/api/v1/publish/draft" and method == "POST":
+        from console.publish_history_db import save_draft_from_body
+
+        title = str(body.get("title") or "").strip()
+        content = str(body.get("content") or body.get("text") or "").strip()
+        try:
+            media_paths = resolve_external_media(body)
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": f"媒体处理失败: {e}"}, 500)
+        if not content and not media_paths:
+            return _json_bytes({"success": False, "error": "请提供 text/content 或至少一张图片"}, 400)
+        merge = dict(body)
+        if media_paths:
+            merge["media_paths"] = media_paths
+        try:
+            item = save_draft_from_body(merge)
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 500)
+        return _json_bytes({"success": True, "draft_id": item.get("id"), "item": item})
+
+    if path.startswith("/api/v1/publish/draft/") and path.endswith("/publish") and method == "POST":
+        from console.publish_history_db import get_history
+
+        draft_id = path[len("/api/v1/publish/draft/") : -len("/publish")].strip("/")
+        draft = get_history(draft_id)
+        if not draft:
+            return _json_bytes({"success": False, "error": "草稿不存在"}, 404)
+        platforms = _as_list(body.get("platforms") or body.get("platform"))
+        if not platforms:
+            platforms = list(draft.get("platforms") or [])
+        submit = _truthy(body.get("submit"), True)
+        async_mode = _truthy(body.get("async"), True)
+        debugger_url = str(body.get("debugger_url") or draft.get("debugger_url") or "").strip()
+        payload = {
+            "title": str(body.get("title") or draft.get("title") or "").strip(),
+            "content": str(body.get("content") or body.get("text") or draft.get("content") or "").strip(),
+            "platforms": platforms,
+            "tags": str(body.get("tags") or draft.get("tags") or "").strip() or None,
+            "debugger_url": debugger_url,
+            "submit": submit,
+            "media_paths": list(draft.get("media_paths") or []),
+            "draft_id": draft_id,
+        }
+        if not payload["content"] and not payload["media_paths"]:
+            return _json_bytes({"success": False, "error": "草稿无正文与图片"}, 400)
+        if async_mode:
+            b, st, ct = _start_job(payload)
+            if st == 200:
+                import json
+
+                data = json.loads(b.decode("utf-8"))
+                data["draft_id"] = draft_id
+                return _json_bytes(data, st)
+            return b, st, ct
+        result = _run_publish(payload)
+        status = 200 if result.get("success") else 500
+        if result.get("error") and "正在进行" in str(result.get("error")):
+            status = 429
+        return _json_bytes({**result, "draft_id": draft_id}, status)
+
     if path != "/api/v1/publish" or method != "POST":
         return _json_bytes({"success": False, "error": "Not Found"}, 404)
 
@@ -446,6 +510,7 @@ def handle(
     debugger_url = str(body.get("debugger_url") or "").strip()
     submit = _truthy(body.get("submit"), True)
     async_mode = _truthy(body.get("async"), True)
+    draft_first = _truthy(body.get("draft_first") or body.get("save_draft_first"), False)
 
     try:
         media_paths = resolve_external_media(body)
@@ -457,6 +522,24 @@ def handle(
     if not content and not media_paths:
         return _json_bytes({"success": False, "error": "请提供 text/content 或至少一张图片"}, 400)
 
+    draft_id = ""
+    if draft_first:
+        from console.publish_history_db import save_draft_from_body
+
+        merge = dict(body)
+        if media_paths:
+            merge["media_paths"] = media_paths
+        try:
+            draft_item = save_draft_from_body(merge)
+        except ValueError as e:
+            return _json_bytes({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            return _json_bytes({"success": False, "error": str(e)}, 500)
+        draft_id = str(draft_item.get("id") or "")
+        title = str(draft_item.get("title") or title)
+        content = str(draft_item.get("content") or content)
+        media_paths = list(draft_item.get("media_paths") or media_paths)
+
     payload = {
         "title": title,
         "content": content,
@@ -465,11 +548,21 @@ def handle(
         "debugger_url": debugger_url,
         "submit": submit,
         "media_paths": media_paths,
+        "draft_id": draft_id,
     }
     if async_mode:
-        return _start_job(payload)
+        b, st, ct = _start_job(payload)
+        if draft_id and st == 200:
+            import json
+
+            data = json.loads(b.decode("utf-8"))
+            data["draft_id"] = draft_id
+            return _json_bytes(data, st)
+        return b, st, ct
     result = _run_publish(payload)
     status = 200 if result.get("success") else 500
     if result.get("error") and "正在进行" in str(result.get("error")):
         status = 429
+    if draft_id:
+        result = {**result, "draft_id": draft_id}
     return _json_bytes(result, status)

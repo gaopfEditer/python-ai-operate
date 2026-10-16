@@ -5,6 +5,28 @@ function publishDebuggerUrl() {
   return $("#debuggerUrl")?.value.trim() || DEFAULT_PUBLISH_DEBUGGER;
 }
 
+const IMAGE_ENGINE_LS = "trImageEngine";
+function imageEngineValue() {
+  const sel = document.querySelector(".js-image-engine");
+  if (sel && sel.value) return sel.value;
+  const saved = localStorage.getItem(IMAGE_ENGINE_LS);
+  return saved === "grok" ? "grok" : "gemini";
+}
+function bindImageEngineSelects() {
+  const val = imageEngineValue();
+  document.querySelectorAll(".js-image-engine").forEach((sel) => {
+    sel.value = val === "grok" ? "grok" : "gemini";
+    if (sel.dataset.bound) return;
+    sel.dataset.bound = "1";
+    sel.addEventListener("change", () => {
+      localStorage.setItem(IMAGE_ENGINE_LS, sel.value);
+      document.querySelectorAll(".js-image-engine").forEach((o) => {
+        o.value = sel.value;
+      });
+    });
+  });
+}
+
 const state = {
   lastCreate: { title: "", content: "", path: "" },
   listTarget: "signals",
@@ -3204,6 +3226,7 @@ async function runLabBatchImages() {
       indices,
       topic: $("#regenTopic")?.value.trim() || "",
       debugger_url: publishDebuggerUrl(),
+      image_engine: imageEngineValue(),
       production_line: state.labProductionLine || "A",
       image_template: line.imageTemplate || "",
       variants: variants.map((v) => ({
@@ -4105,6 +4128,7 @@ async function runMemosBatchImages() {
       topic: "Memos",
       sync_to_memos: true,
       debugger_url: publishDebuggerUrl(),
+      image_engine: imageEngineValue(),
       variants: items.map((it) => ({
         id: it.id || it.name,
         name: it.name || (it.id ? `memos/${it.id}` : ""),
@@ -5984,6 +6008,7 @@ function bind() {
   $("#btnLabRegen")?.addEventListener("click", () => runCorpusRegen({ explicit: true }));
   $("#btnLabSaveFeatured")?.addEventListener("click", () => labSaveFeatured());
   $("#btnLabGenImages")?.addEventListener("click", () => runLabBatchImages());
+  bindImageEngineSelects();
   bindLabCompose();
   $("#labImagePickAll")?.addEventListener("change", (e) => {
     const variants = state.labVariants || [];
@@ -10828,7 +10853,13 @@ async function _genImageWithRetry(id, title, content, attempt) {
   try {
     const r = await api("/api/realtime/gen-image", {
       method: "POST",
-      body: JSON.stringify({ id, title, content: content || title }),
+      body: JSON.stringify({
+        id,
+        title,
+        content: content || title,
+        image_engine: imageEngineValue(),
+        debugger_url: publishDebuggerUrl(),
+      }),
     });
     if (r.success && r.path) {
       q._genning = false;
@@ -11380,7 +11411,11 @@ async function rtGenImagesBatch() {
     if (hasImg === 0 && items.length === 0) { toast('队列为空，无可生图内容', 'warn'); return; }
     const r = await api('/api/realtime/gen-images-batch', {
       method: 'POST',
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({
+        items,
+        image_engine: imageEngineValue(),
+        debugger_url: publishDebuggerUrl(),
+      }),
     });
     if (r.success || r.ok_count > 0) {
       // 更新队列中的图片路径

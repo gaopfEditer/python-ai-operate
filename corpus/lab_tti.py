@@ -226,10 +226,12 @@ def generate_variant_image(
     debugger_url: str = "",
     keep_browser_open: bool = True,
     use_content_brief: bool = False,
+    image_engine: str = "gemini",
 ) -> Dict[str, Any]:
-    _ensure_tti()
-    _apply_debugger_url(debugger_url)
-    from browser_media_runner import text_to_image
+    from corpus.cdp_web_image import apply_debugger_url, generate_image_cdp_web, normalize_engine
+
+    eng = normalize_engine(image_engine)
+    apply_debugger_url(debugger_url)
 
     brief: Optional[Dict[str, Any]] = None
     if use_content_brief or (topic or "").strip().lower() == "memos":
@@ -243,17 +245,16 @@ def generate_variant_image(
     batch_dir.mkdir(parents=True, exist_ok=True)
     tag = "".join(c if c.isalnum() else "_" for c in (variant_id or "v"))[:24] or "lab"
 
-    result = text_to_image(
+    result = generate_image_cdp_web(
         prompt,
-        prompt_is_text=True,
-        domain_tag=tag,
         out_dir=str(batch_dir),
+        tag=tag,
+        engine=eng,
+        debugger_url=debugger_url,
         keep_browser_open=keep_browser_open,
     )
-    web = result.get("web_result") if isinstance(result.get("web_result"), dict) else {}
+    web = result if isinstance(result, dict) else {}
     images_raw = list(result.get("images") or [])
-    if not images_raw and web:
-        images_raw = list(web.get("images") or [])
 
     images: List[Dict[str, str]] = []
     for p in images_raw:
@@ -291,6 +292,7 @@ def generate_variant_image(
             "prompt": prompt,
             "brief": brief,
             "batch_id": batch_id,
+            "engine": eng,
         }
 
     # 配图只需一张：取第一张可用图
@@ -301,6 +303,7 @@ def generate_variant_image(
         "prompt": prompt,
         "brief": brief,
         "batch_id": batch_id,
+        "engine": eng,
     }
 
 
@@ -326,6 +329,7 @@ def batch_generate_images(
     debugger_url: str = "",
     progress_cb: Optional[Callable[[int, int, int, str], None]] = None,
     use_content_brief: Optional[bool] = None,
+    image_engine: str = "gemini",
 ) -> Dict[str, Any]:
     picked = [int(i) for i in indices]
     results: List[Dict[str, Any]] = []
@@ -354,6 +358,7 @@ def batch_generate_images(
                 debugger_url=debugger_url,
                 keep_browser_open=keep_browser_open,
                 use_content_brief=bool(use_content_brief),
+                image_engine=image_engine,
             )
             keep_browser_open = True
         except Exception as e:
