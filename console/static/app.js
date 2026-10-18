@@ -7248,10 +7248,6 @@ async function loadSignalsPanel() {
       _sigBgBsCycleOn = !!bsCycle.cycle_enabled;
       updateSigBsCycleLiveUi(bsCycle);
       ensureSigBsCyclePoller(!!bsCycle.cycle_enabled);
-      if (bsCycle.cycle_enabled && state.sigMode === "binance") {
-        state.sigBsFeedView = "realtime";
-        updateSigBsFeedView();
-      }
     } catch (_) {
       /* binance cycle 状态可选 */
     }
@@ -7483,6 +7479,7 @@ function applySigModeUi(mode) {
   if (feedTabs) feedTabs.hidden = m !== "list";
   updateSigCardsViewTabs();
   updateSigBsFeedView();
+  updateSigCardsFiltersBarVisibility();
   ensureSigCardsFilterDefault();
   const recOnly = $("#sigValueRecommendedOnly")?.closest("label");
   // already in value panel
@@ -7931,21 +7928,7 @@ async function loadSigBinancePanel() {
     const cycleOn = !!(cycle.cycle_enabled ?? cfg.cycle_enabled);
     _sigBgBsCycleOn = cycleOn;
     ensureSigBsCyclePoller(cycleOn);
-    if (cycleOn) {
-      state.sigBsFeedView = "realtime";
-      try {
-        localStorage.setItem(SIG_BS_FEED_LS, "realtime");
-      } catch (_) {
-        /* ignore */
-      }
-    } else {
-      try {
-        const saved = localStorage.getItem(SIG_BS_FEED_LS);
-        if (saved === "realtime" || saved === "history") state.sigBsFeedView = saved;
-      } catch (_) {
-        /* ignore */
-      }
-    }
+    restoreSigBsFeedViewFromStorage();
     updateSigBsFeedView();
     updateSigRtActiveBanner();
   } catch (e) {
@@ -9387,19 +9370,8 @@ function applySigKolRtForm(cfg, bloggers, rt) {
   state.kolRealtimeSessionId = String(
     rt?.session_id || cfg?.kol_realtime_session_id || local.kol_realtime_session_id || ""
   );
-  const rtOn = !!(rt?.enabled ?? cfg?.kol_realtime_enabled);
-  _sigBgKolRtOn = rtOn;
-  try {
-    if (rtOn) {
-      state.sigCardsView = "realtime";
-      localStorage.setItem(SIG_CARDS_VIEW_LS, "realtime");
-    } else {
-      const view = local.sig_cards_view || localStorage.getItem(SIG_CARDS_VIEW_LS) || state.sigCardsView;
-      if (view === "realtime" || view === "history") state.sigCardsView = view;
-    }
-  } catch (_) {
-    /* ignore */
-  }
+  _sigBgKolRtOn = !!(rt?.enabled ?? cfg?.kol_realtime_enabled);
+  restoreSigListFeedViewFromStorage(local);
   updateSigCardsViewTabs();
   updateSigKolRtUi(rt || {}, cfg || {});
 }
@@ -9456,11 +9428,21 @@ function updateSigBsFeedView() {
   const rt = $("#sigBsRealtimePanel");
   if (hist) hist.hidden = !isBinance || view !== "history";
   if (rt) rt.hidden = !isBinance || view !== "realtime";
-  const metaFilters = document.querySelector(".sig-cards-filters");
-  if (metaFilters && isBinance) {
-    metaFilters.hidden = view === "realtime";
-  }
+  updateSigCardsFiltersBarVisibility();
   updateSigRtActiveBanner();
+}
+
+function updateSigCardsFiltersBarVisibility() {
+  const bar = $("#sigCardsFiltersBar");
+  const kolBlock = $("#sigCardsFilterKolBlock");
+  const bsHint = $("#sigCardsFiltersBinanceHint");
+  if (!bar) return;
+  const listMode = state.sigMode === "list";
+  const bsHist = state.sigMode === "binance" && state.sigBsFeedView === "history";
+  const show = listMode || bsHist;
+  bar.hidden = !show;
+  if (kolBlock) kolBlock.hidden = !listMode;
+  if (bsHint) bsHint.hidden = !bsHist;
 }
 
 function switchSigListFeedView(view) {
@@ -9489,20 +9471,33 @@ function updateSigCardsViewTabs() {
   if (rtPanel) rtPanel.hidden = !isList || view !== "realtime";
   if (histPanel) histPanel.hidden = !isList || view !== "history";
   if (listBox) listBox.hidden = !isList || view !== "history";
+  updateSigCardsFiltersBarVisibility();
   updateSigRtActiveBanner();
+}
+
+function restoreSigBsFeedViewFromStorage() {
+  try {
+    const saved = localStorage.getItem(SIG_BS_FEED_LS);
+    if (saved === "realtime" || saved === "history") state.sigBsFeedView = saved;
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function restoreSigListFeedViewFromStorage(localPrefs) {
+  try {
+    const local = localPrefs && typeof localPrefs === "object" ? localPrefs : readSigKolRtLocal();
+    const view =
+      local.sig_cards_view || localStorage.getItem(SIG_CARDS_VIEW_LS) || state.sigCardsView;
+    if (view === "realtime" || view === "history") state.sigCardsView = view;
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 function updateSigKolRtUi(rt, cfg) {
   const on = !!(rt?.enabled ?? cfg?.kol_realtime_enabled);
   _sigBgKolRtOn = on;
-  if (on && state.sigMode === "list" && state.sigCardsView !== "realtime") {
-    state.sigCardsView = "realtime";
-    try {
-      localStorage.setItem(SIG_CARDS_VIEW_LS, "realtime");
-    } catch (_) {
-      /* ignore */
-    }
-  }
   const running = !!rt?.running;
   const st = $("#sigKolRtStatus");
   if (st) st.dataset.enabled = on ? "1" : "0";
@@ -10555,8 +10550,7 @@ async function loadSignalCards() {
     if (onlyTrade) url += "&trade=1";
     const sid = String(state.kolRealtimeSessionId || "").trim();
     if (sid) url += `&realtime_session_id=${encodeURIComponent(sid)}`;
-    const kolSel = getSelectedSigKolRtIds();
-    if (kolSel.length === 1) url += `&handle=${encodeURIComponent(kolSel[0])}`;
+    url = appendSigCardsHandleQuery(url, filter);
     try {
       const data = await api(url);
       _sigCardsCache = dedupSigCards(pruneSigCardsByMinTime(data.items || [], fromIso));
@@ -10763,11 +10757,14 @@ function collectSigCardsFilter() {
   if (to && to.length === 16) to = `${to}:00`;
   if (from && !/[zZ]|[+-]\d{2}:\d{2}$/.test(from)) from = `${from}+08:00`;
   if (to && !/[zZ]|[+-]\d{2}:\d{2}$/.test(to)) to = `${to}+08:00`;
-  const handles = getSelectedSigFilterKolIds();
+  let handles = getSelectedSigFilterKolIds();
+  if (state.sigMode === "binance") {
+    handles = selectedSigBsProfileIds().map((h) => String(h || "").trim().toLowerCase()).filter(Boolean);
+  }
   return {
     handle: handles.length === 1 ? handles[0] : "",
     handles,
-    kol_handles: handles,
+    kol_handles: state.sigMode === "list" ? handles : [],
     range,
     from: range === "custom" ? from : "",
     to: range === "custom" ? to : "",

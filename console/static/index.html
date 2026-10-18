@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261017b" />
+  <link rel="stylesheet" href="/app.css?v=20261018b" />
 </head>
 <body>
   <div class="shell">
@@ -1028,44 +1028,6 @@
             </div>
             <div id="sigWindows" class="sig-windows muted">暂无记录</div>
           </section>
-
-          <section class="sig-meta-block sig-cards-filters" aria-label="历史卡片筛选">
-            <div class="sig-filter-row sig-filter-row-kol">
-              <div class="field sig-filter-field sig-filter-kol-field full">
-                <div class="sig-blogger-head">
-                  <span>KOL（可多选）</span>
-                  <span class="sig-blogger-actions">
-                    <button type="button" class="btn-link" id="btnSigFilterKolAll">全选</button>
-                    <button type="button" class="btn-link" id="btnSigFilterKolNone">清空</button>
-                  </span>
-                </div>
-                <div id="sigFilterKolList" class="sig-blogger-list sig-filter-kol-list" role="group" aria-label="历史 KOL 筛选"></div>
-                <p class="muted sig-filter-kol-hint">未勾选表示全部 KOL；与下方时间范围组合筛选。</p>
-              </div>
-              <label class="field sig-filter-field">
-                <span>时间范围</span>
-                <select id="sigFilterRange">
-                  <option value="last_7d" selected>近7天</option>
-                  <option value="last_14d">近14天</option>
-                  <option value="last_30d">近30天</option>
-                  <option value="this_week">本周</option>
-                  <option value="this_month">本月</option>
-                  <option value="this_quarter">本季度</option>
-                  <option value="custom">自定义</option>
-                </select>
-              </label>
-              <label class="field sig-filter-field" id="sigFilterFromWrap" hidden>
-                <span>从</span>
-                <input id="sigFilterFrom" type="datetime-local" />
-              </label>
-              <label class="field sig-filter-field" id="sigFilterToWrap" hidden>
-                <span>到</span>
-                <input id="sigFilterTo" type="datetime-local" />
-              </label>
-              <button type="button" class="btn ghost" id="btnSigFilterApply">筛选</button>
-              <button type="button" class="btn-link" id="btnSigFilterReset">重置</button>
-            </div>
-          </section>
           </div>
 
           <section class="sig-meta-block sig-meta-bar">
@@ -1095,6 +1057,51 @@
             <pre id="sigBacktestLog" class="sig-run-log sig-validate-log" hidden></pre>
           </section>
         </div>
+
+        <section id="sigCardsFiltersBar" class="sig-meta-block sig-cards-filters sig-cards-filters-bar" aria-label="卡片筛选" hidden>
+          <div class="sig-meta-row">
+            <h3 class="sig-sub">卡片筛选</h3>
+          </div>
+          <div id="sigCardsFiltersListRow" class="sig-filter-row sig-filter-row-kol">
+            <div id="sigCardsFilterKolBlock" class="field sig-filter-field sig-filter-kol-field full">
+              <div class="sig-blogger-head">
+                <span>KOL（可多选）</span>
+                <span class="sig-blogger-actions">
+                  <button type="button" class="btn-link" id="btnSigFilterKolAll">全选</button>
+                  <button type="button" class="btn-link" id="btnSigFilterKolNone">清空</button>
+                </span>
+              </div>
+              <div id="sigFilterKolList" class="sig-blogger-list sig-filter-kol-list" role="group" aria-label="卡片 KOL 筛选"></div>
+              <p class="muted sig-filter-kol-hint">未勾选表示全部 KOL</p>
+            </div>
+            <label class="field sig-filter-field">
+              <span>时间范围</span>
+              <select id="sigFilterRange">
+                <option value="last_7d" selected>近7天</option>
+                <option value="last_14d">近14天</option>
+                <option value="last_30d">近30天</option>
+                <option value="this_week">本周</option>
+                <option value="this_month">本月</option>
+                <option value="this_quarter">本季度</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <label class="field sig-filter-field" id="sigFilterFromWrap" hidden>
+              <span>从</span>
+              <input id="sigFilterFrom" type="datetime-local" />
+            </label>
+            <label class="field sig-filter-field" id="sigFilterToWrap" hidden>
+              <span>到</span>
+              <input id="sigFilterTo" type="datetime-local" />
+            </label>
+            <button type="button" class="btn ghost" id="btnSigFilterApply">筛选</button>
+            <button type="button" class="btn-link" id="btnSigFilterReset">重置</button>
+          </div>
+          <p id="sigCardsFiltersBinanceHint" class="muted sig-filter-kol-hint" hidden>
+            Square 博主请在上方勾选；此处按时间范围筛选卡片列表。
+          </p>
+        </section>
+
         <nav id="sigCardsPager" class="sig-cards-pager" hidden aria-label="信号卡片分页"></nav>
         <div id="sigCards" class="sig-cards"></div>
 
@@ -1376,6 +1383,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261017e"></script>
+  <script src="/app.js?v=20261018b"></script>
 </body>
 </html>

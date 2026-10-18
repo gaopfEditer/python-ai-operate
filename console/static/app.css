@@ -2890,6 +2890,13 @@ label.publish-media-add {
   align-items: center;
   gap: 10px 14px;
 }
+.sig-cards-filters-bar {
+  margin: 12px 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
 .sig-cards-filters {
   padding-top: 4px;
 }
