@@ -117,7 +117,10 @@ def sync_posts_to_signal_cards(
     if not rows:
         return {"synced": 0, "skipped": 0}
 
+    from signals.card_db import db_get_card_by_tweet_id
+
     synced = 0
+    skipped_existing = 0
     oldest: Optional[datetime] = None
     newest: Optional[datetime] = None
     now = datetime.now(timezone.utc).astimezone()
@@ -126,6 +129,13 @@ def sync_posts_to_signal_cards(
         card = square_post_to_card(p)
         if not card.get("tweet_id") and not card.get("url"):
             continue
+        tid = str(card.get("tweet_id") or "").strip()
+        if tid:
+            existing = db_get_card_by_tweet_id(tid)
+            sig = existing.get("signal") if isinstance(existing, dict) else None
+            if existing and isinstance(sig, dict) and sig:
+                skipped_existing += 1
+                continue
         upsert_card(card)
         synced += 1
         dt = parse_post_time(p)
@@ -186,8 +196,14 @@ def sync_posts_to_signal_cards(
         range_label=rl,
         since=since,
     )
+    if skipped_existing:
+        _log(progress, f"Square 跳过已入库 {skipped_existing} 条")
     _log(progress, f"Square 卡片入库 {synced} 条（SQLite · 与博主回溯共用）")
-    return {"synced": synced, "skipped": max(0, len(rows) - synced)}
+    return {
+        "synced": synced,
+        "skipped": max(0, len(rows) - synced),
+        "skipped_existing": skipped_existing,
+    }
 
 
 def _binance_cards_in_db() -> int:

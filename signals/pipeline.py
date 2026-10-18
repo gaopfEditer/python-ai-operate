@@ -611,7 +611,6 @@ def run_user_signal_pipeline(
     fresh: List[Dict[str, Any]] = []
     filtered_old = 0
     filtered_seen = 0
-    filtered_cache = 0
     for it in raw_items:
         tid = str(it.get("tweet_id") or "")
         created = parse_dt(str(it.get("created_at") or ""))
@@ -626,9 +625,8 @@ def run_user_signal_pipeline(
                 created_at=str(it.get("created_at") or ""),
             )
             if cached and isinstance(cached.get("signal"), dict):
-                fresh.append(it)
-                filtered_cache += 1
-                _log(progress, f"[缓存] 将复用已解析 · {fmt_tweet_line(it)}")
+                filtered_seen += 1
+                _log(progress, f"[跳过] 已抓取 · {fmt_tweet_line(it)}")
                 continue
             fresh.append(it)
             _log(progress, f"[补解析] 无缓存记录 · {fmt_tweet_line(it)}")
@@ -638,8 +636,7 @@ def run_user_signal_pipeline(
     _log(
         progress,
         f"待解析 {len(fresh)} 条（窗口内 {len(raw_items)}，"
-        f"过滤过旧 {filtered_old}/已见 {filtered_seen}"
-        f"{f'/缓存复用 {filtered_cache}' if filtered_cache else ''}）",
+        f"过滤过旧 {filtered_old}/已见 {filtered_seen}）",
     )
 
     cards: List[Dict[str, Any]] = []

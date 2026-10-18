@@ -21,6 +21,7 @@ def clear_binance_square_cache(profile_ids: List[str] | None = None) -> Dict[str
     st["last_posts"] = []
     st["last_posts_raw"] = []
     st["seen_hrefs"] = []
+    st["seen_content_ids"] = []
     save_state(st)
     uniq = sorted(set(removed))
     return {

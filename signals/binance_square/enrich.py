@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional
 
 from signals.analyze import _heuristic, analyze_tweet_signal
+from signals.binance_square.store import post_content_id
 
 ProgressCb = Optional[Callable[[str], None]]
 
@@ -24,8 +25,13 @@ def _signal_cache_from_posts(posts: List[Dict[str, Any]]) -> Dict[str, Dict[str,
             continue
         href = str(p.get("href") or "").strip()
         sig = p.get("signal")
-        if href and isinstance(sig, dict) and sig:
-            out[href] = {"signal": dict(sig), "text": _post_text(p)}
+        if not (href and isinstance(sig, dict) and sig):
+            continue
+        entry = {"signal": dict(sig), "text": _post_text(p)}
+        out[href] = entry
+        cid = post_content_id(p)
+        if cid:
+            out[f"id:{cid}"] = entry
     return out
 
 
@@ -46,7 +52,8 @@ def enrich_posts_with_signals(
         href = str(p.get("href") or "").strip()
         text = _post_text(p)
         author = str(p.get("profile_name") or p.get("profile_id") or p.get("author_slug") or "")
-        cached = cache.get(href) if href else None
+        cid = post_content_id(p)
+        cached = (cache.get(f"id:{cid}") if cid else None) or (cache.get(href) if href else None)
         if cached and cached.get("text") == text and isinstance(cached.get("signal"), dict):
             p["signal"] = dict(cached["signal"])
         else:

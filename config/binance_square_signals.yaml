@@ -5,7 +5,7 @@ max_posts_per_profile: 40
 try_bapi_first: false
 replay_whisper_auto: true
 replay_whisper_max_days: 2
-cycle_enabled: true
+cycle_enabled: false
 cycle_min_minutes: 5
 cycle_max_minutes: 15
 first_crawl_hours: 8

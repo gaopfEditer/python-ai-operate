@@ -24,6 +24,7 @@ def _now_iso() -> str:
 def _empty_state() -> Dict[str, Any]:
     return {
         "seen_hrefs": [],
+        "seen_content_ids": [],
         "last_posts": [],
         "last_run_at": "",
         "updated_at": "",
@@ -119,9 +120,85 @@ def load_state() -> Dict[str, Any]:
     base.update({k: data.get(k, base[k]) for k in base})
     if not isinstance(base.get("seen_hrefs"), list):
         base["seen_hrefs"] = []
+    if not isinstance(base.get("seen_content_ids"), list):
+        base["seen_content_ids"] = []
     if not isinstance(base.get("last_posts"), list):
         base["last_posts"] = []
     return base
+
+
+def _content_ids_from_hrefs(hrefs: List[Any]) -> set[str]:
+    out: set[str] = set()
+    for h in hrefs or []:
+        cid = post_content_id({"href": str(h or "")})
+        if cid:
+            out.add(cid)
+    return out
+
+
+def known_square_content_ids() -> set[str]:
+    """已抓取过的 Square 文章 contentId（state + SQLite 卡片）。"""
+    known: set[str] = set()
+    st = load_state()
+    for raw in st.get("seen_content_ids") or []:
+        cid = str(raw or "").strip()
+        if cid.isdigit():
+            known.add(cid)
+    known |= _content_ids_from_hrefs(st.get("seen_hrefs") or [])
+    try:
+        from signals.card_db import db_known_binance_content_ids
+
+        known |= db_known_binance_content_ids()
+    except Exception:
+        pass
+    return known
+
+
+def register_square_content_ids(ids: List[Any], *, posts: Optional[List[Dict[str, Any]]] = None) -> None:
+    st = load_state()
+    seen: set[str] = set()
+    for raw in st.get("seen_content_ids") or []:
+        cid = str(raw or "").strip()
+        if cid.isdigit():
+            seen.add(cid)
+    for raw in ids or []:
+        cid = str(raw or "").strip()
+        if cid.isdigit():
+            seen.add(cid)
+    if posts:
+        for p in posts:
+            if not isinstance(p, dict):
+                continue
+            cid = post_content_id(p)
+            if cid:
+                seen.add(cid)
+            href = str(p.get("href") or "").strip()
+            if href:
+                hrefs = list(st.get("seen_hrefs") or [])
+                if href not in hrefs:
+                    hrefs.append(href)
+                st["seen_hrefs"] = hrefs[-5000:]
+    st["seen_content_ids"] = sorted(seen)[-8000:]
+    st["updated_at"] = _now_iso()
+    save_state(st)
+
+
+def partition_square_posts_by_known(
+    posts: List[Dict[str, Any]],
+    known: Optional[set[str]] = None,
+) -> tuple[List[Dict[str, Any]], int]:
+    known_set = known if known is not None else known_square_content_ids()
+    new_rows: List[Dict[str, Any]] = []
+    skipped = 0
+    for p in posts or []:
+        if not isinstance(p, dict):
+            continue
+        cid = post_content_id(p)
+        if cid and cid in known_set:
+            skipped += 1
+            continue
+        new_rows.append(p)
+    return new_rows, skipped
 
 
 def post_content_id(post: Dict[str, Any]) -> str:

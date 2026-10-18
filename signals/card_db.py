@@ -497,6 +497,24 @@ def db_get_card_by_user_time(user_handle: str, created_at_ts: int) -> Optional[D
     return _row_to_card(row) if row else None
 
 
+def db_known_binance_content_ids() -> set[str]:
+    """Square 卡片已入库的 tweet_id（即 contentId）。"""
+    init_db()
+    out: set[str] = set()
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT tweet_id FROM signal_cards
+            WHERE list_id LIKE 'binance:%' AND tweet_id != ''
+            """
+        ).fetchall()
+    for row in rows:
+        tid = str(row["tweet_id"] if row else "").strip()
+        if tid.isdigit():
+            out.add(tid)
+    return out
+
+
 def db_get_card_by_tweet_id(tweet_id: str) -> Optional[Dict[str, Any]]:
     tid = str(tweet_id or "").strip()
     if not tid:

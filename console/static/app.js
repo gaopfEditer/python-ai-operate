@@ -6782,6 +6782,9 @@ function bind() {
     switchSigBsFeedView(v);
   });
   $("#btnSigRtBannerGo")?.addEventListener("click", () => gotoSigRtControlPanel());
+  $("#btnSigRtBannerStopListCycle")?.addEventListener("click", () =>
+    stopSigListCycleQuick().catch((e) => toast(String(e), "error"))
+  );
   $("#btnSigRtBannerStopKol")?.addEventListener("click", () =>
     stopSigKolRealtime().catch((e) => toast(String(e), "error"))
   );
@@ -6867,8 +6870,12 @@ function bind() {
     setSigBsProfileSelection(false);
     persistSigBsProfileSelection();
   });
-  $("#sigBsProfileList")?.addEventListener("change", () => persistSigBsProfileSelection());
+  $("#sigBsProfileList")?.addEventListener("change", () => {
+    persistSigBsProfileSelection();
+    if (state.sigMode === "binance") loadSignalCards();
+  });
   $("#sigBsBackfillRange")?.addEventListener("change", () => {
+    syncBinanceCardsTimeFilterUi();
     if (state.sigMode === "binance") loadSignalCards();
   });
   $("#btnSigValueRun")?.addEventListener("click", () => runValueReturnCrawl());
@@ -7222,6 +7229,7 @@ async function loadSignalsPanel() {
     renderSigCycle(data.cycle || {}, cfg);
     updateSigCycleButton(data.cycle || {}, cfg);
     updateSigCycleLiveUi(data.cycle || {});
+    _sigBgListWatchOn = !!(data.watch?.watch_enabled ?? cfg.watch_enabled);
     ensureSigCyclePoller(!!(data.cycle?.cycle_enabled ?? cfg.cycle_enabled));
     applySigKolRtForm(cfg, data.bloggers, data.kol_realtime);
     ensureSigKolRtPoller(!!(data.kol_realtime?.enabled ?? cfg.kol_realtime_enabled));
@@ -7473,10 +7481,8 @@ function applySigModeUi(mode) {
     const el = $(`#${id}`);
     if (el) el.hidden = m === "value";
   }
-  const winBlock = $("#sigWindows")?.closest(".sig-meta-block");
-  if (winBlock) winBlock.hidden = false;
-  const feedTabs = $("#sigListFeedTabs");
-  if (feedTabs) feedTabs.hidden = m !== "list";
+  const feedWrap = $("#sigFeedViewTabsWrap");
+  if (feedWrap) feedWrap.hidden = m !== "list" && m !== "binance";
   updateSigCardsViewTabs();
   updateSigBsFeedView();
   updateSigCardsFiltersBarVisibility();
@@ -7846,8 +7852,15 @@ function persistSigBsProfileSelection() {
   }
 }
 
-function renderSigBsProfileList(profiles, selectedIds) {
-  const box = $("#sigBsProfileList");
+function syncBinanceCardsTimeFilterUi() {
+  if (state.sigMode !== "binance") return;
+  const br = normalizeSigBackfillRange(getSigBsBackfillRange());
+  if ($("#sigFilterRange")) $("#sigFilterRange").value = br;
+  persistSigCardsFilter();
+}
+
+function renderSigBsProfileList(profiles, selectedIds, boxEl) {
+  const box = boxEl || $("#sigBsProfileList");
   if (!box) return;
   const defaultEnabled = selectedIds === undefined || selectedIds === null;
   const sel = new Set(
@@ -7909,7 +7922,11 @@ async function loadSigBinancePanel() {
       $("#sigFilterRange").value = br;
     }
     const bsSaved = readSigBsProfileLocal();
-    renderSigBsProfileList(_sigBsProfilesCache, bsSaved !== undefined ? bsSaved : selectedSigBsProfileIds());
+    renderSigBsProfileList(
+      _sigBsProfilesCache,
+      bsSaved !== undefined ? bsSaved : selectedSigBsProfileIds()
+    );
+    syncBinanceCardsTimeFilterUi();
     const st = data.state || {};
     if (st.last_run_at && $("#sigBsStatus")) {
       $("#sigBsStatus").textContent = `上次运行 ${st.last_run_at} · 缓存 ${st.post_count || 0} 条`;
@@ -8233,23 +8250,31 @@ let _sigBsCycleLastRunAt = "";
 let _sigBsCyclePollBusy = false;
 let _sigBgKolRtOn = false;
 let _sigBgBsCycleOn = false;
+let _sigBgListCycleOn = false;
+let _sigBgListWatchOn = false;
 
 function updateSigRtActiveBanner() {
   const bar = $("#sigRtActiveBanner");
   const text = $("#sigRtActiveBannerText");
   const go = $("#btnSigRtBannerGo");
+  const btnListCycle = $("#btnSigRtBannerStopListCycle");
   const btnKol = $("#btnSigRtBannerStopKol");
   const btnBs = $("#btnSigRtBannerStopBs");
   if (!bar) return;
   const parts = [];
-  if (_sigBgKolRtOn) parts.push("KOL 实时抓取运行中（后台）");
-  if (_sigBgBsCycleOn) parts.push("币安 Square 周期抓取运行中（后台）");
+  if (_sigBgListWatchOn) parts.push("X 列表分时监听（后台）");
+  if (_sigBgListCycleOn) parts.push("X 列表周期抓取（后台）");
+  if (_sigBgKolRtOn) parts.push("KOL 实时抓取（后台）");
+  if (_sigBgBsCycleOn) parts.push("币安 Square 周期抓取（后台）");
   if (!parts.length) {
     bar.hidden = true;
     return;
   }
   bar.hidden = false;
-  if (text) text.textContent = parts.join(" · ");
+  if (text) {
+    text.textContent = `${parts.join(" · ")} · 重启 console 也会按配置自动恢复，可在对应面板关闭`;
+  }
+  if (btnListCycle) btnListCycle.hidden = !_sigBgListCycleOn;
   if (btnKol) btnKol.hidden = !_sigBgKolRtOn;
   if (btnBs) btnBs.hidden = !_sigBgBsCycleOn;
   const onKolPanel = state.sigMode === "list" && state.sigCardsView === "realtime";
@@ -8619,7 +8644,101 @@ function _validateCtxFromOpts(opts = {}) {
 let _sigValidateCtx = null;
 let _sigBacktestLast = null;
 let _sigBacktestPending = null;
+let _sigBacktestByTweetId = new Map();
 const SIG_BACKTEST_LS = "sigBacktestLastResult";
+
+function rebuildSigBacktestIndex() {
+  const map = new Map();
+  for (const it of _sigBacktestLast?.items || []) {
+    const sid = String(it.signalId || it.id || "");
+    const tweetId = sid.includes("-") ? sid.split("-")[0] : sid;
+    if (!tweetId) continue;
+    if (!map.has(tweetId)) map.set(tweetId, []);
+    map.get(tweetId).push(it);
+  }
+  _sigBacktestByTweetId = map;
+}
+
+function backtestItemsForCard(card) {
+  const tid = String(card?.tweet_id || "").trim();
+  if (!tid) return [];
+  const all = _sigBacktestByTweetId.get(tid) || [];
+  const coins = new Set(
+    (card?.signal?.coins || []).map((x) => String(x || "").trim().toUpperCase()).filter(Boolean)
+  );
+  if (!coins.size) return all;
+  const matched = all.filter((it) => coins.has(String(it.symbol || "").trim().toUpperCase()));
+  return matched.length ? matched : all;
+}
+
+function backtestPnlClass(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return "";
+  if (n > 0) return "is-profit";
+  if (n < 0) return "is-loss";
+  return "";
+}
+
+function renderSigBacktestBadgeHtml(items) {
+  if (!items.length) return "";
+  const ok = items.filter((it) => !it.error);
+  if (!ok.length) {
+    return `<span class="sig-backtest-badge is-err" title="回测失败">回测 ×</span>`;
+  }
+  let best = ok[0];
+  for (const it of ok) {
+    const a = Number(it.currentPnlPct);
+    const b = Number(best.currentPnlPct);
+    if (Number.isFinite(a) && (!Number.isFinite(b) || a > b)) best = it;
+  }
+  const sym = String(best.symbol || "").trim();
+  const pnl = best.currentPnlPct != null ? `${best.currentPnlPct}%` : "—";
+  const extra = ok.length > 1 ? ` · +${ok.length - 1}币` : "";
+  const cls = backtestPnlClass(best.currentPnlPct);
+  return `<span class="sig-backtest-badge ${cls}" title="悬停查看回测详情">回测 ${escapeHtml(sym)} ${escapeHtml(pnl)}${escapeHtml(extra)}</span>`;
+}
+
+function renderSigBacktestPopoverRow(it) {
+  if (!it || typeof it !== "object") return "";
+  const symbol = String(it.symbol || "?");
+  if (it.error) {
+    return `<div class="sig-bt-pop-row is-err"><strong>${escapeHtml(symbol)}</strong><span>${escapeHtml(String(it.error))}</span></div>`;
+  }
+  const dir = sigDirectionLabel(it.direction);
+  const maxP = it.maxProfitPct != null ? `${it.maxProfitPct}%` : "—";
+  const minP = it.minProfitPct != null ? `${it.minProfitPct}%` : "—";
+  const pnl = it.currentPnlPct != null ? `${it.currentPnlPct}%` : "—";
+  const thr = it.profitThresholdPct != null ? `${it.profitThresholdPct}%` : "—";
+  const hitMax =
+    it.hitProfitThresholdBeforeMax == null ? "—" : it.hitProfitThresholdBeforeMax ? "是" : "否";
+  const hitMin =
+    it.hitProfitThresholdBeforeMin == null ? "—" : it.hitProfitThresholdBeforeMin ? "是" : "否";
+  const pnlCls = backtestPnlClass(it.currentPnlPct);
+  return `<div class="sig-bt-pop-row">
+    <div class="sig-bt-pop-head">
+      <strong>${escapeHtml(symbol)}</strong>
+      <span class="sig-dir ${escapeAttr(String(it.direction || "unknown").toLowerCase())}">${escapeHtml(dir)}</span>
+      <span class="sig-bt-pnl ${pnlCls}">盈亏 ${escapeHtml(pnl)}</span>
+    </div>
+    <dl class="sig-bt-pop-grid">
+      <div><dt>最高盈利</dt><dd>${escapeHtml(maxP)}</dd></div>
+      <div><dt>最低盈利</dt><dd>${escapeHtml(minP)}</dd></div>
+      <div><dt>阈值</dt><dd>${escapeHtml(thr)}</dd></div>
+      <div><dt>窗口</dt><dd>${escapeHtml(String(it.windowDays ?? "—"))} 天</dd></div>
+      <div><dt>触顶前达阈</dt><dd>${escapeHtml(hitMax)}</dd></div>
+      <div><dt>触底前达阈</dt><dd>${escapeHtml(hitMin)}</dd></div>
+    </dl>
+  </div>`;
+}
+
+function renderSigBacktestPopoverHtml(items) {
+  if (!items?.length) return "";
+  const mock = items.some((it) => it.mock);
+  return `<div class="sig-bt-pop-inner">
+    <p class="sig-bt-pop-title">回测盈利率${mock ? ' <span class="sig-backtest-mock">Mock</span>' : ""}</p>
+    ${items.map((it) => renderSigBacktestPopoverRow(it)).join("")}
+  </div>`;
+}
 
 function persistSigBacktestLast() {
   const r = _sigBacktestLast;
@@ -8649,6 +8768,7 @@ function persistSigBacktestLast() {
 
 function loadSigBacktestLast() {
   if (_sigBacktestLast?.items?.length) {
+    rebuildSigBacktestIndex();
     updateSigBacktestResultButton();
     return;
   }
@@ -8661,6 +8781,7 @@ function loadSigBacktestLast() {
   } catch (_) {
     /* ignore corrupt cache */
   }
+  rebuildSigBacktestIndex();
   updateSigBacktestResultButton();
 }
 
@@ -8678,7 +8799,9 @@ function setSigBacktestLast(partial) {
     savedAt: Date.now(),
   };
   persistSigBacktestLast();
+  rebuildSigBacktestIndex();
   updateSigBacktestResultButton();
+  renderSigCardsView();
 }
 
 function toUtcIso(raw) {
@@ -9195,6 +9318,8 @@ function updateSigCycleButton(cycle, cfg) {
 
 function updateSigCycleLiveUi(cycle) {
   const on = !!(cycle?.cycle_enabled);
+  _sigBgListCycleOn = on;
+  updateSigRtActiveBanner();
   const running = !!cycle?.running;
   const tab = document.querySelector('.sig-mode-tab[data-sig-mode="list"]');
   if (tab) tab.classList.toggle("is-cycling", on);
@@ -9435,14 +9560,34 @@ function updateSigBsFeedView() {
 function updateSigCardsFiltersBarVisibility() {
   const bar = $("#sigCardsFiltersBar");
   const kolBlock = $("#sigCardsFilterKolBlock");
-  const bsHint = $("#sigCardsFiltersBinanceHint");
+  const bsBlock = $("#sigCardsFilterBsBlock");
+  const badge = $("#sigCardsFilterModeBadge");
   if (!bar) return;
   const listMode = state.sigMode === "list";
-  const bsHist = state.sigMode === "binance" && state.sigBsFeedView === "history";
-  const show = listMode || bsHist;
+  const bsMode = state.sigMode === "binance";
+  const show = listMode || bsMode;
   bar.hidden = !show;
   if (kolBlock) kolBlock.hidden = !listMode;
-  if (bsHint) bsHint.hidden = !bsHist;
+  if (bsBlock) bsBlock.hidden = !bsMode;
+  if (badge) {
+    if (listMode) {
+      const v = state.sigCardsView === "realtime" ? "实时" : "历史";
+      badge.textContent = `列表信号 · ${v}`;
+    } else if (bsMode) {
+      const v = state.sigBsFeedView === "realtime" ? "实时" : "历史回溯";
+      badge.textContent = `币安广场 · ${v}`;
+    } else badge.textContent = "";
+  }
+  if (bsMode) {
+    syncBinanceCardsTimeFilterUi();
+    if (_sigBsProfilesCache.length) {
+      const saved = readSigBsProfileLocal();
+      renderSigBsProfileList(
+        _sigBsProfilesCache,
+        saved !== undefined ? saved : selectedSigBsProfileIds()
+      );
+    }
+  }
 }
 
 function switchSigListFeedView(view) {
@@ -9470,7 +9615,7 @@ function updateSigCardsViewTabs() {
   const listBox = $("#sigModeList");
   if (rtPanel) rtPanel.hidden = !isList || view !== "realtime";
   if (histPanel) histPanel.hidden = !isList || view !== "history";
-  if (listBox) listBox.hidden = !isList || view !== "history";
+  if (listBox) listBox.hidden = !isList;
   updateSigCardsFiltersBarVisibility();
   updateSigRtActiveBanner();
 }
@@ -9674,6 +9819,24 @@ async function runSigKolRtOnce() {
     _sigActiveJobKind = "";
     setSigKolRtControlButtons({ running: false, paused: false });
   }
+}
+
+async function stopSigListCycleQuick() {
+  const data = await api("/api/signals/cycle", {
+    method: "POST",
+    body: JSON.stringify({ enabled: false }),
+  });
+  if (!data.success) {
+    toast(data.error || "关闭失败", "error");
+    return;
+  }
+  const cycle = data.cycle || {};
+  if ($("#sigCycleEnabled")) $("#sigCycleEnabled").checked = false;
+  updateSigCycleButton(cycle, { cycle_enabled: false });
+  renderSigCycle(cycle, { cycle_enabled: false });
+  updateSigCycleLiveUi(cycle);
+  ensureSigCyclePoller(false);
+  toast("列表周期抓取已关闭", "ok");
 }
 
 async function toggleSigCycle() {
@@ -10320,6 +10483,8 @@ function renderSigCardItem(c) {
           : ""
       }`
     : "";
+  const btItems = !isValue ? backtestItemsForCard(c) : [];
+  const backtestBadge = btItems.length ? renderSigBacktestBadgeHtml(btItems) : "";
   const topBadge = isValue
     ? scoreBadge
     : `<span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>${coins}`;
@@ -10338,8 +10503,9 @@ function renderSigCardItem(c) {
         sig.provider === "heuristic" ? "规则解析" : "AI 解析"
       )}${sourceTag ? ` · ${escapeHtml(sourceTag)}` : ""}${c.cache_only ? " · 缓存" : ""}`;
 
-  return `<article class="sig-card${isValue ? (rec ? " is-value-rec" : " is-value") : trade ? " is-trade" : " is-noise"}" data-tweet-id="${tid}" data-dedup-key="${escapeAttr(sigCardDedupKey(c))}">
+  const article = `<article class="sig-card${isValue ? (rec ? " is-value-rec" : " is-value") : trade ? " is-trade" : " is-noise"}${btItems.length ? " has-backtest-data" : ""}" data-tweet-id="${tid}" data-dedup-key="${escapeAttr(sigCardDedupKey(c))}">
     <div class="sig-card-top">
+      ${backtestBadge}
       ${topBadge}
       <span class="sig-author">${authorLabel}</span>
       ${channelMeta}
@@ -10378,6 +10544,8 @@ function renderSigCardItem(c) {
       <span class="sig-conf">${footConf}</span>
     </div>
   </article>`;
+  if (!btItems.length) return article;
+  return `<div class="sig-card-wrap has-backtest" tabindex="0" title="悬停查看回测盈利率">${article}<div class="sig-backtest-popover" role="tooltip">${renderSigBacktestPopoverHtml(btItems)}</div></div>`;
 }
 
 function sigCardsTotalPages(total = _sigCardsCache.length) {
@@ -10507,6 +10675,7 @@ async function loadSignalCards() {
         const fromIso = sigCardsMinTimeIso();
         let url = `/api/signals/cards?limit=500&merge=1&source_mode=binance_square&from=${encodeURIComponent(fromIso)}`;
         if (onlyTrade) url += "&trade=1";
+        url = appendSigCardsHandleQuery(url, collectSigCardsFilter());
         const data = await api(url);
         _sigCardsCache = dedupSigCards(pruneSigCardsByMinTime(data.items || [], fromIso));
         _sigCardsPage = 1;

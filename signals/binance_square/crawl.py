@@ -13,9 +13,13 @@ from signals.binance_square.profile_js import PROFILE_POST_EXTRACT_JS
 from signals.binance_square.enrich import enrich_posts_with_signals
 from signals.binance_square.store import (
     apply_binance_time_filter,
+    known_square_content_ids,
     load_config,
     load_state,
     merge_square_posts,
+    partition_square_posts_by_known,
+    post_content_id,
+    register_square_content_ids,
     resolve_binance_time_filter,
     save_state,
 )
@@ -234,39 +238,51 @@ def run_binance_square_fetch(
         merged = apply_binance_time_filter(merged, cutoff_hours=hours, cfg=cfg)
     _log(progress, f"时间过滤后 {len(merged)}/{scraped_n} 条")
 
-    if profiles and merged:
+    known_ids = known_square_content_ids()
+    to_process, skipped_known = partition_square_posts_by_known(merged, known_ids)
+    if skipped_known:
+        _log(progress, f"跳过已抓取 {skipped_known} 条（contentId 已在缓存/库）")
+
+    if profiles and to_process:
         from signals.binance_square.media import enrich_posts_media_from_detail
         from public.platforms.cdp_common import connect_cdp
 
         try:
             driver = connect_cdp(dbg)
-            _log(progress, "详情页补抓无媒体帖子（仅保留范围内）…")
-            merged = enrich_posts_media_from_detail(
-                driver, merged, limit=min(10, max(4, max_n // 4)), progress=progress
+            _log(progress, "详情页补抓无媒体帖子（仅新帖）…")
+            to_process = enrich_posts_media_from_detail(
+                driver,
+                to_process,
+                limit=min(10, max(4, max_n // 4)),
+                progress=progress,
             )
         except Exception as e:
             _log(progress, f"详情补媒体跳过: {e}")
 
     st = load_state()
     prior = st.get("last_posts") if isinstance(st.get("last_posts"), list) else []
-    _log(progress, f"AI/规则解析 {len(merged)} 条贴文信号…")
-    merged = enrich_posts_with_signals(merged, prior_posts=prior, progress=progress)
+    if to_process:
+        _log(progress, f"AI/规则解析 {len(to_process)} 条新贴文信号…")
+        enriched = enrich_posts_with_signals(to_process, prior_posts=prior, progress=progress)
+    else:
+        enriched = []
+        if merged and skipped_known:
+            _log(progress, "范围内帖子均已抓取过，跳过 AI 解析与入库")
 
-    seen = set(str(x) for x in (st.get("seen_hrefs") or []))
-    new_hrefs: List[str] = []
-    for p in merged:
-        h = str(p.get("href") or "")
-        if h and h not in seen:
-            new_hrefs.append(h)
-            seen.add(h)
-    st["seen_hrefs"] = list(seen)[-5000:]
+    register_square_content_ids(
+        [post_content_id(p) for p in merged],
+        posts=merged,
+    )
+
+    st = load_state()
+    combined_posts = merge_square_posts([*prior, *enriched])[:200]
     st["last_posts_raw"] = merge_square_posts(all_posts)[:300]
-    st["last_posts"] = merged[:200]
+    st["last_posts"] = combined_posts
     st["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     save_state(st)
 
     cards_sync: Dict[str, Any] = {}
-    if merged:
+    if enriched:
         from signals.backfill_range import resolve_backfill_since
         from signals.binance_square.cards_sync import sync_posts_to_signal_cards
 
@@ -274,22 +290,23 @@ def run_binance_square_fetch(
         if time_spec.get("mode") == "range":
             since_dt, range_label = resolve_backfill_since(rk)
             cards_sync = sync_posts_to_signal_cards(
-                merged,
+                enriched,
                 backfill_range=rk,
                 range_label=range_label or BACKFILL_RANGE_LABELS.get(rk, rk),
                 since_iso=since_dt.isoformat(timespec="seconds"),
                 progress=progress,
             )
         else:
-            cards_sync = sync_posts_to_signal_cards(merged, progress=progress)
+            cards_sync = sync_posts_to_signal_cards(enriched, progress=progress)
 
     ok = not aborted
     return {
         "success": ok or bool(merged),
         "aborted": aborted,
-        "posts": merged,
+        "posts": combined_posts,
         "cards_sync": cards_sync,
-        "new_count": len(new_hrefs),
+        "new_count": len(enriched),
+        "skipped_known": skipped_known,
         "total": len(merged),
         "routes": routes,
         "profiles": [p.get("id") for p in profiles],

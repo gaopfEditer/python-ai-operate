@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261018b" />
+  <link rel="stylesheet" href="/app.css?v=20261018h" />
 </head>
 <body>
   <div class="shell">
@@ -692,11 +692,23 @@
           <span id="sigRtActiveBannerText" class="sig-rt-active-banner-text"></span>
           <span class="sig-rt-active-banner-actions">
             <button type="button" class="btn-link" id="btnSigRtBannerGo" hidden>打开实时面板</button>
+            <button type="button" class="btn ghost xs" id="btnSigRtBannerStopListCycle" hidden>关闭列表周期</button>
             <button type="button" class="btn ghost xs" id="btnSigRtBannerStopKol" hidden>停止 KOL 实时</button>
             <button type="button" class="btn ghost xs" id="btnSigRtBannerStopBs" hidden>关闭 Square 周期</button>
           </span>
         </div>
+        <div id="sigFeedViewTabsWrap" class="sig-feed-view-tabs-wrap">
+          <nav id="sigListFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="列表信号数据视图" hidden>
+            <button type="button" class="sig-cards-view-tab" data-sig-cards-view="realtime" role="tab">实时</button>
+            <button type="button" class="sig-cards-view-tab on" data-sig-cards-view="history" role="tab">历史回溯</button>
+          </nav>
+          <nav id="sigBsFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="币安广场抓取方式" hidden>
+            <button type="button" class="sig-cards-view-tab" data-sig-bs-feed="realtime" role="tab">实时</button>
+            <button type="button" class="sig-cards-view-tab on" data-sig-bs-feed="history" role="tab">历史回溯</button>
+          </nav>
+        </div>
         <div id="sigModeList">
+        <div id="sigListHistoryPanel" class="sig-list-feed-panel">
         <div class="sig-config form-grid">
           <label class="field full">
             <span>列表链接或 ID</span>
@@ -785,6 +797,66 @@
         </div>
         <p id="sigStatus" class="status"></p>
         <pre id="sigRunLog" class="sig-run-log" hidden></pre>
+          <section class="sig-meta-block">
+            <div class="sig-meta-row">
+              <h3 class="sig-sub">已爬时间段</h3>
+              <label class="field check sig-windows-toggle">
+                <input id="sigShowAllWindows" type="checkbox" />
+                <span>查看全部</span>
+              </label>
+            </div>
+            <div id="sigWindows" class="sig-windows muted">暂无记录</div>
+          </section>
+        </div>
+
+        <div id="sigListRealtimePanel" class="sig-list-feed-panel" hidden>
+          <section id="sigKolRealtimeBlock" class="sig-meta-block sig-kol-realtime" aria-label="KOL 实时获取">
+            <div class="sig-meta-row">
+              <h3 class="sig-sub">KOL 实时获取</h3>
+              <span id="sigKolRtHintBadge" class="muted" style="font-size:.78rem"></span>
+            </div>
+            <p class="muted sig-meta-hint" style="margin:0 0 8px">
+              按所选 KOL 主页 CDP 增量抓取（默认每 15 分钟）；开启后在后台持续运行。推送指 Cards API（可进 Telegram 频道映射）。
+            </p>
+            <div class="sig-kol-realtime-grid form-grid">
+              <label class="field">
+                <span>周期间隔（分钟）</span>
+                <input id="sigKolRtInterval" type="number" min="5" max="120" value="15" />
+              </label>
+              <label class="field">
+                <span>本次时间窗（小时）</span>
+                <input id="sigKolRtCutoffHours" type="number" min="1" max="168" value="24" />
+              </label>
+              <label class="field">
+                <span>每 KOL 最多条</span>
+                <input id="sigKolRtMaxTweets" type="number" min="5" max="120" value="40" />
+              </label>
+              <label class="field check" style="align-self:end">
+                <input id="sigKolRtPush" type="checkbox" />
+                <span>推送到 Telegram（Cards API）</span>
+              </label>
+            </div>
+            <div class="field full">
+              <div class="sig-blogger-head">
+                <span>KOL（channels 映射）</span>
+                <span class="sig-blogger-actions">
+                  <button type="button" class="btn-link" id="btnSigKolRtSelectAll">全选</button>
+                  <button type="button" class="btn-link" id="btnSigKolRtSelectNone">清空</button>
+                </span>
+              </div>
+              <div id="sigKolRtBloggerList" class="sig-blogger-list" role="group" aria-label="KOL 多选"></div>
+            </div>
+            <div class="field full sig-action-bar">
+              <button id="btnSigKolRtStart" class="btn primary" type="button">开始实时</button>
+              <button id="btnSigKolRtStop" class="btn ghost" type="button" disabled>停止实时</button>
+              <button id="btnSigKolRtRunOnce" class="btn ghost" type="button">立即抓取（增量）</button>
+              <button id="btnSigKolRtPause" class="btn ghost" type="button" disabled>暂停</button>
+              <button id="btnSigKolRtResume" class="btn ghost" type="button" disabled hidden>继续</button>
+              <button id="btnSigKolRtAbort" class="btn danger" type="button" disabled>终止</button>
+            </div>
+            <p id="sigKolRtStatus" class="status" style="margin:4px 0 0"></p>
+          </section>
+        </div>
         </div>
 
         <div id="sigModeUser" hidden>
@@ -834,25 +906,14 @@
         </div>
 
         <div id="sigModeBinance" hidden>
-          <nav id="sigBsFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="币安广场抓取方式">
-            <button type="button" class="sig-cards-view-tab" data-sig-bs-feed="realtime" role="tab">实时</button>
-            <button type="button" class="sig-cards-view-tab on" data-sig-bs-feed="history" role="tab">历史回溯</button>
-          </nav>
           <div class="sig-config form-grid">
             <p class="muted full" style="margin:0;font-size:.78rem">
               配置见 <code>config/binance_square_signals.yaml</code>。<strong>历史回溯</strong>按回溯范围深滚入库；
               <strong>实时</strong>按增量时间窗周期抓取（后台持续）。Chrome 需 CDP 9223 并已登录币安。
             </p>
-            <div class="field full">
-              <div class="sig-blogger-head">
-                <span>Square 博主（共用）</span>
-                <span class="sig-blogger-actions">
-                  <button type="button" class="btn-link" id="btnSigBsSelectAll">全选</button>
-                  <button type="button" class="btn-link" id="btnSigBsSelectNone">清空</button>
-                </span>
-              </div>
-              <div id="sigBsProfileList" class="sig-blogger-list" role="group" aria-label="币安 Square 博主"></div>
-            </div>
+            <p class="muted full" style="margin:0;font-size:.78rem">
+              Square 博主勾选与卡片筛选见下方「卡片筛选」（与抓取共用同一列表，数据来自 <code>binance_square_signals.yaml</code>）。
+            </p>
             <label class="field">
               <span>每博主最多条</span>
               <input id="sigBsMaxPosts" type="number" min="5" max="80" value="40" />
@@ -963,73 +1024,6 @@
         </div>
 
         <div class="sig-meta">
-          <nav id="sigListFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="列表信号数据视图">
-            <button type="button" class="sig-cards-view-tab" data-sig-cards-view="realtime" role="tab">实时</button>
-            <button type="button" class="sig-cards-view-tab on" data-sig-cards-view="history" role="tab">历史</button>
-          </nav>
-
-          <div id="sigListRealtimePanel" class="sig-list-feed-panel" hidden>
-          <section id="sigKolRealtimeBlock" class="sig-meta-block sig-kol-realtime" aria-label="KOL 实时获取">
-            <div class="sig-meta-row">
-              <h3 class="sig-sub">KOL 实时获取</h3>
-              <span id="sigKolRtHintBadge" class="muted" style="font-size:.78rem"></span>
-            </div>
-            <p class="muted sig-meta-hint" style="margin:0 0 8px">
-              按所选 KOL 主页 CDP 增量抓取（默认每 15 分钟）；开启后在后台持续运行。推送指 Cards API（可进 Telegram 频道映射）。
-            </p>
-            <div class="sig-kol-realtime-grid form-grid">
-              <label class="field">
-                <span>周期间隔（分钟）</span>
-                <input id="sigKolRtInterval" type="number" min="5" max="120" value="15" />
-              </label>
-              <label class="field">
-                <span>本次时间窗（小时）</span>
-                <input id="sigKolRtCutoffHours" type="number" min="1" max="168" value="24" />
-              </label>
-              <label class="field">
-                <span>每 KOL 最多条</span>
-                <input id="sigKolRtMaxTweets" type="number" min="5" max="120" value="40" />
-              </label>
-              <label class="field check" style="align-self:end">
-                <input id="sigKolRtPush" type="checkbox" />
-                <span>推送到 Telegram（Cards API）</span>
-              </label>
-            </div>
-            <div class="field full">
-              <div class="sig-blogger-head">
-                <span>KOL（channels 映射）</span>
-                <span class="sig-blogger-actions">
-                  <button type="button" class="btn-link" id="btnSigKolRtSelectAll">全选</button>
-                  <button type="button" class="btn-link" id="btnSigKolRtSelectNone">清空</button>
-                </span>
-              </div>
-              <div id="sigKolRtBloggerList" class="sig-blogger-list" role="group" aria-label="KOL 多选"></div>
-            </div>
-            <div class="field full sig-action-bar">
-              <button id="btnSigKolRtStart" class="btn primary" type="button">开始实时</button>
-              <button id="btnSigKolRtStop" class="btn ghost" type="button" disabled>停止实时</button>
-              <button id="btnSigKolRtRunOnce" class="btn ghost" type="button">立即抓取（增量）</button>
-              <button id="btnSigKolRtPause" class="btn ghost" type="button" disabled>暂停</button>
-              <button id="btnSigKolRtResume" class="btn ghost" type="button" disabled hidden>继续</button>
-              <button id="btnSigKolRtAbort" class="btn danger" type="button" disabled>终止</button>
-            </div>
-            <p id="sigKolRtStatus" class="status" style="margin:4px 0 0"></p>
-          </section>
-          </div>
-
-          <div id="sigListHistoryPanel" class="sig-list-feed-panel">
-          <section class="sig-meta-block">
-            <div class="sig-meta-row">
-              <h3 class="sig-sub">已爬时间段</h3>
-              <label class="field check sig-windows-toggle">
-                <input id="sigShowAllWindows" type="checkbox" />
-                <span>查看全部</span>
-              </label>
-            </div>
-            <div id="sigWindows" class="sig-windows muted">暂无记录</div>
-          </section>
-          </div>
-
           <section class="sig-meta-block sig-meta-bar">
             <div class="sig-meta-bar-left">
               <label class="field check" style="margin:0">
@@ -1058,22 +1052,37 @@
           </section>
         </div>
 
-        <section id="sigCardsFiltersBar" class="sig-meta-block sig-cards-filters sig-cards-filters-bar" aria-label="卡片筛选" hidden>
-          <div class="sig-meta-row">
+        <section id="sigCardsFiltersBar" class="sig-cards-filters-bar" aria-label="卡片筛选" hidden>
+          <header class="sig-cards-filter-head">
             <h3 class="sig-sub">卡片筛选</h3>
-          </div>
-          <div id="sigCardsFiltersListRow" class="sig-filter-row sig-filter-row-kol">
-            <div id="sigCardsFilterKolBlock" class="field sig-filter-field sig-filter-kol-field full">
-              <div class="sig-blogger-head">
-                <span>KOL（可多选）</span>
-                <span class="sig-blogger-actions">
-                  <button type="button" class="btn-link" id="btnSigFilterKolAll">全选</button>
-                  <button type="button" class="btn-link" id="btnSigFilterKolNone">清空</button>
-                </span>
-              </div>
-              <div id="sigFilterKolList" class="sig-blogger-list sig-filter-kol-list" role="group" aria-label="卡片 KOL 筛选"></div>
-              <p class="muted sig-filter-kol-hint">未勾选表示全部 KOL</p>
+            <span id="sigCardsFilterModeBadge" class="sig-cards-filter-badge muted"></span>
+          </header>
+
+          <div id="sigCardsFilterKolBlock" class="sig-cards-filter-section" hidden>
+            <div class="sig-blogger-head sig-cards-filter-blogger-head">
+              <span class="sig-cards-filter-label">KOL</span>
+              <span class="sig-blogger-actions">
+                <button type="button" class="btn-link" id="btnSigFilterKolAll">全选</button>
+                <button type="button" class="btn-link" id="btnSigFilterKolNone">清空</button>
+              </span>
             </div>
+            <div id="sigFilterKolList" class="sig-blogger-list sig-cards-filter-chips" role="group" aria-label="卡片 KOL 筛选"></div>
+            <p class="muted sig-filter-kol-hint">未勾选 = 全部 KOL</p>
+          </div>
+
+          <div id="sigCardsFilterBsBlock" class="sig-cards-filter-section" hidden>
+            <div class="sig-blogger-head sig-cards-filter-blogger-head">
+              <span class="sig-cards-filter-label">Square 博主（共用）</span>
+              <span class="sig-blogger-actions">
+                <button type="button" class="btn-link" id="btnSigBsSelectAll">全选</button>
+                <button type="button" class="btn-link" id="btnSigBsSelectNone">清空</button>
+              </span>
+            </div>
+            <div id="sigBsProfileList" class="sig-blogger-list sig-cards-filter-chips" role="group" aria-label="币安 Square 博主"></div>
+            <p class="muted sig-filter-kol-hint">与上方抓取共用同一列表（yaml profiles）</p>
+          </div>
+
+          <div id="sigCardsFilterTimeRow" class="sig-cards-filter-time">
             <label class="field sig-filter-field">
               <span>时间范围</span>
               <select id="sigFilterRange">
@@ -1094,12 +1103,11 @@
               <span>到</span>
               <input id="sigFilterTo" type="datetime-local" />
             </label>
-            <button type="button" class="btn ghost" id="btnSigFilterApply">筛选</button>
-            <button type="button" class="btn-link" id="btnSigFilterReset">重置</button>
+            <div class="sig-cards-filter-actions">
+              <button type="button" class="btn primary btn-sm" id="btnSigFilterApply">应用筛选</button>
+              <button type="button" class="btn-link" id="btnSigFilterReset">重置</button>
+            </div>
           </div>
-          <p id="sigCardsFiltersBinanceHint" class="muted sig-filter-kol-hint" hidden>
-            Square 博主请在上方勾选；此处按时间范围筛选卡片列表。
-          </p>
         </section>
 
         <nav id="sigCardsPager" class="sig-cards-pager" hidden aria-label="信号卡片分页"></nav>
@@ -1383,6 +1391,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261018b"></script>
+  <script src="/app.js?v=20261018i"></script>
 </body>
 </html>
