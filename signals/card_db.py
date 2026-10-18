@@ -525,6 +525,7 @@ def db_list_cards(
     *,
     list_id: str = "",
     user_handle: str = "",
+    user_handles: Optional[List[str]] = None,
     only_trade: bool = False,
     limit: int = 100,
     from_ts: Optional[int] = None,
@@ -545,21 +546,28 @@ def db_list_cards(
     if str(list_id).startswith("user:"):
         handle = _parse_user_handle(list_id.split(":", 1)[-1]) or handle
 
+    handles: List[str] = []
+    if user_handles:
+        for raw in user_handles:
+            h = _parse_user_handle(str(raw)) or str(raw or "").strip().lstrip("@")
+            if h:
+                handles.append(h.lower())
+    if handle and handle.lower() not in handles:
+        handles.append(handle.lower())
+
     clauses: List[str] = []
     params: List[Any] = []
 
     if not merge_sources and lid and not lid.startswith("user:"):
         clauses.append("(list_id=? OR list_id='')")
         params.append(lid)
-    if handle:
-        scope = _user_scope_id(handle)
-        hlow = handle.lower()
-        if merge_sources:
-            clauses.append("(user_handle=? OR list_id=? OR lower(author) LIKE ?)")
+    if handles:
+        or_parts: List[str] = []
+        for hlow in handles:
+            scope = _user_scope_id(hlow)
+            or_parts.append("(user_handle=? OR list_id=? OR lower(author) LIKE ?)")
             params.extend([hlow, scope, f"@{hlow}"])
-        elif not lid or lid.startswith("user:"):
-            clauses.append("(user_handle=? OR list_id=? OR lower(author) LIKE ?)")
-            params.extend([hlow, scope, f"@{hlow}"])
+        clauses.append(f"({' OR '.join(or_parts)})")
 
     if from_ts is not None:
         clauses.append("created_at_ts>=?")

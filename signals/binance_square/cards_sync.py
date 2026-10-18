@@ -232,7 +232,12 @@ def ensure_binance_cards_materialized(*, progress: ProgressCb = None) -> Dict[st
     cfg = load_config()
     rk = str(cfg.get("backfill_range") or "last_7d")
     since_dt, range_label = resolve_backfill_since(rk)
-    _log(progress, f"从 Square 缓存补同步 {len(posts)} 条到 SQLite…")
+    from signals.binance_square.store import apply_binance_time_filter
+
+    posts = apply_binance_time_filter(posts, backfill_range=rk, cfg=cfg)
+    if not posts:
+        return {"synced": 0, "reason": "no_posts_in_range", "already_in_db": existing}
+    _log(progress, f"从 Square 缓存补同步 {len(posts)} 条到 SQLite（{rk}）…")
     out = sync_posts_to_signal_cards(
         posts,
         backfill_range=rk,

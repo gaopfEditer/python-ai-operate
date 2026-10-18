@@ -434,6 +434,80 @@ def run_list_signal_pipeline(
     }
 
 
+def _card_source_meta(*, source_mode: str, session_id: str = "") -> Dict[str, Any]:
+    modes = [source_mode]
+    if source_mode == "kol_realtime":
+        modes.append("list_realtime")
+    out: Dict[str, Any] = {"source_mode": source_mode, "source_modes": modes}
+    if session_id:
+        out["realtime_session_id"] = session_id
+    return out
+
+
+def run_kol_realtime_batch(
+    *,
+    handles: List[str],
+    cutoff_hours: int = 24,
+    max_tweets: int = 40,
+    session_id: str = "",
+    push_enabled: bool = False,
+    progress: ProgressCb = None,
+    control: Optional[RunControl] = None,
+) -> Dict[str, Any]:
+    uniq = []
+    seen: set[str] = set()
+    for h in handles or []:
+        key = str(h or "").strip().lower().lstrip("@")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        uniq.append(key)
+    if not uniq:
+        return {"success": False, "error": "未选择 KOL"}
+
+    batch: List[Dict[str, Any]] = []
+    all_logs: List[Dict[str, Any]] = []
+    aborted = False
+    ok_n = 0
+    for i, handle in enumerate(uniq, 1):
+        if control and control.is_stopped():
+            aborted = True
+            _log(progress, f"用户终止于 KOL {i - 1}/{len(uniq)}")
+            break
+        _log(progress, f"======== KOL 实时 {i}/{len(uniq)} · @{handle} ========")
+        one = run_user_signal_pipeline(
+            user_handle=handle,
+            max_tweets=max_tweets,
+            progress=progress,
+            control=control,
+            kol_realtime=True,
+            kol_cutoff_hours=cutoff_hours,
+            realtime_session_id=session_id,
+            push_enabled=push_enabled,
+        )
+        batch.append({"id": handle, **{k: one.get(k) for k in ("success", "aborted", "parsed", "fetched", "message", "error")}})
+        for ilog in one.get("item_logs") or []:
+            if isinstance(ilog, dict):
+                all_logs.append(ilog)
+        if one.get("aborted"):
+            aborted = True
+            break
+        if one.get("success"):
+            ok_n += 1
+
+    msg = f"KOL 实时完成：成功 {ok_n}/{len(uniq)}" + (" · 已终止" if aborted else "")
+    _log(progress, msg)
+    return {
+        "success": ok_n > 0 or not aborted,
+        "aborted": aborted,
+        "handles": uniq,
+        "session_id": session_id,
+        "batch": batch,
+        "item_logs": all_logs,
+        "message": msg,
+    }
+
+
 def run_user_signal_pipeline(
     *,
     profile_url: str = "",
@@ -443,6 +517,10 @@ def run_user_signal_pipeline(
     max_tweets: Optional[int] = None,
     progress: ProgressCb = None,
     control: Optional[RunControl] = None,
+    kol_realtime: bool = False,
+    kol_cutoff_hours: Optional[int] = None,
+    realtime_session_id: str = "",
+    push_enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """博主主页回溯：CDP 抓取时间范围内推文 → AI 判交易信号 → 卡片入库。"""
     from signals.backfill_range import (
@@ -458,38 +536,63 @@ def run_user_signal_pipeline(
     if not handle:
         return {"success": False, "error": "请填写博主链接或 @handle"}
 
-    if backfill_range is not None:
-        range_key = resolve_backfill_range(backfill_range)
-    elif weeks is not None:
-        range_key = weeks_to_backfill_range(weeks)
-    else:
-        range_key = resolve_backfill_range(None, cfg=cfg)
-
-    span_days = backfill_range_span_days(range_key)
-    limit = int(max_tweets if max_tweets is not None else cfg.get("user_max_tweets") or min(span_days * 5, 300))
-    limit = max(10, min(limit, 300))
-    skip_nt = False
-    reparse_seen = False
-    do_push = False
-    scope = user_scope_id(handle)
-
-    save_config(
-        {
-            "user_profile_url": user_profile_url(handle),
-            "user_backfill_range": range_key,
-            "user_max_tweets": limit,
-        }
+    src_meta = _card_source_meta(
+        source_mode="kol_realtime" if kol_realtime else "user_backfill",
+        session_id=realtime_session_id if kol_realtime else "",
     )
+    now = datetime.now(timezone.utc).astimezone()
+
+    if kol_realtime:
+        hours = max(1, min(int(kol_cutoff_hours or cfg.get("kol_realtime_cutoff_hours") or 24), 168))
+        since = now - timedelta(hours=hours)
+        range_label = f"KOL 实时 {hours}h"
+        range_key = "kol_realtime"
+        limit = int(
+            max_tweets
+            if max_tweets is not None
+            else cfg.get("kol_realtime_max_tweets") or cfg.get("user_max_tweets") or 40
+        )
+        limit = max(5, min(limit, 120))
+        max_scroll = max(20, min(hours * 3, 80))
+        skip_nt = False
+        reparse_seen = False
+        do_push = bool(
+            push_enabled if push_enabled is not None else cfg.get("kol_realtime_push_enabled")
+        )
+    else:
+        if backfill_range is not None:
+            range_key = resolve_backfill_range(backfill_range)
+        elif weeks is not None:
+            range_key = weeks_to_backfill_range(weeks)
+        else:
+            range_key = resolve_backfill_range(None, cfg=cfg)
+
+        span_days = backfill_range_span_days(range_key)
+        limit = int(max_tweets if max_tweets is not None else cfg.get("user_max_tweets") or min(span_days * 5, 300))
+        limit = max(10, min(limit, 300))
+        skip_nt = False
+        reparse_seen = False
+        do_push = False
+        since, range_label = resolve_backfill_since(range_key, now=now)
+        max_scroll = max(35, min(span_days * 2 + 20, 150))
+        save_config(
+            {
+                "user_profile_url": user_profile_url(handle),
+                "user_backfill_range": range_key,
+                "user_max_tweets": limit,
+            }
+        )
+
+    scope = user_scope_id(handle)
 
     if control and control.is_stopped():
         return {"success": False, "error": "已终止", "aborted": True}
 
-    now = datetime.now(timezone.utc).astimezone()
-    since, range_label = resolve_backfill_since(range_key, now=now)
-    max_scroll = max(35, min(span_days * 2 + 20, 150))
-
     _log(progress, "=" * 56)
-    _log(progress, f"博主回溯：@{handle} · {range_label}（自 {since.isoformat(timespec='seconds')}）")
+    if kol_realtime:
+        _log(progress, f"KOL 实时：@{handle} · {range_label}（自 {since.isoformat(timespec='seconds')}）")
+    else:
+        _log(progress, f"博主回溯：@{handle} · {range_label}（自 {since.isoformat(timespec='seconds')}）")
     if _wait_if_paused(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "message": "用户终止"}
 
@@ -691,7 +794,7 @@ def run_user_signal_pipeline(
                     "images": images_meta,
                     "signal": signal,
                     "parsed_at": now.isoformat(timespec="seconds"),
-                    "source_mode": "user_backfill",
+                    **src_meta,
                     "cache_only": True,
                 }
                 upsert_card(cache_card)
@@ -717,7 +820,7 @@ def run_user_signal_pipeline(
             continue
 
         if from_cache and cached_card:
-            patch = dict(cached_card)
+            patch = {**dict(cached_card), **src_meta}
             if images_meta:
                 patch["images"] = images_meta
             saved = upsert_card(patch)
@@ -768,7 +871,7 @@ def run_user_signal_pipeline(
             "images": images_meta,
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
-            "source_mode": "user_backfill",
+            **src_meta,
         }
         upsert_card(card)
         cards.append(card)

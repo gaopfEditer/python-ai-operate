@@ -20,7 +20,7 @@ import traceback
 import uuid
 import webbrowser
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -3429,6 +3429,7 @@ def handle_api(
         from signals.schedule import describe_schedule, estimate_daily_runs
         from signals.store import get_config, load_state, card_count
         from signals.cycle_watcher import status as cycle_status
+        from signals.kol_realtime_watcher import status as kol_rt_status
         from signals.watcher import status as watch_status
         from signals.store import resolve_signals_debugger_url
 
@@ -3451,6 +3452,7 @@ def handle_api(
                 ),
                 "watch": watch_status(),
                 "cycle": cycle_status(),
+                "kol_realtime": kol_rt_status(),
             }
         )
 
@@ -3472,13 +3474,113 @@ def handle_api(
             set_cycle(bool(cfg.get("cycle_enabled")))
         elif cfg.get("cycle_enabled"):
             start_cycle_watcher(force=True)
+        from signals.kol_realtime_watcher import (
+            set_kol_realtime,
+            start_kol_realtime_watcher,
+            status as kol_rt_status,
+        )
+
+        if "kol_realtime_enabled" in (body or {}):
+            set_kol_realtime(
+                bool(cfg.get("kol_realtime_enabled")),
+                new_session=bool(body.get("kol_realtime_new_session")),
+            )
+        elif cfg.get("kol_realtime_enabled"):
+            start_kol_realtime_watcher(force=True)
         return _json_bytes(
             {
                 "success": True,
                 "config": cfg,
                 "debugger_url_effective": resolve_signals_debugger_url(cfg),
+                "kol_realtime": kol_rt_status(),
             }
         )
+
+    if path == "/api/signals/kol-realtime" and method == "GET":
+        from signals.kol_realtime_watcher import status as kol_rt_status
+
+        return _json_bytes({"success": True, "kol_realtime": kol_rt_status()})
+
+    if path == "/api/signals/kol-realtime" and method == "POST":
+        from signals.kol_realtime_watcher import set_kol_realtime, status as kol_rt_status
+
+        if isinstance(body, dict):
+            from signals.store import save_config as save_sig_cfg
+
+            save_sig_cfg(body)
+        enabled = bool(body.get("enabled", body.get("kol_realtime_enabled", False)))
+        st = set_kol_realtime(enabled, new_session=bool(body.get("new_session")))
+        return _json_bytes({"success": True, "kol_realtime": st or kol_rt_status()})
+
+    if path == "/api/signals/kol-realtime/run" and method == "POST":
+        job_id = uuid.uuid4().hex[:12]
+        from signals.control import RunControl, register, unregister
+
+        ctl = register(job_id, RunControl(job_id))
+        log_buf: List[str] = []
+
+        def _progress_krt(msg: str) -> None:
+            text = str(msg or "")[:800]
+            log_buf.append(text)
+            if len(log_buf) > 400:
+                del log_buf[:120]
+            st = ctl.status()
+            _set_job(
+                job_id,
+                status="paused" if st == "paused" else "running",
+                message=text[:280],
+                logs=list(log_buf[-160:]),
+                control_status=st,
+            )
+
+        def _worker_krt() -> None:
+            try:
+                from signals.pipeline import run_kol_realtime_batch
+                from signals.store import get_config as gcfg
+
+                cfg = gcfg()
+                handles = body.get("handles") or cfg.get("kol_realtime_handles") or []
+                result = run_kol_realtime_batch(
+                    handles=handles if isinstance(handles, list) else [],
+                    cutoff_hours=int(body.get("cutoff_hours") or cfg.get("kol_realtime_cutoff_hours") or 24),
+                    max_tweets=int(body.get("max_tweets") or cfg.get("kol_realtime_max_tweets") or 40),
+                    session_id=str(body.get("session_id") or cfg.get("kol_realtime_session_id") or ""),
+                    push_enabled=bool(
+                        body.get("push_enabled")
+                        if "push_enabled" in body
+                        else cfg.get("kol_realtime_push_enabled")
+                    ),
+                    progress=_progress_krt,
+                    control=ctl,
+                )
+                aborted = bool(result.get("aborted"))
+                ok = bool(result.get("success"))
+                final = "cancelled" if aborted else ("done" if ok else "error")
+                _set_job(
+                    job_id,
+                    status=final,
+                    type="kol_realtime",
+                    message=result.get("message") or result.get("error") or "完成",
+                    result=result,
+                    logs=list(log_buf[-200:]),
+                    control_status=ctl.status(),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                _set_job(
+                    job_id,
+                    status="error",
+                    message=str(e),
+                    logs=list(log_buf[-200:]),
+                    control_status=ctl.status(),
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            finally:
+                unregister(job_id)
+
+        _set_job(job_id, status="queued", type="kol_realtime", message="排队中…")
+        threading.Thread(target=_worker_krt, daemon=True, name=f"kol-rt-{job_id[:8]}").start()
+        return _json_bytes({"success": True, "job_id": job_id})
 
     if path == "/api/signals/cycle" and method == "GET":
         from signals.cycle_watcher import status as cycle_status
@@ -3602,6 +3704,17 @@ def handle_api(
         only_trade = str((query.get("trade") or [""])[0]).lower() in ("1", "true", "yes")
         lid = (query.get("list_id") or [""])[0]
         handle = (query.get("handle") or query.get("user_id") or query.get("user") or [""])[0]
+        handles_list: list[str] = []
+        handles_q = query.get("handles") or query.get("handle_list") or []
+        if isinstance(handles_q, str):
+            handles_q = [handles_q]
+        for part in handles_q:
+            for h in str(part or "").replace(";", ",").split(","):
+                h = str(h or "").strip().lstrip("@")
+                if h and h.lower() not in handles_list:
+                    handles_list.append(h)
+        if not handles_list and str(handle or "").strip():
+            handles_list = [str(handle).strip().lstrip("@")]
         from_raw = (query.get("from") or query.get("from_time") or [""])[0]
         to_raw = (query.get("to") or query.get("to_time") or [""])[0]
         days_raw = (query.get("days") or [""])[0]
@@ -3609,6 +3722,9 @@ def handle_api(
         merge_raw = (query.get("merge") or query.get("merge_sources") or ["1"])[0]
         merge_sources = str(merge_raw).lower() not in ("0", "false", "no")
         source_mode = str((query.get("source") or query.get("source_mode") or [""])[0]).strip()
+        session_id = str(
+            (query.get("realtime_session_id") or query.get("session_id") or [""])[0]
+        ).strip()
         recommended_only = str((query.get("recommended") or [""])[0]).lower() in (
             "1",
             "true",
@@ -3632,11 +3748,35 @@ def handle_api(
             from signals.binance_square.cards_sync import ensure_binance_cards_materialized
 
             ensure_binance_cards_materialized()
+            if not str(range_raw or "").strip() and not str(from_raw or "").strip() and days is None:
+                from signals.binance_square.store import load_config as load_bs_config
+
+                bsc = load_bs_config()
+                range_raw = str(bsc.get("backfill_range") or "last_7d")
+        if source_mode == "kol_realtime":
+            if not str(range_raw or "").strip() and not str(from_raw or "").strip() and days is None:
+                from signals.store import load_state as load_sig_state
+
+                scfg = load_sig_state().get("config") or {}
+                try:
+                    kh = float(scfg.get("kol_realtime_cutoff_hours") or 24)
+                except (TypeError, ValueError):
+                    kh = 24.0
+                kh = max(1.0, min(168.0, kh))
+                from_raw = (datetime.now(timezone.utc) - timedelta(hours=kh)).isoformat()
+        if (
+            not source_mode
+            and not str(range_raw or "").strip()
+            and not str(from_raw or "").strip()
+            and days is None
+        ):
+            range_raw = "last_7d"
         items = [
             enrich_card_channel(c, cfg_ch)
             for c in list_cards(
                 list_id=lid,
-                user_handle=str(handle or ""),
+                user_handle=handles_list[0] if len(handles_list) == 1 else "",
+                user_handles=handles_list if len(handles_list) > 1 else None,
                 only_trade=only_trade,
                 limit=limit,
                 days=days,
@@ -3649,6 +3789,12 @@ def handle_api(
                 recommended_only=recommended_only,
             )
         ]
+        if session_id:
+            items = [
+                c
+                for c in items
+                if str(c.get("realtime_session_id") or "") == session_id
+            ]
         st = load_state()
         return _json_bytes(
             {
@@ -5034,6 +5180,17 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
             start_bs_cycle(force=True)
     except Exception as e:
         safe_print(f" 币安 Square 周期抓取初始化跳过: {e}")
+    kol_rt_on = False
+    try:
+        from signals.kol_realtime_watcher import start_kol_realtime_watcher
+        from signals.store import get_config as _sig_cfg2
+
+        _kr = _sig_cfg2() or {}
+        kol_rt_on = bool(_kr.get("kol_realtime_enabled"))
+        if kol_rt_on:
+            start_kol_realtime_watcher(force=True)
+    except Exception as e:
+        safe_print(f" KOL 实时抓取初始化跳过: {e}")
     _free_port(port, log=safe_print)
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"
@@ -5061,6 +5218,8 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         safe_print(" 列表信号: 周期抓取已开启（5–15 分钟随机间隔，首次最多 8h）")
     if bs_cycle_on:
         safe_print(" 币安 Square: 周期抓取已开启（5–15 分钟随机间隔）")
+    if kol_rt_on:
+        safe_print(" KOL 实时: 周期抓取已开启（列表信号 Tab 配置间隔）")
     safe_print(" 外部发布: POST /api/v1/publish  （文档 docs/cdp-publish-api.md）")
     safe_print(" 交易信号发布: POST /api/v1/trade-signal/publish  （AI+OI截图→发布）")
     safe_print(" 按 Ctrl+C 停止")

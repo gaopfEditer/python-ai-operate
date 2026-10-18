@@ -1,26 +1,30 @@
-# 币安 Square 博主巡检（控制台 · 列表信号 · 币安广场 Tab）
-debugger_url: "127.0.0.1:9223"
+debugger_url: 127.0.0.1:9223
 backfill_range: last_7d
 cutoff_hours: 24
 max_posts_per_profile: 40
 try_bapi_first: false
-# 抓取完成后，对带直播回放 URL 的帖自动排队 WhisprRT 转写（成品在 WhisprRT/output）
 replay_whisper_auto: true
 replay_whisper_max_days: 2
+cycle_enabled: true
+cycle_min_minutes: 5
+cycle_max_minutes: 15
+first_crawl_hours: 8
+cycle_cutoff_hours: 8
+last_crawl_at: ''
 profiles:
-  - id: yanchibit
-    name: yanchibit
-    url: https://www.binance.com/zh-CN/square/profile/yanchibit
-    enabled: true
-  - id: sanmageshuai
-    name: sanmageshuai
-    url: https://www.binance.com/zh-CN/square/profile/sanmageshuai
-    enabled: true
-  - id: square-creator-92912a51e
-    name: 打鬼佬
-    url: https://www.binance.com/zh-CN/square/profile/square-creator-92912a51e
-    enabled: true
-  - id: square-creator-446e63a9fd9ef
-    name: 格里芬院长
-    url: https://www.binance.com/zh-CN/square/profile/square-creator-446e63a9fd9ef
-    enabled: true
+- id: yanchibit
+  name: yanchibit
+  url: https://www.binance.com/zh-CN/square/profile/yanchibit
+  enabled: true
+- id: sanmageshuai
+  name: sanmageshuai
+  url: https://www.binance.com/zh-CN/square/profile/sanmageshuai
+  enabled: true
+- id: square-creator-92912a51e
+  name: 打鬼佬
+  url: https://www.binance.com/zh-CN/square/profile/square-creator-92912a51e
+  enabled: true
+- id: square-creator-446e63a9fd9ef
+  name: 格里芬院长
+  url: https://www.binance.com/zh-CN/square/profile/square-creator-446e63a9fd9ef
+  enabled: true

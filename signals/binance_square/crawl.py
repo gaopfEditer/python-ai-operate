@@ -267,7 +267,7 @@ def run_binance_square_fetch(
 
     cards_sync: Dict[str, Any] = {}
     if merged:
-        from signals.backfill_range import BACKFILL_RANGE_LABELS, resolve_backfill_since
+        from signals.backfill_range import resolve_backfill_since
         from signals.binance_square.cards_sync import sync_posts_to_signal_cards
 
         rk = str(time_spec.get("backfill_range") or "last_7d")

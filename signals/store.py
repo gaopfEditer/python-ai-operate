@@ -137,6 +137,14 @@ def _empty_state() -> Dict[str, Any]:
             "user_reparse_seen": False,
             "user_push_enabled": True,
             "user_force_push": False,
+            "kol_realtime_enabled": False,
+            "kol_realtime_interval_min": 15,
+            "kol_realtime_cutoff_hours": 24,
+            "kol_realtime_max_tweets": 40,
+            "kol_realtime_handles": [],
+            "kol_realtime_push_enabled": False,
+            "kol_realtime_session_id": "",
+            "kol_realtime_session_started_at": "",
             "debugger_url": "127.0.0.1:9223",
         },
         "windows": [],
@@ -274,6 +282,30 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
             cfg["value_max_tweets"] = max(1, min(int(patch["value_max_tweets"]), 120))
         except Exception:
             pass
+    if "kol_realtime_enabled" in patch:
+        cfg["kol_realtime_enabled"] = bool(patch["kol_realtime_enabled"])
+    for key in (
+        "kol_realtime_interval_min",
+        "kol_realtime_cutoff_hours",
+        "kol_realtime_max_tweets",
+    ):
+        if key in patch and patch[key] is not None:
+            try:
+                cfg[key] = int(patch[key])
+            except Exception:
+                pass
+    if "kol_realtime_push_enabled" in patch:
+        cfg["kol_realtime_push_enabled"] = bool(patch["kol_realtime_push_enabled"])
+    if "kol_realtime_handles" in patch and isinstance(patch.get("kol_realtime_handles"), list):
+        cfg["kol_realtime_handles"] = [
+            parse_user_handle(str(x)) or str(x).strip().lower().lstrip("@")
+            for x in patch["kol_realtime_handles"]
+            if str(x).strip()
+        ]
+    if "kol_realtime_session_id" in patch:
+        cfg["kol_realtime_session_id"] = str(patch.get("kol_realtime_session_id") or "")
+    if "kol_realtime_session_started_at" in patch:
+        cfg["kol_realtime_session_started_at"] = str(patch.get("kol_realtime_session_started_at") or "")
     if "debugger_url" in patch:
         raw = normalize_debugger_url(str(patch.get("debugger_url") or ""))
         if raw:
@@ -418,6 +450,7 @@ def list_cards(
     *,
     list_id: str = "",
     user_handle: str = "",
+    user_handles: Optional[List[str]] = None,
     only_trade: bool = False,
     limit: int = 100,
     from_ts: Optional[int] = None,
@@ -452,6 +485,7 @@ def list_cards(
     items = db_list_cards(
         list_id=list_id,
         user_handle=user_handle,
+        user_handles=user_handles,
         only_trade=only_trade,
         limit=limit,
         from_ts=f_ts,
