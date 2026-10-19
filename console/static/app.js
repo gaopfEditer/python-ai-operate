@@ -6697,6 +6697,11 @@ function bind() {
   });
   $("#btnSigBacktest")?.addEventListener("click", () => startSigCardsBacktest());
   $("#btnSigBacktestResult")?.addEventListener("click", () => openSigBacktestResultDialog());
+  $("#sigBacktestResultDialog")?.addEventListener("click", (e) => {
+    const tab = e.target.closest(".sig-backtest-view-tab[data-sig-bt-view]");
+    if (!tab) return;
+    setSigBacktestResultView(tab.getAttribute("data-sig-bt-view") || "cards");
+  });
   loadSigBacktestLast();
   $("#sigFilterTrade")?.addEventListener("change", () => {
     persistSigCardsFilter();
@@ -8679,23 +8684,33 @@ function backtestPnlClass(pct) {
   return "";
 }
 
-function renderSigBacktestBadgeHtml(items) {
+function formatBacktestPct(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+function renderSigBacktestBadgeBlock(items) {
   if (!items.length) return "";
   const ok = items.filter((it) => !it.error);
+  let badgeInner;
   if (!ok.length) {
-    return `<span class="sig-backtest-badge is-err" title="回测失败">回测 ×</span>`;
+    badgeInner = `<span class="sig-backtest-badge is-err">回测 ×</span>`;
+  } else {
+    let best = ok[0];
+    for (const it of ok) {
+      const a = Number(it.currentPnlPct);
+      const b = Number(best.currentPnlPct);
+      if (Number.isFinite(a) && (!Number.isFinite(b) || a > b)) best = it;
+    }
+    const sym = String(best.symbol || "").trim();
+    const pnl = formatBacktestPct(best.currentPnlPct);
+    const extra = ok.length > 1 ? ` +${ok.length - 1}币` : "";
+    const cls = backtestPnlClass(best.currentPnlPct);
+    badgeInner = `<span class="sig-backtest-badge ${cls}">回测 ${escapeHtml(sym)} ${escapeHtml(pnl)}${escapeHtml(extra)}</span>`;
   }
-  let best = ok[0];
-  for (const it of ok) {
-    const a = Number(it.currentPnlPct);
-    const b = Number(best.currentPnlPct);
-    if (Number.isFinite(a) && (!Number.isFinite(b) || a > b)) best = it;
-  }
-  const sym = String(best.symbol || "").trim();
-  const pnl = best.currentPnlPct != null ? `${best.currentPnlPct}%` : "—";
-  const extra = ok.length > 1 ? ` · +${ok.length - 1}币` : "";
-  const cls = backtestPnlClass(best.currentPnlPct);
-  return `<span class="sig-backtest-badge ${cls}" title="悬停查看回测详情">回测 ${escapeHtml(sym)} ${escapeHtml(pnl)}${escapeHtml(extra)}</span>`;
+  return `<span class="sig-backtest-anchor">${badgeInner}<div class="sig-backtest-popover" role="tooltip">${renderSigBacktestPopoverHtml(items)}</div></span>`;
 }
 
 function renderSigBacktestPopoverRow(it) {
@@ -8705,10 +8720,10 @@ function renderSigBacktestPopoverRow(it) {
     return `<div class="sig-bt-pop-row is-err"><strong>${escapeHtml(symbol)}</strong><span>${escapeHtml(String(it.error))}</span></div>`;
   }
   const dir = sigDirectionLabel(it.direction);
-  const maxP = it.maxProfitPct != null ? `${it.maxProfitPct}%` : "—";
-  const minP = it.minProfitPct != null ? `${it.minProfitPct}%` : "—";
-  const pnl = it.currentPnlPct != null ? `${it.currentPnlPct}%` : "—";
-  const thr = it.profitThresholdPct != null ? `${it.profitThresholdPct}%` : "—";
+  const maxP = it.maxProfitPct != null ? formatBacktestPct(it.maxProfitPct) : "—";
+  const minP = it.minProfitPct != null ? formatBacktestPct(it.minProfitPct) : "—";
+  const pnl = it.currentPnlPct != null ? formatBacktestPct(it.currentPnlPct) : "—";
+  const thr = it.profitThresholdPct != null ? formatBacktestPct(it.profitThresholdPct) : "—";
   const hitMax =
     it.hitProfitThresholdBeforeMax == null ? "—" : it.hitProfitThresholdBeforeMax ? "是" : "否";
   const hitMin =
@@ -8727,6 +8742,11 @@ function renderSigBacktestPopoverRow(it) {
       <div><dt>窗口</dt><dd>${escapeHtml(String(it.windowDays ?? "—"))} 天</dd></div>
       <div><dt>触顶前达阈</dt><dd>${escapeHtml(hitMax)}</dd></div>
       <div><dt>触底前达阈</dt><dd>${escapeHtml(hitMin)}</dd></div>
+      ${
+        it.maxDrawdownPct != null
+          ? `<div><dt>最大回撤</dt><dd>${escapeHtml(formatBacktestPct(it.maxDrawdownPct))}</dd></div>`
+          : ""
+      }
     </dl>
   </div>`;
 }
@@ -8757,6 +8777,7 @@ function persistSigBacktestLast() {
         signals: r.signals,
         items: r.items,
         errors: r.errors || [],
+        apiRaw: r.apiRaw,
         finished: true,
         savedAt: r.savedAt || Date.now(),
       })
@@ -8770,6 +8791,7 @@ function loadSigBacktestLast() {
   if (_sigBacktestLast?.items?.length) {
     rebuildSigBacktestIndex();
     updateSigBacktestResultButton();
+    renderSigBacktestRawPanels();
     return;
   }
   try {
@@ -8783,6 +8805,7 @@ function loadSigBacktestLast() {
   }
   rebuildSigBacktestIndex();
   updateSigBacktestResultButton();
+  renderSigBacktestRawPanels();
 }
 
 function updateSigBacktestResultButton() {
@@ -8801,7 +8824,58 @@ function setSigBacktestLast(partial) {
   persistSigBacktestLast();
   rebuildSigBacktestIndex();
   updateSigBacktestResultButton();
+  renderSigBacktestRawPanels();
   renderSigCardsView();
+}
+
+function sigBacktestDisplayPayload(r) {
+  if (!r || !(r.items || []).length) return null;
+  const start = r.start || {};
+  return {
+    jobId: r.jobId || start.jobId,
+    mock: !!(r.mock ?? start.mock),
+    windowDays: r.window_days ?? start.windowDays ?? 3,
+    note: r.note || start.note || "",
+    mode: r.mode || start.mode,
+    signalCount: Array.isArray(r.signals) ? r.signals.length : r.signal_count,
+    items: r.items || [],
+    errors: r.errors || [],
+    savedAt: r.savedAt,
+    apiRaw: r.apiRaw,
+  };
+}
+
+function renderSigBacktestJsonText(r) {
+  const payload = sigBacktestDisplayPayload(r);
+  if (!payload) return "";
+  return JSON.stringify(payload, null, 2);
+}
+
+function renderSigBacktestRawPanels() {
+  const text = renderSigBacktestJsonText(_sigBacktestLast);
+  const inline = $("#sigBacktestInlineRaw");
+  const details = $("#sigBacktestRawDetails");
+  if (inline) inline.textContent = text;
+  if (details) details.hidden = !text;
+  const dialogRaw = $("#sigBacktestResultRaw");
+  if (dialogRaw) dialogRaw.textContent = text;
+}
+
+let _sigBacktestResultView = "cards";
+
+function setSigBacktestResultView(view) {
+  const v = view === "json" ? "json" : "cards";
+  _sigBacktestResultView = v;
+  const dlg = $("#sigBacktestResultDialog");
+  dlg?.querySelectorAll(".sig-backtest-view-tab[data-sig-bt-view]").forEach((btn) => {
+    const on = btn.getAttribute("data-sig-bt-view") === v;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  const grid = $("#sigBacktestResultBody");
+  const raw = $("#sigBacktestResultRaw");
+  if (grid) grid.hidden = v !== "cards";
+  if (raw) raw.hidden = v !== "json";
 }
 
 function toUtcIso(raw) {
@@ -8899,7 +8973,12 @@ function formatBacktestResultItem(it) {
   const hitMin =
     it.hitProfitThresholdBeforeMin == null ? "-" : it.hitProfitThresholdBeforeMin ? "是" : "否";
   const pnl = it.currentPnlPct != null ? `${it.currentPnlPct}%` : "-";
+  const dd = it.maxDrawdownPct != null ? `${it.maxDrawdownPct}%` : "";
   const mockBadge = it.mock ? `<span class="sig-backtest-mock">Mock</span>` : "";
+  const idLine = [it.signalId || it.id, it.cardId ? `card#${it.cardId}` : ""]
+    .filter(Boolean)
+    .map((x) => escapeHtml(String(x)))
+    .join(" · ");
 
   const signalId = String(it.signalId || it.id || "");
   const tweetId = signalId.split("-")[0];
@@ -8919,6 +8998,7 @@ function formatBacktestResultItem(it) {
       it.minProfitAt ? ` · ${escapeHtml(formatBacktestTime(it.minProfitAt))}` : ""
     }</div>`,
     `<div><b>触顶前达阈值</b>${escapeHtml(hitMax)} · <b>触底前达阈值</b>${escapeHtml(hitMin)}</div>`,
+    dd ? `<div><b>最大回撤</b>${escapeHtml(dd)}</div>` : "",
   ];
 
   return `<article class="sig-card is-trade sig-backtest-card">
@@ -8928,6 +9008,7 @@ function formatBacktestResultItem(it) {
       <span class="sig-coin">${escapeHtml(symbol)}</span>
       <span class="sig-time" title="帖子时间">${escapeHtml(timeLabel)}</span>
     </div>
+    ${idLine ? `<p class="muted" style="margin:0;font-size:.72rem;font-family:var(--mono)">${idLine}</p>` : ""}
     ${summary ? `<p class="sig-summary" title="${escapeAttr(summary)}">${escapeHtml(summary)}</p>` : ""}
     <div class="sig-levels">${levels.join("")}</div>
     <div class="sig-card-foot">
@@ -8962,6 +9043,8 @@ function renderSigBacktestResultDialog() {
     .filter(Boolean)
     .join("");
   body.innerHTML = (r.items || []).map((it) => formatBacktestResultItem(it)).join("");
+  renderSigBacktestRawPanels();
+  setSigBacktestResultView(_sigBacktestResultView);
 }
 
 function openSigBacktestResultDialog() {
@@ -9072,7 +9155,13 @@ async function connectValidateJobWs(jobId, ctx, { mock = false } = {}) {
         ctx.appendLog(`${mock ? "[Mock] " : ""}轮询：验证完成`);
         ctx.setProgress("完成");
         closeSigValidateWs();
-        ctx.onDone({ items, errors: st.errors || [], mock, jobId });
+        ctx.onDone({
+          items,
+          errors: st.errors || [],
+          mock,
+          jobId,
+          raw: st.raw || { status: st.status, items, errors: st.errors || [] },
+        });
       } else if (st.status === "error") {
         ctx.appendLog(`轮询：${st.error || "验证失败"}`);
         closeSigValidateWs();
@@ -9121,9 +9210,15 @@ async function startSigCardsBacktest() {
             items,
             errors: doneData.errors || [],
             jobId: doneData.jobId || _sigBacktestPending?.jobId,
+            apiRaw: doneData.raw || { items, errors: doneData.errors || [] },
           });
         }
         _sigBacktestPending = null;
+        const det = $("#sigBacktestRawDetails");
+        if (det && (doneData.items || []).length) {
+          det.hidden = false;
+          det.open = true;
+        }
         toast("回测验证完成", "ok");
       },
     });
@@ -10484,7 +10579,7 @@ function renderSigCardItem(c) {
       }`
     : "";
   const btItems = !isValue ? backtestItemsForCard(c) : [];
-  const backtestBadge = btItems.length ? renderSigBacktestBadgeHtml(btItems) : "";
+  const backtestBadge = btItems.length ? renderSigBacktestBadgeBlock(btItems) : "";
   const topBadge = isValue
     ? scoreBadge
     : `<span class="sig-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>${coins}`;
@@ -10545,7 +10640,7 @@ function renderSigCardItem(c) {
     </div>
   </article>`;
   if (!btItems.length) return article;
-  return `<div class="sig-card-wrap has-backtest" tabindex="0" title="悬停查看回测盈利率">${article}<div class="sig-backtest-popover" role="tooltip">${renderSigBacktestPopoverHtml(btItems)}</div></div>`;
+  return `<div class="sig-card-wrap has-backtest">${article}</div>`;
 }
 
 function sigCardsTotalPages(total = _sigCardsCache.length) {

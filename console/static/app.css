@@ -2787,11 +2787,57 @@ label.publish-media-add {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+#sigBacktestResultDialog .sig-backtest-result-views {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.sig-backtest-view-tab {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: .82rem;
+  cursor: pointer;
+}
+.sig-backtest-view-tab.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.sig-backtest-raw-details {
+  margin-top: 10px;
+}
+.sig-backtest-raw-details[hidden] {
+  display: none !important;
+}
+.sig-backtest-raw-details summary {
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.sig-backtest-json-pre {
+  max-height: 320px;
+  overflow: auto;
+  font-size: .72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+#sigBacktestResultDialog .sig-backtest-json-pre {
+  max-height: min(50vh, 480px);
+}
 #sigBacktestResultDialog .sig-backtest-result-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
   align-items: start;
+}
+#sigBacktestResultDialog .sig-backtest-result-grid[hidden] {
+  display: none !important;
 }
 #sigBacktestResultDialog .sig-backtest-card {
   min-width: 0;
@@ -3145,6 +3191,13 @@ label.publish-media-add {
 .sig-card-wrap.has-backtest .sig-card.has-backtest-data {
   border-color: rgba(59, 130, 246, .45);
 }
+.sig-backtest-anchor {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 0.35rem;
+  flex-shrink: 0;
+}
 .sig-backtest-badge {
   display: inline-flex;
   align-items: center;
@@ -3155,8 +3208,7 @@ label.publish-media-add {
   font-weight: 600;
   background: rgba(59, 130, 246, .12);
   color: #1d4ed8;
-  margin-right: 0.35rem;
-  flex-shrink: 0;
+  cursor: default;
 }
 .sig-backtest-badge.is-profit {
   background: rgba(15, 118, 110, .14);
@@ -3173,18 +3225,22 @@ label.publish-media-add {
 .sig-backtest-popover {
   display: none;
   position: absolute;
-  inset: 0;
-  z-index: 25;
-  border-radius: 14px;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  min-width: min(300px, 88vw);
+  max-width: min(360px, 92vw);
+  max-height: min(280px, 50vh);
+  border-radius: 10px;
   border: 1px solid rgba(59, 130, 246, .35);
-  background: color-mix(in srgb, var(--panel) 96%, transparent);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, .12);
+  background: var(--panel);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .14);
   overflow: auto;
   padding: 10px 12px;
   pointer-events: none;
 }
-.sig-card-wrap.has-backtest:hover .sig-backtest-popover,
-.sig-card-wrap.has-backtest:focus-within .sig-backtest-popover {
+.sig-backtest-anchor:hover .sig-backtest-popover,
+.sig-backtest-anchor:focus-within .sig-backtest-popover {
   display: block;
   pointer-events: auto;
 }

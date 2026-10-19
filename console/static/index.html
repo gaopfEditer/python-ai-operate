@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261018h" />
+  <link rel="stylesheet" href="/app.css?v=20261019b" />
 </head>
 <body>
   <div class="shell">
@@ -1047,8 +1047,12 @@
               <h3 class="sig-sub">回测</h3>
               <span id="sigBacktestProgress" class="muted"></span>
             </div>
-            <p class="sig-meta-hint muted">POST /api/v1/cards/validate · <code>signals[]</code> · 完成后点「显示回测结果」</p>
+            <p class="sig-meta-hint muted">POST /api/v1/cards/validate · <code>signals[]</code> · 完成后可查看卡片或下方原始 JSON</p>
             <pre id="sigBacktestLog" class="sig-run-log sig-validate-log" hidden></pre>
+            <details id="sigBacktestRawDetails" class="sig-backtest-raw-details" hidden>
+              <summary>回测 API 返回数据（items / errors）</summary>
+              <pre id="sigBacktestInlineRaw" class="sig-run-log sig-backtest-json-pre"></pre>
+            </details>
           </section>
         </div>
 
@@ -1123,7 +1127,12 @@
             </header>
             <div class="el-dialog__body">
               <div id="sigBacktestResultMeta" class="sig-backtest-result-meta"></div>
+              <div class="sig-backtest-result-views" role="tablist" aria-label="回测结果展示">
+                <button type="button" class="sig-backtest-view-tab on" data-sig-bt-view="cards" role="tab">卡片</button>
+                <button type="button" class="sig-backtest-view-tab" data-sig-bt-view="json" role="tab">原始 JSON</button>
+              </div>
               <div id="sigBacktestResultBody" class="sig-backtest-result-grid"></div>
+              <pre id="sigBacktestResultRaw" class="sig-run-log sig-backtest-json-pre" hidden></pre>
             </div>
             <footer class="el-dialog__footer">
               <button type="submit" value="close" class="btn primary">关闭</button>
@@ -1391,6 +1400,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261018i"></script>
+  <script src="/app.js?v=20261019b"></script>
 </body>
 </html>
