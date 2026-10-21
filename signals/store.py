@@ -152,6 +152,7 @@ def _empty_state() -> Dict[str, Any]:
         "pushed_tweet_ids": [],
         "push_log": [],
         "cards": [],
+        "kol_realtime_pending": [],
         "updated_at": "",
     }
 
@@ -186,7 +187,36 @@ def load_state() -> Dict[str, Any]:
             base["push_log"] = []
         if not isinstance(base.get("cards"), list):
             base["cards"] = []
+        if not isinstance(base.get("kol_realtime_pending"), list):
+            base["kol_realtime_pending"] = []
         return base
+
+
+def append_kol_realtime_pending(row: Dict[str, Any], *, max_items: int = 400) -> None:
+    """KOL 实时抓取缓存（产出卡片前不入 SQLite）。"""
+    if not isinstance(row, dict):
+        return
+    st = load_state()
+    pending = st.get("kol_realtime_pending")
+    if not isinstance(pending, list):
+        pending = []
+    tid = str(row.get("tweet_id") or "").strip()
+    if tid:
+        pending = [p for p in pending if str(p.get("tweet_id") or "") != tid]
+    pending.insert(0, row)
+    st["kol_realtime_pending"] = pending[:max_items]
+    save_state(st)
+
+
+def kol_realtime_pending_count(session_id: str = "") -> int:
+    st = load_state()
+    pending = st.get("kol_realtime_pending") or []
+    if not isinstance(pending, list):
+        return 0
+    sid = str(session_id or "").strip()
+    if not sid:
+        return len(pending)
+    return sum(1 for p in pending if isinstance(p, dict) and str(p.get("realtime_session_id") or "") == sid)
 
 
 def save_state(state: Dict[str, Any]) -> None:
