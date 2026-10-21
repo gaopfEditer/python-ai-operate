@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261021a" />
+  <link rel="stylesheet" href="/app.css?v=20261021b" />
 </head>
 <body>
   <div class="shell">
@@ -679,13 +679,14 @@
             <p>配置推特 List → 按<strong>北京时间</strong>分时频率 CDP 抓取 → AI 识别币种/方向/止盈止损。高峰 3–5 分钟，凌晨可休眠。</p>
           </div>
           <div class="sig-panel-head-actions">
+            <button id="btnSigCardsOverview" class="btn ghost xs" type="button" title="币安广场 + 推特回溯信号总览">总览</button>
             <span class="sig-cdp-badge muted" id="sigCdpBadge" title="当前 CDP 地址">CDP …</span>
             <button id="btnSigCdpConfig" class="btn ghost xs" type="button" title="配置 Chrome CDP 调试地址">⚙ CDP</button>
           </div>
         </div>
         <div class="sig-mode-tabs" role="tablist">
           <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号 <span id="sigCycleTabMark" class="sig-cycle-mark" hidden>周期</span><span id="sigKolRtTabMark" class="sig-cycle-mark" hidden>实时</span></button>
-          <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">博主回溯</button>
+          <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">推特回溯</button>
           <button type="button" class="sig-mode-tab" data-sig-mode="binance" role="tab" aria-selected="false">币安广场 <span id="sigBsCycleTabMark" class="sig-cycle-mark" hidden>周期</span></button>
           <button type="button" class="sig-mode-tab" data-sig-mode="value" role="tab" aria-selected="false">价值回归</button>
         </div>
@@ -1115,15 +1116,49 @@
           </div>
         </section>
 
-        <section id="sigCardsOverviewWrap" class="sig-cards-overview-wrap" hidden aria-label="信号总览">
-          <header class="sig-cards-overview-head">
-            <h3 class="sig-sub">总览</h3>
-            <span id="sigCardsOverviewHint" class="muted" style="font-size:.78rem"></span>
-          </header>
-          <div id="sigCardsOverview" class="sig-cards-overview"></div>
-        </section>
         <nav id="sigCardsPager" class="sig-cards-pager" hidden aria-label="信号卡片分页"></nav>
         <div id="sigCards" class="sig-cards"></div>
+
+        <dialog id="sigCardsOverviewDialog" class="el-dialog sig-cards-overview-dialog">
+          <form method="dialog" class="sig-cards-overview-form">
+            <header class="el-dialog__header">
+              <span class="el-dialog__title">信号总览</span>
+              <button type="submit" value="close" class="el-dialog__headerbtn" aria-label="关闭">
+                <span class="el-dialog__close-icon">&times;</span>
+              </button>
+            </header>
+            <div class="el-dialog__body">
+              <div class="sig-overview-filters">
+                <label class="field sig-filter-field">
+                  <span>时间</span>
+                  <select id="sigOverviewHours">
+                    <option value="12">12 小时内</option>
+                    <option value="24" selected>24 小时内</option>
+                    <option value="48">48 小时内</option>
+                  </select>
+                </label>
+                <label class="field sig-filter-field">
+                  <span>平台</span>
+                  <select id="sigOverviewPlatform">
+                    <option value="all" selected>全部</option>
+                    <option value="binance_square">币安广场</option>
+                    <option value="user_backfill">推特回溯</option>
+                  </select>
+                </label>
+                <label class="field check sig-overview-trade-only">
+                  <input id="sigOverviewTradeOnly" type="checkbox" />
+                  <span>仅交易信号</span>
+                </label>
+                <button type="button" class="btn primary btn-sm" id="btnSigOverviewRefresh">刷新</button>
+              </div>
+              <p id="sigCardsOverviewHint" class="muted sig-overview-hint"></p>
+              <div id="sigCardsOverview" class="sig-cards-overview"></div>
+            </div>
+            <footer class="el-dialog__footer">
+              <button type="submit" value="close" class="btn primary">关闭</button>
+            </footer>
+          </form>
+        </dialog>
 
         <dialog id="sigBacktestResultDialog" class="el-dialog sig-backtest-result-dialog">
           <form method="dialog" class="sig-backtest-result-form">
@@ -1425,6 +1460,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261021a"></script>
+  <script src="/app.js?v=20261021b"></script>
 </body>
 </html>

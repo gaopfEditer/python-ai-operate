@@ -2,7 +2,9 @@
 Whisper 模型服务
 """
 from faster_whisper import WhisperModel
-from console.whisprrt.core.logging import logger
+import logging
+
+logger = logging.getLogger("whisper_live.audio")
 from console.whisprrt.config import DEFAULT_MODEL, ANTI_HALLUCINATION_CONFIG
 
 class WhisperService:

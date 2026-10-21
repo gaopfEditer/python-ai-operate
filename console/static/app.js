@@ -82,6 +82,7 @@ const SIG_KOL_RT_LS = "sigKolRealtimePrefs";
 const SIG_CARDS_VIEW_LS = "sigCardsView";
 const SIG_BS_FEED_LS = "sigBsFeedView";
 const SIG_BS_PROFILE_LS = "sigBsProfileSelection";
+const SIG_OVERVIEW_PREFS_LS = "sigOverviewPrefs";
 const LAB_SESSION_KEY = "pai_lab_session";
 const LAB_SESSION_MAX_BYTES = 2.5 * 1024 * 1024;
 function readLabSession() {
@@ -6890,6 +6891,21 @@ function bind() {
   $("#btnSigValueStop")?.addEventListener("click", () => signalsControl("stop"));
   $("#sigValueRecommendedOnly")?.addEventListener("change", () => loadSignalCards());
   $("#btnSigCdpConfig")?.addEventListener("click", () => openSigCdpDialog());
+  $("#btnSigCardsOverview")?.addEventListener("click", () => openSigCardsOverviewDialog());
+  $("#btnSigOverviewRefresh")?.addEventListener("click", () => loadSigCardsOverviewMerged());
+  $("#sigOverviewHours")?.addEventListener("change", () => {
+    persistSigOverviewPrefs();
+    loadSigCardsOverviewMerged();
+  });
+  $("#sigOverviewPlatform")?.addEventListener("change", () => {
+    persistSigOverviewPrefs();
+    loadSigCardsOverviewMerged();
+  });
+  $("#sigOverviewTradeOnly")?.addEventListener("change", () => {
+    persistSigOverviewPrefs();
+    loadSigCardsOverviewMerged();
+  });
+  applySigOverviewPrefsToForm();
   $("#btnRtRefresh")?.addEventListener("click", () => loadRealtimePanel());
   $("#rtStatus")?.addEventListener("change", () => loadRealtimePanel());
   $("#rtModule")?.addEventListener("change", () => loadRealtimePanel());
@@ -7605,7 +7621,72 @@ function pruneSigCardsByMinTime(items, fromIso) {
 }
 
 const SIG_CARDS_SCROLL_NEAR_PX = 140;
-const SIG_OVERVIEW_MAX = 24;
+const SIG_OVERVIEW_MAX = 48;
+
+function readSigOverviewPrefs() {
+  try {
+    const raw = localStorage.getItem(SIG_OVERVIEW_PREFS_LS);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function persistSigOverviewPrefs() {
+  try {
+    localStorage.setItem(
+      SIG_OVERVIEW_PREFS_LS,
+      JSON.stringify({
+        hours: Number($("#sigOverviewHours")?.value || 24) || 24,
+        platform: String($("#sigOverviewPlatform")?.value || "all"),
+        tradeOnly: !!$("#sigOverviewTradeOnly")?.checked,
+      })
+    );
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function applySigOverviewPrefsToForm() {
+  const p = readSigOverviewPrefs();
+  const hours = [12, 24, 48].includes(Number(p.hours)) ? Number(p.hours) : 24;
+  const platform = ["all", "binance_square", "user_backfill"].includes(p.platform)
+    ? p.platform
+    : "all";
+  if ($("#sigOverviewHours")) $("#sigOverviewHours").value = String(hours);
+  if ($("#sigOverviewPlatform")) $("#sigOverviewPlatform").value = platform;
+  if ($("#sigOverviewTradeOnly")) {
+    $("#sigOverviewTradeOnly").checked = p.tradeOnly === true;
+  }
+}
+
+function sigOverviewHoursBounds() {
+  const h = Number($("#sigOverviewHours")?.value || 24) || 24;
+  const hours = Math.max(1, Math.min(168, h));
+  const toMs = Date.now();
+  return { fromMs: toMs - hours * 3600 * 1000, toMs, hours };
+}
+
+function sigOverviewPlatformLabel(card) {
+  const modes = Array.isArray(card?.source_modes)
+    ? card.source_modes
+    : card?.source_mode
+      ? [card.source_mode]
+      : [];
+  if (modes.includes("binance_square") || modes.includes("binance_backfill")) return "币安广场";
+  if (modes.includes("user_backfill")) return "推特回溯";
+  if (card?.list_id && String(card.list_id).startsWith("user:")) return "推特回溯";
+  if (String(card?.source_mode || "") === "binance_square") return "币安广场";
+  return sigSourceLabel(card) || "—";
+}
+
+async function fetchSigOverviewCardsForMode(sourceMode, fromIso, onlyTrade) {
+  let url = `/api/signals/cards?limit=${SIG_OVERVIEW_MAX}&merge=1&from=${encodeURIComponent(fromIso)}`;
+  if (onlyTrade) url += "&trade=1";
+  if (sourceMode) url += `&source_mode=${encodeURIComponent(sourceMode)}`;
+  const data = await api(url);
+  return Array.isArray(data.items) ? data.items : [];
+}
 
 function sigCardsScrollEl() {
   const stage = document.querySelector(".stage");
@@ -7725,42 +7806,52 @@ function renderSigOverviewCard(c) {
   const ql = sigOverviewQlName(c) || parseSigUserHandle(c.author || "") || sigSourceLabel(c) || "—";
   const subject = sigOverviewSubjectLine(c);
   const weight = sigOverviewContentWeight(c);
-  const src = sigSourceLabel(c);
+  const platform = sigOverviewPlatformLabel(c);
   return `<article class="sig-overview-card${trade ? " is-trade" : ""}" title="${escapeAttr(full)}">
     <div class="sig-overview-top">
       <span class="sig-overview-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>
+      <span class="sig-overview-platform">${escapeHtml(platform)}</span>
       <span class="muted">${escapeHtml(timeLabel)}</span>
     </div>
     <p class="sig-overview-excerpt">${escapeHtml(excerpt || "（无正文）")}</p>
     <div class="sig-overview-meta">
       <div><b>内容</b> ${escapeHtml(weight)}</div>
       <div><b>主体</b> ${escapeHtml(subject)}</div>
-      <div><b>QL</b> ${escapeHtml(ql)}${src ? ` · ${escapeHtml(src)}` : ""}</div>
+      <div><b>QL</b> ${escapeHtml(ql)}</div>
     </div>
   </article>`;
 }
 
-function renderSigCardsOverview(items) {
-  const wrap = $("#sigCardsOverviewWrap");
+function renderSigCardsOverview(items, meta = {}) {
   const box = $("#sigCardsOverview");
   const hint = $("#sigCardsOverviewHint");
-  if (!wrap || !box) return;
-  if (state.sigMode === "value") {
-    wrap.hidden = true;
-    return;
-  }
+  if (!box) return;
   const rows = (items || []).slice(0, SIG_OVERVIEW_MAX);
   if (!rows.length) {
-    wrap.hidden = true;
-    box.innerHTML = "";
-    if (hint) hint.textContent = "";
+    box.innerHTML = `<p class="muted">该时间窗内暂无信号，可放宽时间或切换平台后刷新。</p>`;
+    if (hint) hint.textContent = meta.loading ? "加载中…" : "";
     return;
   }
-  wrap.hidden = false;
+  const hours = meta.hours ?? sigOverviewHoursBounds().hours;
+  const plat =
+    meta.platformLabel ||
+    ($("#sigOverviewPlatform")?.value === "binance_square"
+      ? "币安广场"
+      : $("#sigOverviewPlatform")?.value === "user_backfill"
+        ? "推特回溯"
+        : "币安广场 + 推特回溯");
   if (hint) {
-    hint.textContent = `展示当前筛选下最近 ${rows.length} 条（悬浮可看全文）`;
+    hint.textContent = `${plat} · 近 ${hours} 小时 · ${rows.length} 条（悬浮卡片可看全文）`;
   }
   box.innerHTML = rows.map((c) => renderSigOverviewCard(c)).join("");
+}
+
+async function openSigCardsOverviewDialog() {
+  applySigOverviewPrefsToForm();
+  const dlg = $("#sigCardsOverviewDialog");
+  if (!dlg) return;
+  dlg.showModal();
+  await loadSigCardsOverviewMerged();
 }
 
 function mergeSigCardsIntoCache(incoming, { replace = false } = {}) {
@@ -8728,12 +8819,12 @@ function sigSourceLabel(c) {
   const labels = [];
   if (modes.includes("list_realtime")) labels.push("列表");
   if (modes.includes("kol_realtime")) labels.push("KOL实时");
-  if (modes.includes("user_backfill")) labels.push("博主");
+  if (modes.includes("user_backfill")) labels.push("推特回溯");
   if (modes.includes("value_return")) labels.push("价值");
   if (modes.includes("binance_square")) labels.push("广场");
   if (modes.includes("binance_backfill")) labels.push("回溯");
   if (!labels.length && c.source_mode === "binance_square") labels.push("广场");
-  if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("博主");
+  if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("推特回溯");
   if (!labels.length && c.source_mode === "value_return") labels.push("价值");
   if (!labels.length && c.list_id) labels.push("列表");
   return labels.length ? labels.join("+") : "";
@@ -10937,29 +11028,42 @@ function renderSigCardsView() {
 }
 
 async function loadSigCardsOverviewMerged() {
-  if (state.sigMode === "value") {
-    renderSigCardsOverview([]);
-    return;
-  }
-  const filter = effectiveSigCardsFilter(collectSigCardsFilter());
-  const onlyTrade = !!$("#sigFilterTrade")?.checked;
-  let url = `/api/signals/cards?limit=${SIG_OVERVIEW_MAX}&merge=1`;
-  if (onlyTrade) url += "&trade=1";
-  url = appendSigCardsHandleQuery(url, collectSigCardsFilter());
-  if (filter.range === "custom") {
-    if (filter.from) url += `&from=${encodeURIComponent(filter.from)}`;
-    if (filter.to) url += `&to=${encodeURIComponent(filter.to)}`;
-  } else if (filter.range) {
-    url += `&range=${encodeURIComponent(normalizeSigBackfillRange(filter.range))}`;
-  }
+  const box = $("#sigCardsOverview");
+  if (!box) return;
+  applySigOverviewPrefsToForm();
+  const { fromMs, hours } = sigOverviewHoursBounds();
+  const fromIso = new Date(fromMs).toISOString();
+  const onlyTrade =
+    $("#sigOverviewTradeOnly")?.checked ?? !!$("#sigFilterTrade")?.checked;
+  const platform = String($("#sigOverviewPlatform")?.value || "all");
+  box.innerHTML = `<p class="muted">加载中…</p>`;
+  if ($("#sigCardsOverviewHint")) $("#sigCardsOverviewHint").textContent = "加载中…";
   try {
-    const data = await api(url);
-    const items = dedupSigCards(
-      filterSigCardsByTimeWindow(data.items || [], computeSigCardsTimeBounds())
-    );
-    renderSigCardsOverview(items);
-  } catch (_) {
-    renderSigCardsOverview(_sigCardsCache.slice(0, SIG_OVERVIEW_MAX));
+    let items = [];
+    if (platform === "binance_square") {
+      items = await fetchSigOverviewCardsForMode("binance_square", fromIso, onlyTrade);
+    } else if (platform === "user_backfill") {
+      items = await fetchSigOverviewCardsForMode("user_backfill", fromIso, onlyTrade);
+    } else {
+      const [bs, tw] = await Promise.all([
+        fetchSigOverviewCardsForMode("binance_square", fromIso, onlyTrade),
+        fetchSigOverviewCardsForMode("user_backfill", fromIso, onlyTrade),
+      ]);
+      items = [...bs, ...tw];
+    }
+    items = dedupSigCards(filterSigCardsByTimeWindow(items, { fromMs, toMs: Date.now() }));
+    renderSigCardsOverview(items, {
+      hours,
+      platformLabel:
+        platform === "binance_square"
+          ? "币安广场"
+          : platform === "user_backfill"
+            ? "推特回溯"
+            : "币安广场 + 推特回溯",
+    });
+  } catch (e) {
+    box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
+    if ($("#sigCardsOverviewHint")) $("#sigCardsOverviewHint").textContent = "";
   }
 }
 
@@ -11017,9 +11121,6 @@ async function loadSignalCards(opts = {}) {
   const background = !!opts.background;
   const box = $("#sigCards");
   if (!box) return;
-  const finishOverview = async () => {
-    await loadSigCardsOverviewMerged();
-  };
   if (state.sigMode === "binance") {
     const filter = collectSigCardsFilter();
     const onlyTrade = !!$("#sigFilterTrade")?.checked;
@@ -11044,7 +11145,6 @@ async function loadSignalCards(opts = {}) {
           box.innerHTML = `<p class="muted">实时视图：近 ${hours} 小时内暂无 Square 卡片。请开启周期或点「立即抓取（增量）」。</p>`;
           renderSigCardsPager(0, 1);
         }
-        await finishOverview();
         return;
       }
       const effFilter = effectiveSigCardsFilter(filter);
@@ -11067,7 +11167,6 @@ async function loadSignalCards(opts = {}) {
       box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
       renderSigCardsPager(0, 1);
     }
-    await finishOverview();
     return;
   }
   const onlyTrade = !!$("#sigFilterTrade")?.checked;
@@ -11093,7 +11192,6 @@ async function loadSignalCards(opts = {}) {
       box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
       renderSigCardsPager(0, 1);
     }
-    await finishOverview();
     return;
   }
   let url = `/api/signals/cards?limit=500&merge=${valueMode ? "0" : "1"}`;
@@ -11136,7 +11234,6 @@ async function loadSignalCards(opts = {}) {
     box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
     renderSigCardsPager(0, 1);
   }
-  await finishOverview();
 }
 
 async function runValueReturnCrawl() {

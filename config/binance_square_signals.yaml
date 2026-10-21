@@ -5,12 +5,12 @@ max_posts_per_profile: 40
 try_bapi_first: false
 replay_whisper_auto: true
 replay_whisper_max_days: 2
-cycle_enabled: false
+cycle_enabled: true
 cycle_min_minutes: 5
 cycle_max_minutes: 15
 first_crawl_hours: 8
 cycle_cutoff_hours: 8
-last_crawl_at: ''
+last_crawl_at: '2026-10-21T23:00:04+08:00'
 profiles:
 - id: yanchibit
   name: yanchibit

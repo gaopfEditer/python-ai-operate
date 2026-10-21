@@ -3,6 +3,10 @@
 """
 import logging
 
+_TRANSCRIPT_LOGGER = "whisper_live.transcript"
+_AUDIO_LOGGER = "whisper_live.audio"
+
+
 def setup_logging():
     """
     配置应用日志
@@ -11,11 +15,19 @@ def setup_logging():
         logging.Logger: 配置好的日志记录器
     """
     logging.basicConfig(
-        level=logging.INFO, 
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    logger = logging.getLogger("whisper_live")
-    return logger
+    logging.getLogger(_AUDIO_LOGGER).setLevel(logging.WARNING)
+    return logging.getLogger(_TRANSCRIPT_LOGGER)
 
-# 创建全局日志记录器
+
+def configure_whisprrt_log_levels() -> None:
+    """音频设备/流相关仅 WARNING+；文字稿转写保持 INFO。"""
+    logging.getLogger(_AUDIO_LOGGER).setLevel(logging.WARNING)
+    logging.getLogger(_TRANSCRIPT_LOGGER).setLevel(logging.INFO)
+    logging.getLogger("whisper_live").setLevel(logging.INFO)
+
+
+# 默认：转写服务日志
 logger = setup_logging()

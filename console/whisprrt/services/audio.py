@@ -1,8 +1,11 @@
 """
 音频处理服务
 """
+import logging
+
 import sounddevice as sd
-from console.whisprrt.core.logging import logger
+
+logger = logging.getLogger("whisper_live.audio")
 
 class AudioService:
     """音频服务类"""

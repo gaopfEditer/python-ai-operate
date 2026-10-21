@@ -5233,7 +5233,9 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         import uvicorn
 
         from console.asgi_server import create_console_asgi_app
+        from console.uvicorn_log_filter import attach_console_access_log_filter
 
+        attach_console_access_log_filter()
         asgi_app = create_console_asgi_app()
         uvicorn.run(asgi_app, host=host, port=port, log_level="info")
     except KeyboardInterrupt:

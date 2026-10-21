@@ -7,7 +7,9 @@ import threading
 import asyncio
 import numpy as np
 import re
-from console.whisprrt.core.logging import logger
+import logging
+
+logger = logging.getLogger("whisper_live.transcript")
 from console.whisprrt.config import (
     SAMPLE_RATE, BLOCK_SIZE, BUFFER_SECONDS, DEFAULT_LANGUAGE,
     ANTI_HALLUCINATION_CONFIG, HALLUCINATION_PATTERNS
