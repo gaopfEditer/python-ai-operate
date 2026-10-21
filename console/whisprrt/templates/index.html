@@ -375,7 +375,17 @@
                             <div class="form-text" id="deviceHint"></div>
                         </div>
                         
-                        <div class="form-group">
+                                                <div class="form-group">
+                            <label for="modelSelect" class="form-label">选择模型</label>
+                            <select id="modelSelect" class="form-select" onchange="changeModel()">
+                                <option value="tiny">tiny - 最小模型，速度最快</option>
+                                <option value="base">base - 基础模型，速度快</option>
+                                <option value="small">small - 小型模型，平衡</option>
+                                <option value="large-v3-turbo" selected>large-v3-turbo - 大型模型，最高精度</option>
+                            </select>
+                        </div>
+                        
+<div class="form-group">
                             <label for="languageSelect" class="form-label">语言</label>
                             <select id="languageSelect" class="form-select" onchange="changeLanguage()">
                                 <option value="zh" selected>中文</option>
