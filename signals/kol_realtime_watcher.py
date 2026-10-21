@@ -60,6 +60,12 @@ def status() -> Dict[str, Any]:
             "running": _RUNNING_JOB,
         }
     )
+    try:
+        from signals.store import kol_realtime_pending_count
+
+        snap["pending_count"] = kol_realtime_pending_count(str(cfg.get("kol_realtime_session_id") or ""))
+    except Exception:
+        snap["pending_count"] = 0
     return snap
 
 

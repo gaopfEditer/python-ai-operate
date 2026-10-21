@@ -817,6 +817,46 @@ def run_user_signal_pipeline(
             continue
 
         if from_cache and cached_card:
+            if kol_realtime:
+                from signals.store import append_kol_realtime_pending
+
+                append_kol_realtime_pending(
+                    {
+                        "user_handle": handle,
+                        "tweet_id": tid,
+                        "url": str(it.get("url") or ""),
+                        "author": author,
+                        "text": text,
+                        "created_at": created_raw,
+                        "time_label": time_label,
+                        "display_time": time_s,
+                        "images": images_meta or list(cached_card.get("images") or []),
+                        "signal": signal,
+                        "realtime_session_id": realtime_session_id,
+                    }
+                )
+                parsed += 1
+                result_txt = "继承缓存 · 待产出卡片"
+                ilog = {
+                    "author": author,
+                    "created_at": created_raw,
+                    "time_label": time_label,
+                    "display_time": time_s,
+                    "preview": preview,
+                    "has_trade_signal": bool(signal.get("has_trade_signal")),
+                    "direction": signal.get("direction"),
+                    "coins": signal.get("coins") or [],
+                    "summary": signal.get("summary") or "",
+                    "url": str(it.get("url") or ""),
+                    "from_cache": True,
+                    "result": result_txt,
+                }
+                item_logs.append(ilog)
+                summary = fmt_item_summary_line(ilog, index=i, total=len(fresh))
+                ilog["summary_line"] = summary
+                _log(progress, f"结果: {result_txt}")
+                _log(progress, f"摘要 · {summary}")
+                continue
             patch = {**dict(cached_card), **src_meta}
             if images_meta:
                 patch["images"] = images_meta
@@ -853,6 +893,48 @@ def run_user_signal_pipeline(
             created_raw = now.isoformat(timespec="seconds")
         if not time_label:
             time_label = time_s
+
+        if kol_realtime:
+            from signals.store import append_kol_realtime_pending
+
+            append_kol_realtime_pending(
+                {
+                    "user_handle": handle,
+                    "tweet_id": tid,
+                    "url": str(it.get("url") or ""),
+                    "author": author,
+                    "text": text,
+                    "created_at": created_raw,
+                    "time_label": time_label,
+                    "display_time": time_s,
+                    "images": images_meta,
+                    "signal": signal,
+                    "realtime_session_id": realtime_session_id,
+                }
+            )
+            parsed += 1
+            has_trade = bool(signal.get("has_trade_signal"))
+            result_txt = "已缓存 · 待产出卡片" + (" · 含交易信号" if has_trade else "")
+            ilog = {
+                "author": author,
+                "created_at": created_raw,
+                "time_label": time_label,
+                "display_time": time_s,
+                "preview": preview,
+                "has_trade_signal": has_trade,
+                "direction": signal.get("direction"),
+                "coins": signal.get("coins") or [],
+                "summary": signal.get("summary") or "",
+                "url": str(it.get("url") or ""),
+                "from_cache": False,
+                "result": result_txt,
+            }
+            item_logs.append(ilog)
+            summary = fmt_item_summary_line(ilog, index=i, total=len(fresh))
+            ilog["summary_line"] = summary
+            _log(progress, f"结果: {result_txt}")
+            _log(progress, f"摘要 · {summary}")
+            continue
 
         card = {
             "id": f"sig_{uuid4().hex[:10]}",

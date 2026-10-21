@@ -282,7 +282,8 @@ def run_binance_square_fetch(
     save_state(st)
 
     cards_sync: Dict[str, Any] = {}
-    if enriched:
+    # 周期增量（hours）只更新 state，卡片由「产出卡片」+ 币种门槛入库
+    if enriched and time_spec.get("mode") != "hours":
         from signals.backfill_range import resolve_backfill_since
         from signals.binance_square.cards_sync import sync_posts_to_signal_cards
 
