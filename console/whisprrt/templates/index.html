@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WhisprRT - 本地实时语音转文字工具</title>
-    <link href="static/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="static/bootstrap-icons.css">
+    <link id="whisprrt-bootstrap-css" rel="stylesheet">
+    <link id="whisprrt-bootstrap-icons" rel="stylesheet">
     <style>
         :root {
             --primary-color: #0d6efd;
@@ -306,6 +306,13 @@
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${protocol}//${window.location.host}${apiUrl(path)}`;
       }
+
+      (function() {
+        const css = document.getElementById('whisprrt-bootstrap-css');
+        const icons = document.getElementById('whisprrt-bootstrap-icons');
+        if (css) css.href = apiUrl('/static/bootstrap.min.css');
+        if (icons) icons.href = apiUrl('/static/bootstrap-icons.css');
+      })();
     </script>
 
 </head>
@@ -492,7 +499,7 @@
         /** 当前页面生命周期内仅自动开始转写一次（避免 WebSocket 重连后反复启动） */
         let autoStartTranscriptionDone = false;
         /** 首次 WebSocket 连通后自动开始转写；重连后不再自动开始 */
-        let autoStartTranscriptionOnConnect = true;
+        let autoStartTranscriptionOnConnect = false; // 先选设备/模型再手动开始
         
         // 持久化存储的key
         const STORAGE_KEY = 'whisprrt_transcript_list';
@@ -651,9 +658,10 @@
                 showToast('已连接到服务器', 'success');
                 
                 // 加载音频设备列表；完成后首次连接时自动开始转写
+                loadModels();
                 loadAudioDevices()
                     .then(function() {
-                        if (!autoStartTranscriptionDone && !isRunning) {
+                        if (autoStartTranscriptionOnConnect && !autoStartTranscriptionDone && !isRunning) {
                             autoStartTranscriptionDone = true;
                             startListening();
                         }
@@ -711,6 +719,26 @@
         /**
          * 加载可用的音频输入设备
          */
+
+        function loadModels() {
+            return fetch(apiUrl('/models'))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data || !data.models) return;
+                    const models = data.models;
+                    modelSelect.innerHTML = '';
+                    Object.keys(models).forEach(function(name) {
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name + ' - ' + models[name];
+                        if (data.current && data.current === name) opt.selected = true;
+                        modelSelect.appendChild(opt);
+                    });
+                    if (data.current) modelSelect.value = data.current;
+                })
+                .catch(function(err) { console.warn('loadModels failed', err); });
+        }
+
         function loadAudioDevices() {
             return fetch(apiUrl('/audio_devices'))
                 .then(response => response.json())
@@ -736,7 +764,7 @@
                     // 添加所有可用设备
                     audioDevices.forEach(device => {
                         const option = document.createElement('option');
-                        option.value = device.id;
+                        option.value = String(device.id);
                         option.textContent = device.name;
                         
                         // 如果是默认设备，添加标记
@@ -798,7 +826,7 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ device_id: deviceId })
+                body: JSON.stringify({ device_id: String(deviceId) })
             })
                 .then(response => response.json())
                 .then(data => {

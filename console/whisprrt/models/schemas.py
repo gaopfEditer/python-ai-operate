@@ -1,7 +1,8 @@
 """
 Pydantic 模型定义
 """
-from pydantic import BaseModel
+from typing import Union
+from pydantic import BaseModel, field_validator
 
 class ModelRequest(BaseModel):
     """模型选择请求"""
@@ -18,3 +19,10 @@ class TimestampRequest(BaseModel):
 class DeviceRequest(BaseModel):
     """音频设备选择请求"""
     device_id: str
+
+    @field_validator("device_id", mode="before")
+    @classmethod
+    def coerce_device_id(cls, v: Union[str, int, None]) -> str:
+        if v is None:
+            return "default"
+        return str(v)
