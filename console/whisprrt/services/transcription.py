@@ -28,6 +28,7 @@ class TranscriptionService:
         self.running = False
         self.current_language = DEFAULT_LANGUAGE
         self.connected_websockets = set()
+        self._loop = None
         self.start_time = None  # 新增：记录录音开始时间
         self.display_mode = "segments"  # 显示模式
         self.continuous_text = ""  # 新增：用于存储连续显示的文本
@@ -57,6 +58,38 @@ class TranscriptionService:
             logger.warning(f"音频状态异常: {status}")
         self.q.put(indata.copy())
     
+    def bind_event_loop(self):
+        """记录当前 asyncio 事件循环，供后台线程安全推送。"""
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+    def _schedule_broadcast(self, event_type, data):
+        """从任意线程安全调度广播；失败只记日志，不拖垮进程。"""
+        try:
+            loop = self._loop
+            if loop is None or not getattr(loop, "is_running", lambda: False)():
+                try:
+                    loop = asyncio.get_running_loop()
+                    self._loop = loop
+                except RuntimeError:
+                    logger.debug("无可用事件循环，跳过广播: %s", event_type)
+                    return
+            fut = asyncio.run_coroutine_threadsafe(
+                self.broadcast_to_websockets(event_type, data), loop
+            )
+
+            def _done(f):
+                try:
+                    f.result()
+                except Exception as e:
+                    logger.debug("广播失败: %s", e)
+
+            fut.add_done_callback(_done)
+        except Exception as e:
+            logger.debug("调度广播失败: %s", e)
+
     async def broadcast_to_websockets(self, event_type, data):
         """
         向所有连接的WebSocket客户端广播消息
@@ -65,12 +98,17 @@ class TranscriptionService:
             event_type: 事件类型
             data: 要发送的数据
         """
-        for websocket in self.connected_websockets:
+        dead = []
+        for websocket in list(self.connected_websockets):
             try:
                 await websocket.send_json({"event": event_type, "data": data})
             except Exception as e:
-                logger.error(f"WebSocket发送消息失败: {str(e)}")
-    
+                logger.debug(f"WebSocket发送消息失败: {str(e)}")
+                dead.append(websocket)
+        for websocket in dead:
+            self.connected_websockets.discard(websocket)
+
+
     def preprocess_audio(self, audio_data):
         """
         音频预处理：去噪和归一化
@@ -254,13 +292,13 @@ class TranscriptionService:
                                             timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
                                             
                                             # 只推送高质量的分段内容
-                                            asyncio.run(self.broadcast_to_websockets('transcription', {
+                                            self._schedule_broadcast('transcription', {
                                                 'text': text,
                                                 'timestamp': timestamp,
                                                 'show_timestamp': True,
                                                 'confidence': confidence,
                                                 'mode': 'segments'
-                                            }))
+                                            })
                                             self.transcript.append({
                                                 "text": text,
                                                 "timestamp": timestamp,
@@ -272,7 +310,7 @@ class TranscriptionService:
                                             
                                 except Exception as e:
                                     logger.error(f"转写过程出错: {str(e)}")
-                                    asyncio.run(self.broadcast_to_websockets('error', {'message': f'转写错误: {str(e)}'}))
+                                    self._schedule_broadcast('error', {'message': f'转写错误: {str(e)}'})
                             else:
                                 logger.debug("检测到静音，跳过转写")
 
@@ -282,7 +320,7 @@ class TranscriptionService:
                     continue
                 except Exception as e:
                     logger.error(f"转写线程异常: {str(e)}")
-                    asyncio.run(self.broadcast_to_websockets('error', {'message': f'系统错误: {str(e)}'}))
+                    self._schedule_broadcast('error', {'message': f'系统错误: {str(e)}'})
                     
         logger.info("语音转写线程已停止")
     
@@ -314,6 +352,10 @@ class TranscriptionService:
         """
         if self.running:
             self.running = False
+            try:
+                audio_service.close_stream()
+            except Exception as e:
+                logger.debug("关闭音频流时忽略异常: %s", e)
             logger.info("停止语音转写")
             return {"status": "stopped"}
         return {"status": "already_stopped"}
@@ -393,12 +435,12 @@ class TranscriptionService:
             alert_record: 预警记录字典
         """
         # 向所有 WebSocket 客户端广播预警
-        asyncio.run(self.broadcast_to_websockets('keyword_alert', {
+        self._schedule_broadcast('keyword_alert', {
             'text': alert_record['text'],
             'matched_keywords': alert_record['matched_keywords'],
             'timestamp': alert_record['timestamp'],
             'keyword_count': alert_record['keyword_count']
-        }))
+        })
     
     def set_keywords(self, keywords):
         """

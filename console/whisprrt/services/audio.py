@@ -10,6 +10,7 @@ class AudioService:
     def __init__(self):
         """初始化音频服务"""
         self.current_device = None
+        self._stream = None
     
     def get_devices(self):
         """
@@ -62,6 +63,7 @@ class AudioService:
             # 如果设备ID为"default"或空，则使用系统默认设备
             if device_id == "default" or not device_id:
                 self.current_device = None
+        self._stream = None
                 logger.info("已选择系统默认音频设备")
                 return {"status": "success", "message": "已选择系统默认音频设备"}
             
@@ -83,6 +85,23 @@ class AudioService:
             logger.error(f"选择音频设备失败: {str(e)}")
             return {"status": "error", "message": f"选择音频设备失败: {str(e)}"}
     
+
+    def close_stream(self):
+        """安全关闭当前音频输入流（刷新/停止时调用，异常不向外抛）。"""
+        stream = getattr(self, "_stream", None)
+        self._stream = None
+        if stream is None:
+            return
+        try:
+            if getattr(stream, "active", False):
+                stream.stop()
+        except Exception as e:
+            logger.debug("stop stream: %s", e)
+        try:
+            stream.close()
+        except Exception as e:
+            logger.debug("close stream: %s", e)
+
     def _get_all_input_device_ids(self):
         """获取所有支持输入的设备 ID 列表"""
         try:
@@ -126,9 +145,11 @@ class AudioService:
             def try_open(dev_id, label):
                 try:
                     logger.info(f"尝试打开音频流: {label}")
-                    return self._create_stream_with_device(
+                    stream = self._create_stream_with_device(
                         dev_id, samplerate, channels, dtype, callback, blocksize
                     )
+                    self._stream = stream
+                    return stream
                 except sd.PortAudioError as e:
                     logger.warning(f"设备 {label} 打开失败: {e}")
                     return None
