@@ -172,10 +172,8 @@ class TranscriptionService:
         else:
             spectral_centroid = 0
         
-        # 综合判断：低能量、低零交叉率且频谱中心异常
-        is_silent = (energy < self.silence_threshold and 
-                    zcr < self.zcr_threshold) or \
-                   (energy < self.energy_threshold and spectral_centroid < 100)
+        # 仅用能量+零交叉率；spectral_centroid<100 会把轻声误判为静音
+        is_silent = (energy < self.silence_threshold) and (zcr < self.zcr_threshold)
         
         if is_silent:
             logger.debug(f"检测到静音: energy={energy:.4f}, zcr={zcr:.4f}, spectral_centroid={spectral_centroid:.2f}")

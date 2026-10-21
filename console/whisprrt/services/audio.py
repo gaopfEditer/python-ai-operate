@@ -26,11 +26,22 @@ class AudioService:
             for i, device in enumerate(devices):
                 # 只添加输入设备或双向设备
                 if device['max_input_channels'] > 0:
+                    name = device['name']
+                    lower = name.lower()
+                    if any(k in lower for k in ('blackhole', 'soundflower', 'cable', 'loopback', 'vb-audio')):
+                        name = f"{name} 【系统音频环回】"
+                        kind = 'loopback'
+                    elif 'virtual' in lower or 'oray' in lower:
+                        name = f"{name} 【虚拟设备，通常无网页声】"
+                        kind = 'virtual'
+                    else:
+                        kind = 'mic'
                     input_devices.append({
                         'id': i,
-                        'name': device['name'],
+                        'name': name,
                         'channels': device['max_input_channels'],
-                        'default': device.get('default_input', False)
+                        'default': device.get('default_input', False),
+                        'kind': kind,
                     })
             
             # 找出默认设备
@@ -41,9 +52,13 @@ class AudioService:
             except:
                 default_id = None
                 
+            loopbacks = [d["id"] for d in input_devices if d.get("kind") == "loopback"]
+            if loopbacks:
+                default_id = loopbacks[0]
             return {
                 "devices": input_devices,
-                "default": default_id
+                "default": default_id,
+                "hint": None if loopbacks else "macOS 抓网页/系统声音需要 BlackHole（或同类环回），并设多输出设备后选择它。当前列表里没有环回设备。",
             }
         except Exception as e:
             logger.error(f"获取音频设备失败: {str(e)}")

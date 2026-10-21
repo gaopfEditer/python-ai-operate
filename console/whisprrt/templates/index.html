@@ -369,6 +369,9 @@
                                 <option value="default">加载中...</option>
                             </select>
                             <div id="deviceInfo" class="device-info">正在加载可用设备...</div>
+                            <div id="deviceHint" class="device-info" style="margin-top:6px;color:#6c757d;font-size:0.85rem;">
+                              macOS 抓网页/系统声音需安装 BlackHole，并在「音频 MIDI 设置」创建含扬声器+BlackHole 的多输出设备，系统输出选该多输出，下方再选 BlackHole。
+                            </div>
                         </div>
                         
                         <div class="form-group">
@@ -777,6 +780,10 @@
                     
                     // 更新设备信息
                     updateDeviceInfo();
+                    if (data.hint) {
+                        const hintEl = document.getElementById('deviceHint');
+                        if (hintEl) hintEl.textContent = data.hint;
+                    }
                 })
                 .catch(error => {
                     console.error('获取音频设备失败:', error);
@@ -833,6 +840,10 @@
                     if (data.status === 'success') {
                         showToast(data.message, 'success');
                         updateDeviceInfo();
+                    if (data.hint) {
+                        const hintEl = document.getElementById('deviceHint');
+                        if (hintEl) hintEl.textContent = data.hint;
+                    }
                     } else {
                         showToast(data.message, 'error');
                         // 恢复之前的选择
