@@ -100,12 +100,10 @@ def create_console_asgi_app() -> Starlette:
     try:
         from console.whisprrt.fastapi_factory import create_whisprrt_app
 
-                async def _whisprrt_slash_redirect(request: Request) -> Response:
+        async def _whisprrt_slash_redirect(request: Request) -> Response:
             # Mount 不自动把 /whisprrt 转到 /whisprrt/
-            if request.url.path.rstrip("/") == "/whisprrt" and not request.url.path.endswith("/"):
-                q = ("?" + request.url.query) if request.url.query else ""
-                return RedirectResponse(url="/whisprrt/" + q, status_code=307)
-            return RedirectResponse(url="/whisprrt/", status_code=307)
+            q = ("?" + request.url.query) if request.url.query else ""
+            return RedirectResponse(url="/whisprrt/" + q, status_code=307)
 
         routes.append(Route("/whisprrt", endpoint=_whisprrt_slash_redirect, methods=["GET", "HEAD"]))
         routes.append(Mount("/whisprrt", app=create_whisprrt_app()))
