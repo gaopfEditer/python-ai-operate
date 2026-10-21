@@ -325,6 +325,7 @@ const APP_MAIN_TABS = [
   "create",
   "publish",
   "realtimesend",
+  "livelisten",
 ];
 
 /** CDP 发布页展示顺序与默认全选 */
