@@ -12,6 +12,17 @@ class AudioService:
         self.current_device = None
         self._stream = None
     
+    def _refresh_portaudio(self):
+        """重新初始化 PortAudio，避免驱动热插后设备列表仍是启动时快照。"""
+        try:
+            sd._terminate()
+        except Exception:
+            pass
+        try:
+            sd._initialize()
+        except Exception as e:
+            logger.debug("portaudio reinit: %s", e)
+
     def get_devices(self):
         """
         获取系统上所有可用的音频输入设备
@@ -20,6 +31,7 @@ class AudioService:
             dict: 包含所有可用音频设备的信息
         """
         try:
+            self._refresh_portaudio()
             devices = sd.query_devices()
             input_devices = []
             

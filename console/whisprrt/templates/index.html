@@ -363,25 +363,15 @@
                     <div class="card-header">设置</div>
                     <div class="card-body">
                         <!-- 添加音频设备选择 -->
-                        <div class="form-group device-select">
+                                                <div class="form-group device-select">
                             <label for="deviceSelect" class="form-label">音频输入设备</label>
-                            <select id="deviceSelect" class="form-select" onchange="selectDevice()">
-                                <option value="default">加载中...</option>
-                            </select>
-                            <div id="deviceInfo" class="device-info">正在加载可用设备...</div>
-                            <div id="deviceHint" class="device-info" style="margin-top:6px;color:#6c757d;font-size:0.85rem;">
-                              macOS 抓网页/系统声音需安装 BlackHole，并在「音频 MIDI 设置」创建含扬声器+BlackHole 的多输出设备，系统输出选该多输出，下方再选 BlackHole。
+                            <div class="input-group">
+                                <select id="deviceSelect" class="form-select" onchange="selectDevice()">
+                                    <option value="default">加载中...</option>
+                                </select>
+                                <button type="button" class="btn btn-outline-secondary" id="refreshDevicesBtn" onclick="refreshAudioDevices()" title="重新扫描系统音频设备">刷新</button>
                             </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="modelSelect" class="form-label">选择模型</label>
-                            <select id="modelSelect" class="form-select" onchange="changeModel()">
-                                <option value="tiny">tiny - 最小模型，速度最快</option>
-                                <option value="base">base - 基础模型，速度快</option>
-                                <option value="small">small - 小型模型，平衡</option>
-                                <option value="large-v3-turbo" selected>large-v3-turbo - 大型模型，最高精度</option>
-                            </select>
+                            <div class="form-text" id="deviceHint"></div>
                         </div>
                         
                         <div class="form-group">
@@ -790,6 +780,28 @@
                     }
                 })
                 .catch(function(err) { console.warn('loadModels failed', err); });
+        }
+
+
+        function refreshAudioDevices() {
+            const btn = document.getElementById('refreshDevicesBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '刷新中…';
+            }
+            loadAudioDevices()
+                .then(function() {
+                    showToast('已重新扫描音频设备', 'success');
+                })
+                .catch(function(err) {
+                    showToast('刷新设备失败: ' + err, 'error');
+                })
+                .finally(function() {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = '刷新';
+                    }
+                });
         }
 
         function loadAudioDevices() {
