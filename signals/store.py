@@ -139,7 +139,10 @@ def _empty_state() -> Dict[str, Any]:
             "user_force_push": False,
             "kol_realtime_enabled": False,
             "kol_realtime_interval_min": 15,
-            "kol_realtime_cutoff_hours": 24,
+            "kol_realtime_cutoff_hours": 8,
+            "kol_realtime_first_hours": 8,
+            "kol_realtime_incremental_hours": 2,
+            "kol_realtime_last_crawl_at": "",
             "kol_realtime_max_tweets": 40,
             "kol_realtime_handles": [],
             "kol_realtime_push_enabled": False,
@@ -287,6 +290,8 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
     for key in (
         "kol_realtime_interval_min",
         "kol_realtime_cutoff_hours",
+        "kol_realtime_first_hours",
+        "kol_realtime_incremental_hours",
         "kol_realtime_max_tweets",
     ):
         if key in patch and patch[key] is not None:
@@ -294,6 +299,8 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
                 cfg[key] = int(patch[key])
             except Exception:
                 pass
+    if "kol_realtime_last_crawl_at" in patch:
+        cfg["kol_realtime_last_crawl_at"] = str(patch.get("kol_realtime_last_crawl_at") or "")
     if "kol_realtime_push_enabled" in patch:
         cfg["kol_realtime_push_enabled"] = bool(patch["kol_realtime_push_enabled"])
     if "kol_realtime_handles" in patch and isinstance(patch.get("kol_realtime_handles"), list):
