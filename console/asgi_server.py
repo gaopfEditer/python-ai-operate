@@ -9,7 +9,7 @@ from urllib.parse import parse_qs
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, Response
+from starlette.responses import FileResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 
 from console.app import STATIC_DIR, handle_api
@@ -100,6 +100,14 @@ def create_console_asgi_app() -> Starlette:
     try:
         from console.whisprrt.fastapi_factory import create_whisprrt_app
 
+                async def _whisprrt_slash_redirect(request: Request) -> Response:
+            # Mount 不自动把 /whisprrt 转到 /whisprrt/
+            if request.url.path.rstrip("/") == "/whisprrt" and not request.url.path.endswith("/"):
+                q = ("?" + request.url.query) if request.url.query else ""
+                return RedirectResponse(url="/whisprrt/" + q, status_code=307)
+            return RedirectResponse(url="/whisprrt/", status_code=307)
+
+        routes.append(Route("/whisprrt", endpoint=_whisprrt_slash_redirect, methods=["GET", "HEAD"]))
         routes.append(Mount("/whisprrt", app=create_whisprrt_app()))
     except Exception as exc:
         print(f"[console] WhisprRT 未挂载: {exc}", flush=True)

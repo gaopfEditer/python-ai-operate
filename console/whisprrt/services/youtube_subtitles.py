@@ -16,10 +16,15 @@ import logging
 import os
 import re
 from pathlib import Path
+
+def _yt_dlp():
+    """Lazy import: realtime listen must not fail to mount if yt-dlp is absent."""
+    import yt_dlp as _m
+    return _m
+
 from typing import Any
 from urllib.request import Request
 
-import yt_dlp
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +256,7 @@ def _extract_youtube_info_resilient(url: str, base_opts: dict[str, Any]) -> tupl
         for clients in _youtube_player_client_variants(ydl_opts):
             opts_try = _youtube_opts_with_player_client(ydl_opts, clients)
             try:
-                with yt_dlp.YoutubeDL(opts_try) as ydl:
+                with _yt_dlp().YoutubeDL(opts_try) as ydl:
                     # 不做 format 选择与后处理，避免「Requested format is not available」
                     #（字幕元数据在 IE 阶段已有，与 batch_whisperx_nodownload 的 process=False 思路一致）
                     info = ydl.extract_info(url, download=False, process=False)
@@ -403,7 +408,7 @@ def _parse_vtt(raw: str) -> tuple[list[dict[str, Any]], str]:
     return segments, "\n".join(lines)
 
 
-def _read_subtitle_body(ydl: yt_dlp.YoutubeDL, fmt: dict[str, Any]) -> tuple[str, str]:
+def _read_subtitle_body(ydl: Any, fmt: dict[str, Any]) -> tuple[str, str]:
     url = fmt.get("url")
     if not url:
         raise ValueError("字幕条目缺少 url")
@@ -497,7 +502,7 @@ def fetch_one(
             out["error_message"] = "字幕格式列表为空"
             return out
 
-        with yt_dlp.YoutubeDL(ydl_opts_used) as ydl:
+        with _yt_dlp().YoutubeDL(ydl_opts_used) as ydl:
             raw, ext = _read_subtitle_body(ydl, fmt_entry)
         out["language"] = chosen_lang
         out["is_automatic"] = is_auto
