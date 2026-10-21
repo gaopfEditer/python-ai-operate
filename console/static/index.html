@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261019b" />
+  <link rel="stylesheet" href="/app.css?v=20261021a" />
 </head>
 <body>
   <div class="shell">
@@ -825,7 +825,7 @@
               </label>
               <label class="field">
                 <span>本次时间窗（小时）</span>
-                <input id="sigKolRtCutoffHours" type="number" min="1" max="168" value="24" />
+                <input id="sigKolRtCutoffHours" type="number" min="1" max="168" value="8" />
               </label>
               <label class="field">
                 <span>每 KOL 最多条</span>
@@ -1114,6 +1114,13 @@
           </div>
         </section>
 
+        <section id="sigCardsOverviewWrap" class="sig-cards-overview-wrap" hidden aria-label="信号总览">
+          <header class="sig-cards-overview-head">
+            <h3 class="sig-sub">总览</h3>
+            <span id="sigCardsOverviewHint" class="muted" style="font-size:.78rem"></span>
+          </header>
+          <div id="sigCardsOverview" class="sig-cards-overview"></div>
+        </section>
         <nav id="sigCardsPager" class="sig-cards-pager" hidden aria-label="信号卡片分页"></nav>
         <div id="sigCards" class="sig-cards"></div>
 
@@ -1400,6 +1407,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261019b"></script>
+  <script src="/app.js?v=20261021a"></script>
 </body>
 </html>

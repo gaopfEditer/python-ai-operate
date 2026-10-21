@@ -543,7 +543,7 @@ def run_user_signal_pipeline(
     now = datetime.now(timezone.utc).astimezone()
 
     if kol_realtime:
-        hours = max(1, min(int(kol_cutoff_hours or cfg.get("kol_realtime_cutoff_hours") or 24), 168))
+        hours = max(1, min(int(kol_cutoff_hours or cfg.get("kol_realtime_cutoff_hours") or 8), 168))
         since = now - timedelta(hours=hours)
         range_label = f"KOL 实时 {hours}h"
         range_key = "kol_realtime"

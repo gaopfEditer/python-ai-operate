@@ -3542,7 +3542,7 @@ def handle_api(
                 handles = body.get("handles") or cfg.get("kol_realtime_handles") or []
                 result = run_kol_realtime_batch(
                     handles=handles if isinstance(handles, list) else [],
-                    cutoff_hours=int(body.get("cutoff_hours") or cfg.get("kol_realtime_cutoff_hours") or 24),
+                    cutoff_hours=int(body.get("cutoff_hours") or cfg.get("kol_realtime_cutoff_hours") or 8),
                     max_tweets=int(body.get("max_tweets") or cfg.get("kol_realtime_max_tweets") or 40),
                     session_id=str(body.get("session_id") or cfg.get("kol_realtime_session_id") or ""),
                     push_enabled=bool(
@@ -3759,7 +3759,7 @@ def handle_api(
 
                 scfg = load_sig_state().get("config") or {}
                 try:
-                    kh = float(scfg.get("kol_realtime_cutoff_hours") or 24)
+                    kh = float(scfg.get("kol_realtime_cutoff_hours") or 8)
                 except (TypeError, ValueError):
                     kh = 24.0
                 kh = max(1.0, min(168.0, kh))
