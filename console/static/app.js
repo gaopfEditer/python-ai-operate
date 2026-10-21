@@ -7192,6 +7192,32 @@ function bindSigUserFormPersistence() {
   }
 }
 
+async function refreshSignalsPanelMeta() {
+  try {
+    const data = await api("/api/signals/config");
+    const cfg = data.config || {};
+    _sigBgListWatchOn = !!(data.watch?.watch_enabled ?? cfg.watch_enabled);
+    renderSigCycle(data.cycle || {}, cfg);
+    updateSigCycleButton(data.cycle || {}, cfg);
+    updateSigCycleLiveUi(data.cycle || {});
+    ensureSigCyclePoller(!!(data.cycle?.cycle_enabled ?? cfg.cycle_enabled));
+    applySigKolRtForm(cfg, data.bloggers, data.kol_realtime);
+    ensureSigKolRtPoller(!!(data.kol_realtime?.enabled ?? cfg.kol_realtime_enabled));
+    try {
+      const bsCycleData = await api("/api/signals/binance-square/cycle");
+      const bsCycle = bsCycleData.cycle || {};
+      _sigBgBsCycleOn = !!bsCycle.cycle_enabled;
+      updateSigBsCycleLiveUi(bsCycle);
+      ensureSigBsCyclePoller(!!bsCycle.cycle_enabled);
+    } catch (_) {
+      /* optional */
+    }
+    updateSigRtActiveBanner();
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 async function loadSignalsPanel() {
   try {
     const data = await api("/api/signals/config");
@@ -7560,22 +7586,227 @@ function sigCardsMinTimeIso() {
     return new Date(Date.now() - h * 3600 * 1000).toISOString();
   }
   if (state.sigMode === "list" && state.sigCardsView === "realtime") {
-    const h = Math.max(1, Number($("#sigKolRtCutoffHours")?.value || 24) || 24);
+    const h = Math.max(1, Number($("#sigKolRtCutoffHours")?.value || 8) || 8);
     return new Date(Date.now() - h * 3600 * 1000).toISOString();
   }
   return "";
 }
 
 function pruneSigCardsByMinTime(items, fromIso) {
-  if (!fromIso) return Array.isArray(items) ? items : [];
-  const minTs = Date.parse(fromIso);
-  if (!Number.isFinite(minTs)) return Array.isArray(items) ? items : [];
-  return (items || []).filter((c) => {
-    const raw = c.created_at || c.display_time || c.parsed_at || "";
-    const t = Date.parse(String(raw));
-    if (!Number.isFinite(t)) return false;
-    return t >= minTs - 60_000;
+  const bounds = computeSigCardsTimeBounds();
+  if (fromIso) {
+    const minTs = Date.parse(fromIso);
+    if (Number.isFinite(minTs)) {
+      bounds.fromMs = bounds.fromMs != null ? Math.max(bounds.fromMs, minTs) : minTs;
+    }
+  }
+  return filterSigCardsByTimeWindow(items, bounds);
+}
+
+const SIG_CARDS_SCROLL_NEAR_PX = 140;
+const SIG_OVERVIEW_MAX = 24;
+
+function sigCardsScrollEl() {
+  const stage = document.querySelector(".stage");
+  if (stage && stage.scrollHeight > stage.clientHeight + 8) return stage;
+  return document.scrollingElement || document.documentElement;
+}
+
+function isSigCardsNearBottom(el, threshold = SIG_CARDS_SCROLL_NEAR_PX) {
+  const node = el || sigCardsScrollEl();
+  if (!node) return true;
+  const gap = node.scrollHeight - node.scrollTop - node.clientHeight;
+  return gap <= threshold;
+}
+
+function cstRangeStartMs(rangeKey) {
+  const now = new Date();
+  const key = normalizeSigBackfillRange(rangeKey);
+  if (key === "last_7d") return now.getTime() - 7 * 86400_000;
+  if (key === "last_14d" || key === "last_2w") return now.getTime() - 14 * 86400_000;
+  if (key === "last_30d") return now.getTime() - 30 * 86400_000;
+  if (key === "last_90d") return now.getTime() - 90 * 86400_000;
+  if (key === "this_week") {
+    const d = new Date(now);
+    const day = d.getDay() === 0 ? 6 : d.getDay() - 1;
+    d.setDate(d.getDate() - day);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  if (key === "this_month") {
+    return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  }
+  if (key === "this_quarter") {
+    const qm = Math.floor(now.getMonth() / 3) * 3;
+    return new Date(now.getFullYear(), qm, 1).getTime();
+  }
+  return now.getTime() - 7 * 86400_000;
+}
+
+function computeSigCardsTimeBounds() {
+  const filter = effectiveSigCardsFilter(collectSigCardsFilter());
+  let fromMs = null;
+  let toMs = null;
+  if (filter.range === "custom") {
+    if (filter.from) {
+      const t = Date.parse(filter.from);
+      if (Number.isFinite(t)) fromMs = t;
+    }
+    if (filter.to) {
+      const t = Date.parse(filter.to);
+      if (Number.isFinite(t)) toMs = t;
+    }
+  } else if (filter.range) {
+    fromMs = cstRangeStartMs(filter.range);
+  }
+  const rtIso = sigCardsMinTimeIso();
+  if (rtIso) {
+    const rtMs = Date.parse(rtIso);
+    if (Number.isFinite(rtMs)) fromMs = fromMs != null ? Math.max(fromMs, rtMs) : rtMs;
+  }
+  return {
+    fromMs: fromMs != null && Number.isFinite(fromMs) ? fromMs : null,
+    toMs: toMs != null && Number.isFinite(toMs) ? toMs : null,
+  };
+}
+
+function filterSigCardsByTimeWindow(items, bounds) {
+  const arr = Array.isArray(items) ? items : [];
+  const fromMs = bounds?.fromMs;
+  const toMs = bounds?.toMs;
+  if (fromMs == null && toMs == null) return arr;
+  return arr.filter((c) => {
+    const t = sigCardTimeMs(c);
+    if (!t) return false;
+    if (fromMs != null && t < fromMs - 60_000) return false;
+    if (toMs != null && t > toMs + 60_000) return false;
+    return true;
   });
+}
+
+function sigOverviewQlName(card) {
+  const ch = card?.channel || {};
+  return String(ch.channelName || ch.name || "").trim();
+}
+
+function sigOverviewSubjectLine(card) {
+  const sig = card?.signal || {};
+  const coins = (sig.coins || []).map((x) => String(x).trim()).filter(Boolean);
+  const primary = coins[0] || "";
+  const ch = sigOverviewQlName(card);
+  const author = String(card?.author || "").replace(/^@/, "").trim();
+  const body = primary || author || ch || "—";
+  const conf = sig.confidence;
+  const confPct =
+    conf != null && !Number.isNaN(Number(conf)) ? `${Math.round(Number(conf) * 100)}%` : "";
+  if (confPct && primary) return `${body}（置信 ${confPct}）`;
+  if (ch && author && ch.toLowerCase() !== author.toLowerCase()) return `${body} · @${author}`;
+  return body;
+}
+
+function sigOverviewContentWeight(card) {
+  const sig = card?.signal || {};
+  const coins = (sig.coins || []).map((x) => String(x).trim()).filter(Boolean);
+  if (coins.length) return coins.join(" / ");
+  const text = stripSigTimePrefix(sig.summary || card?.text || "");
+  if (!text) return "—";
+  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+}
+
+function renderSigOverviewCard(c) {
+  const sig = c.signal || {};
+  const dirKey = normalizeSigDirectionKey(sig.direction) || "unknown";
+  const dir = sigDirectionLabel(sig.direction);
+  const trade = isSigTradeSignal(sig);
+  const excerpt = stripSigTimePrefix(sig.summary || c.text || "").slice(0, 120);
+  const full = stripSigTimePrefix(c.text || sig.summary || "");
+  const timeLabel = formatSigCardTime(c);
+  const ql = sigOverviewQlName(c) || parseSigUserHandle(c.author || "") || sigSourceLabel(c) || "—";
+  const subject = sigOverviewSubjectLine(c);
+  const weight = sigOverviewContentWeight(c);
+  const src = sigSourceLabel(c);
+  return `<article class="sig-overview-card${trade ? " is-trade" : ""}" title="${escapeAttr(full)}">
+    <div class="sig-overview-top">
+      <span class="sig-overview-dir ${escapeAttr(dirKey)}">${escapeHtml(dir)}</span>
+      <span class="muted">${escapeHtml(timeLabel)}</span>
+    </div>
+    <p class="sig-overview-excerpt">${escapeHtml(excerpt || "（无正文）")}</p>
+    <div class="sig-overview-meta">
+      <div><b>内容</b> ${escapeHtml(weight)}</div>
+      <div><b>主体</b> ${escapeHtml(subject)}</div>
+      <div><b>QL</b> ${escapeHtml(ql)}${src ? ` · ${escapeHtml(src)}` : ""}</div>
+    </div>
+  </article>`;
+}
+
+function renderSigCardsOverview(items) {
+  const wrap = $("#sigCardsOverviewWrap");
+  const box = $("#sigCardsOverview");
+  const hint = $("#sigCardsOverviewHint");
+  if (!wrap || !box) return;
+  if (state.sigMode === "value") {
+    wrap.hidden = true;
+    return;
+  }
+  const rows = (items || []).slice(0, SIG_OVERVIEW_MAX);
+  if (!rows.length) {
+    wrap.hidden = true;
+    box.innerHTML = "";
+    if (hint) hint.textContent = "";
+    return;
+  }
+  wrap.hidden = false;
+  if (hint) {
+    hint.textContent = `展示当前筛选下最近 ${rows.length} 条（悬浮可看全文）`;
+  }
+  box.innerHTML = rows.map((c) => renderSigOverviewCard(c)).join("");
+}
+
+function mergeSigCardsIntoCache(incoming, { replace = false } = {}) {
+  const bounds = computeSigCardsTimeBounds();
+  const filtered = filterSigCardsByTimeWindow(incoming || [], bounds);
+  if (replace) {
+    _sigCardsCache = dedupSigCards(filtered);
+    return { added: _sigCardsCache.length, inWindow: filtered.length };
+  }
+  const prevKeys = new Set(_sigCardsCache.map((c) => sigCardDedupKey(c)));
+  const merged = dedupSigCards([...filtered, ..._sigCardsCache]);
+  const pruned = filterSigCardsByTimeWindow(merged, bounds);
+  _sigCardsCache = pruned;
+  let added = 0;
+  for (const c of filtered) {
+    const k = sigCardDedupKey(c);
+    if (!prevKeys.has(k)) added += 1;
+  }
+  return { added, inWindow: filtered.length };
+}
+
+function applySigCardsData(items, opts = {}) {
+  const background = !!opts.background;
+  const replace = opts.replace !== false && !background;
+  const scrollEl = sigCardsScrollEl();
+  const nearBottom = isSigCardsNearBottom(scrollEl);
+  const prevPage = _sigCardsPage;
+  const { added } = mergeSigCardsIntoCache(items, { replace });
+  if (replace) {
+    _sigCardsPage = 1;
+  } else if (!added) {
+    _sigCardsPage = prevPage;
+  } else if (nearBottom) {
+    _sigCardsPage = 1;
+  } else {
+    _sigCardsPage = prevPage;
+  }
+  renderSigCardsView();
+  const shouldScroll =
+    !replace && added > 0 && nearBottom && (prevPage <= 1 || _sigCardsPage === 1);
+  if (shouldScroll) {
+    requestAnimationFrame(() => {
+      const el = sigCardsScrollEl();
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }
+  return { added, nearBottom };
 }
 
 function appendSigCardsHandleQuery(url, filter) {
@@ -8383,7 +8614,7 @@ async function pollSigBsCycleInBackground() {
       const onSignals = $("#panel-signals") && !$("#panel-signals").hidden;
       if (onSignals && state.sigMode === "binance" && state.sigBsFeedView === "realtime") {
         try {
-          await loadSignalCards();
+          await loadSignalCards({ background: true });
           await loadSigBinancePanel();
         } catch (_) {
           /* 后台刷新失败不影响下一轮 */
@@ -9478,7 +9709,7 @@ async function pollSigCycleInBackground() {
         if (badge) badge.textContent = String(count);
         const onSignals = $("#panel-signals") && !$("#panel-signals").hidden;
         if (onSignals && state.sigMode === "list") {
-          await loadSignalCards();
+          await loadSignalCards({ background: true });
         }
       } catch (_) {
         /* 后台刷新失败不影响下一轮抓取 */
@@ -9543,7 +9774,7 @@ function collectSigKolRtForm() {
     ),
     kol_realtime_cutoff_hours: Math.max(
       1,
-      Math.min(168, Number($("#sigKolRtCutoffHours")?.value || 24) || 24)
+      Math.min(168, Number($("#sigKolRtCutoffHours")?.value || 8) || 8)
     ),
     kol_realtime_max_tweets: Math.max(
       5,
@@ -9565,7 +9796,7 @@ function applySigKolRtForm(cfg, bloggers, rt) {
     $("#sigKolRtInterval").value = String(pick("kol_realtime_interval_min", 15));
   }
   if ($("#sigKolRtCutoffHours")) {
-    $("#sigKolRtCutoffHours").value = String(pick("kol_realtime_cutoff_hours", 24));
+    $("#sigKolRtCutoffHours").value = String(pick("kol_realtime_cutoff_hours", 8));
   }
   if ($("#sigKolRtMaxTweets")) {
     $("#sigKolRtMaxTweets").value = String(pick("kol_realtime_max_tweets", 40));
@@ -9820,7 +10051,7 @@ async function pollSigKolRtInBackground() {
     if (last && last !== _sigKolRtLastRunAt) {
       _sigKolRtLastRunAt = last;
       if (state.sigMode === "list" && state.sigCardsView === "realtime") {
-        await loadSignalCards().catch(() => {});
+        await loadSignalCards({ background: true }).catch(() => {});
       }
     }
   } catch (_) {
@@ -9848,6 +10079,7 @@ async function startSigKolRealtime() {
   updateSigKolRtUi(data.kol_realtime || {}, {});
   ensureSigKolRtPoller(true);
   switchSigListFeedView("realtime");
+  await loadSignalCards();
   toast("KOL 实时抓取已开启（后台持续运行）", "ok");
 }
 
@@ -10703,6 +10935,33 @@ function renderSigCardsView() {
   applySigKolVisibility();
 }
 
+async function loadSigCardsOverviewMerged() {
+  if (state.sigMode === "value") {
+    renderSigCardsOverview([]);
+    return;
+  }
+  const filter = effectiveSigCardsFilter(collectSigCardsFilter());
+  const onlyTrade = !!$("#sigFilterTrade")?.checked;
+  let url = `/api/signals/cards?limit=${SIG_OVERVIEW_MAX}&merge=1`;
+  if (onlyTrade) url += "&trade=1";
+  url = appendSigCardsHandleQuery(url, collectSigCardsFilter());
+  if (filter.range === "custom") {
+    if (filter.from) url += `&from=${encodeURIComponent(filter.from)}`;
+    if (filter.to) url += `&to=${encodeURIComponent(filter.to)}`;
+  } else if (filter.range) {
+    url += `&range=${encodeURIComponent(normalizeSigBackfillRange(filter.range))}`;
+  }
+  try {
+    const data = await api(url);
+    const items = dedupSigCards(
+      filterSigCardsByTimeWindow(data.items || [], computeSigCardsTimeBounds())
+    );
+    renderSigCardsOverview(items);
+  } catch (_) {
+    renderSigCardsOverview(_sigCardsCache.slice(0, SIG_OVERVIEW_MAX));
+  }
+}
+
 function openSigCardEdit(tweetId) {
   const tid = String(tweetId || "").trim();
   const card = _sigCardsCache.find((c) => String(c.tweet_id || "") === tid);
@@ -10753,9 +11012,13 @@ async function saveSigCardEdit(e) {
   }
 }
 
-async function loadSignalCards() {
+async function loadSignalCards(opts = {}) {
+  const background = !!opts.background;
   const box = $("#sigCards");
   if (!box) return;
+  const finishOverview = async () => {
+    await loadSigCardsOverviewMerged();
+  };
   if (state.sigMode === "binance") {
     const filter = collectSigCardsFilter();
     const onlyTrade = !!$("#sigFilterTrade")?.checked;
@@ -10772,13 +11035,15 @@ async function loadSignalCards() {
         if (onlyTrade) url += "&trade=1";
         url = appendSigCardsHandleQuery(url, collectSigCardsFilter());
         const data = await api(url);
-        _sigCardsCache = dedupSigCards(pruneSigCardsByMinTime(data.items || [], fromIso));
-        _sigCardsPage = 1;
-        renderSigCardsView();
+        applySigCardsData(pruneSigCardsByMinTime(data.items || [], fromIso), {
+          background,
+          replace: !background,
+        });
         if (!_sigCardsCache.length) {
           box.innerHTML = `<p class="muted">实时视图：近 ${hours} 小时内暂无 Square 卡片。请开启周期或点「立即抓取（增量）」。</p>`;
           renderSigCardsPager(0, 1);
         }
+        await finishOverview();
         return;
       }
       const effFilter = effectiveSigCardsFilter(filter);
@@ -10796,13 +11061,12 @@ async function loadSignalCards() {
         );
       }
       renderSigWindows(filterBinanceWindows(data.windows || []));
-      _sigCardsCache = dedupSigCards(items);
-      _sigCardsPage = 1;
-      renderSigCardsView();
+      applySigCardsData(items, { background, replace: !background });
     } catch (e) {
       box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
       renderSigCardsPager(0, 1);
     }
+    await finishOverview();
     return;
   }
   const onlyTrade = !!$("#sigFilterTrade")?.checked;
@@ -10817,20 +11081,18 @@ async function loadSignalCards() {
     url = appendSigCardsHandleQuery(url, filter);
     try {
       const data = await api(url);
-      _sigCardsCache = dedupSigCards(pruneSigCardsByMinTime(data.items || [], fromIso));
-      _sigCardsPage = 1;
-      renderSigCardsView();
+      applySigCardsData(pruneSigCardsByMinTime(data.items || [], fromIso), {
+        background,
+        replace: !background,
+      });
       if (!_sigCardsCache.length) {
-        const box = $("#sigCards");
-        if (box) {
-          box.innerHTML = `<p class="muted">本次实时会话暂无卡片（会话 ${escapeHtml(sid || "—")}）。等待下一轮抓取或点「立即抓取（增量）」。</p>`;
-        }
+        box.innerHTML = `<p class="muted">本次实时会话暂无卡片（会话 ${escapeHtml(sid || "—")}）。等待下一轮抓取或点「立即抓取（增量）」。</p>`;
       }
     } catch (e) {
-      const box = $("#sigCards");
-      if (box) box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
+      box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
       renderSigCardsPager(0, 1);
     }
+    await finishOverview();
     return;
   }
   let url = `/api/signals/cards?limit=500&merge=${valueMode ? "0" : "1"}`;
@@ -10868,13 +11130,12 @@ async function loadSignalCards() {
     if (cfg.value_max_tweets && $("#sigValueMaxTweets")) {
       $("#sigValueMaxTweets").value = cfg.value_max_tweets;
     }
-    _sigCardsCache = dedupSigCards(data.items || []);
-    _sigCardsPage = 1;
-    renderSigCardsView();
+    applySigCardsData(data.items || [], { background, replace: !background });
   } catch (e) {
     box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
     renderSigCardsPager(0, 1);
   }
+  await finishOverview();
 }
 
 async function runValueReturnCrawl() {
@@ -11672,7 +11933,7 @@ async function boot() {
   setInterval(refreshCorpusStats, 45000);
   setInterval(() => {
     const panel = $("#panel-signals");
-    if (panel && !panel.hidden) loadSignalsPanel();
+    if (panel && !panel.hidden) refreshSignalsPanelMeta();
   }, 30000);
   setInterval(() => {
     const panel = $("#panel-realtime");
