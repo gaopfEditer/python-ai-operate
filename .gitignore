@@ -263,3 +263,7 @@ messages/*.session-journal
 *.deb
 *.rpm
 
+
+# Keep WhisprRT UI templates tracked
+!console/whisprrt/templates/
+!console/whisprrt/templates/**

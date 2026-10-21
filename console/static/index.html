@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261019b" />
+  <link rel="stylesheet" href="/app.css?v=20261021a" />
 </head>
 <body>
   <div class="shell">
@@ -28,6 +28,7 @@
         <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
         <button class="tab" type="button" role="tab" data-tab="publish" aria-selected="false">CDP 发布</button>
         <button class="tab" type="button" role="tab" data-tab="realtimesend" aria-selected="false">实时发送</button>
+        <button class="tab" type="button" role="tab" data-tab="livelisten" aria-selected="false">实时监听</button>
       </nav>
       <div class="rail-foot">
         <span id="healthDot" class="dot" aria-hidden="true"></span>
@@ -1394,12 +1395,29 @@
 
       </section>
 
+      <section id="panel-livelisten" class="panel livelisten-panel" role="tabpanel" hidden>
+        <header class="livelisten-head">
+          <div>
+            <h2>实时监听</h2>
+            <p class="muted">系统音频 → Whisper 实时转写 · 关键词告警（WhisprRT）</p>
+          </div>
+          <a class="btn ghost btn-sm" href="/whisprrt/" target="_blank" rel="noopener">新窗口打开</a>
+        </header>
+        <iframe
+          id="livelistenFrame"
+          class="livelisten-frame"
+          title="WhisprRT 实时转写"
+          src="/whisprrt/"
+          loading="lazy"
+        ></iframe>
+      </section>
+
     </main>
   </div>
   <script src="/taxonomy.js?v=20260922a"></script>
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261019b"></script>
+  <script src="/app.js?v=20261021a"></script>
 </body>
 </html>

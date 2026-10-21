@@ -5192,13 +5192,13 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
     except Exception as e:
         safe_print(f" KOL 实时抓取初始化跳过: {e}")
     _free_port(port, log=safe_print)
-    server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"
     safe_print("=" * 60)
     safe_print(" TrendRadar Console")
     safe_print("=" * 60)
     safe_print(f" 地址: {url}")
-    safe_print(" 功能: 列表信号(分时CDP) / 语料库 / Prompt 创作 / CDP 发布")
+    safe_print(" 功能: 列表信号(分时CDP) / 语料库 / Prompt 创作 / CDP 发布 / 实时监听")
+    safe_print(" 实时监听: 侧栏「实时监听」或 http://{0}:{1}/whisprrt/".format(host, port))
     try:
         from utils.crawl_cdp import resolve_crawl_debugger_url
 
@@ -5230,14 +5230,17 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         except Exception:
             pass
     try:
-        server.serve_forever()
+        import uvicorn
+
+        from console.asgi_server import create_console_asgi_app
+
+        asgi_app = create_console_asgi_app()
+        uvicorn.run(asgi_app, host=host, port=port, log_level="info")
     except KeyboardInterrupt:
         safe_print("")
         safe_print("=" * 60)
         safe_print(" 已停止控制台服务")
         safe_print("=" * 60)
-    finally:
-        server.server_close()
 
 
 def main() -> None:

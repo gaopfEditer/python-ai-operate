@@ -3962,6 +3962,39 @@ label.publish-media-add {
 }
 
 /* ══════════════════════════════════════════
+   实时监听（WhisprRT 嵌入）
+══════════════════════════════════════════ */
+.livelisten-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
+}
+.livelisten-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+.livelisten-head h2 {
+  margin: 0 0 4px;
+  font-family: var(--display);
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+}
+.livelisten-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 480px;
+  border: 0;
+  background: #f8f9fa;
+}
+
+/* ══════════════════════════════════════════
    实时发送面板
 ══════════════════════════════════════════ */
 .rt-panel {
