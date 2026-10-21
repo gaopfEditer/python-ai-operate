@@ -1220,6 +1220,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
+                        savePrefs({ language: language });
                         showToast(data.message, 'success');
                     } else {
                         showToast(data.message, 'error');
