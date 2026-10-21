@@ -507,7 +507,41 @@
         // 持久化存储的key
         const STORAGE_KEY = 'whisprrt_transcript_list';
         const KEYWORD_ALERT_KEY = 'whisprrt_keyword_alert';
+        const PREFS_KEY = 'whisprrt_prefs';
         
+
+        function loadPrefs() {
+            try {
+                const raw = localStorage.getItem(PREFS_KEY);
+                return raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function savePrefs(patch) {
+            try {
+                const prefs = Object.assign(loadPrefs(), patch || {});
+                localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+            } catch (e) {
+                console.warn('savePrefs failed', e);
+            }
+        }
+
+        function syncRunningFromServer() {
+            return fetch(apiUrl('/status'))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (typeof data.running === 'boolean') {
+                        updateStatus(!!data.running);
+                    }
+                    return data;
+                })
+                .catch(function(err) {
+                    console.warn('syncRunningFromServer failed', err);
+                });
+        }
+
         // 从localStorage加载转写记录
         function loadTranscriptFromStorage() {
             try {
@@ -662,7 +696,9 @@
                 
                 // 加载音频设备列表；完成后首次连接时自动开始转写
                 loadModels();
+                syncRunningFromServer();
                 loadAudioDevices()
+                    .then(function() { return syncRunningFromServer(); })
                     .then(function() {
                         if (autoStartTranscriptionOnConnect && !autoStartTranscriptionDone && !isRunning) {
                             autoStartTranscriptionDone = true;
@@ -724,6 +760,7 @@
          */
 
         function loadModels() {
+            const prefs = loadPrefs();
             return fetch(apiUrl('/models'))
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
@@ -734,10 +771,23 @@
                         const opt = document.createElement('option');
                         opt.value = name;
                         opt.textContent = name + ' - ' + models[name];
-                        if (data.current && data.current === name) opt.selected = true;
                         modelSelect.appendChild(opt);
                     });
-                    if (data.current) modelSelect.value = data.current;
+                    const wanted = prefs.model || data.current;
+                    if (wanted && models[wanted]) {
+                        modelSelect.value = wanted;
+                    } else if (data.current) {
+                        modelSelect.value = data.current;
+                    }
+                    if (prefs.model && prefs.model !== data.current && models[prefs.model] && !isRunning) {
+                        return fetch(apiUrl('/change_model'), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ model: prefs.model })
+                        }).then(function(r) { return r.json(); }).then(function(res) {
+                            if (res.status !== 'success') console.warn('restore model failed', res);
+                        }).catch(function(err) { console.warn(err); });
+                    }
                 })
                 .catch(function(err) { console.warn('loadModels failed', err); });
         }
@@ -778,6 +828,22 @@
                         deviceSelect.appendChild(option);
                     });
                     
+                    const prefsDev = loadPrefs();
+                    if (prefsDev.deviceId) {
+                        const exists = Array.from(deviceSelect.options).some(function(o) {
+                            return o.value === String(prefsDev.deviceId);
+                        });
+                        if (exists) {
+                            deviceSelect.value = String(prefsDev.deviceId);
+                            if (!isRunning) {
+                                fetch(apiUrl('/select_device'), {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ device_id: String(prefsDev.deviceId) })
+                                }).catch(function() {});
+                            }
+                        }
+                    }
                     // 更新设备信息
                     updateDeviceInfo();
                     if (data.hint) {
@@ -820,40 +886,36 @@
          */
         function selectDevice() {
             const deviceId = deviceSelect.value;
-            
             if (isRunning) {
-                showToast('请先停止转写再切换音频设备', 'info');
-                // 恢复之前的选择
+                showToast('请先点「停止转写」，再切换音频设备', 'info');
+                updateStatus(true);
                 loadAudioDevices().catch(function() {});
                 return;
             }
-            
             fetch(apiUrl('/select_device'), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ device_id: String(deviceId) })
             })
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
                         showToast(data.message, 'success');
+                        savePrefs({ deviceId: String(deviceId) });
                         updateDeviceInfo();
-                    if (data.hint) {
-                        const hintEl = document.getElementById('deviceHint');
-                        if (hintEl) hintEl.textContent = data.hint;
-                    }
                     } else {
-                        showToast(data.message, 'error');
-                        // 恢复之前的选择
+                        showToast(data.message || '切换设备失败', 'error');
+                        if (data.message && String(data.message).indexOf('停止转写') >= 0) {
+                            updateStatus(true);
+                        }
                         loadAudioDevices().catch(function() {});
+                        syncRunningFromServer();
                     }
                 })
                 .catch(error => {
                     showToast('请求错误: ' + error, 'error');
-                    // 恢复之前的选择
                     loadAudioDevices().catch(function() {});
+                    syncRunningFromServer();
                 });
         }
         
@@ -897,11 +959,18 @@
             } else if (data.status === 'stopped' || data.status === 'already_stopped') {
                 updateStatus(false);
             } else if (data.status === 'connected') {
-                // 连接成功后，更新模型和语言选择
-                if (data.model) {
+                if (typeof data.running === 'boolean') {
+                    updateStatus(!!data.running);
+                }
+                const prefs = loadPrefs();
+                if (prefs.model) {
+                    modelSelect.value = prefs.model;
+                } else if (data.model) {
                     modelSelect.value = data.model;
                 }
-                if (data.language) {
+                if (prefs.language) {
+                    languageSelect.value = prefs.language;
+                } else if (data.language) {
                     languageSelect.value = data.language;
                 }
             }
@@ -987,17 +1056,17 @@
             fetch(apiUrl('/start'))
                 .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'started') {
+                    if (data.status === 'started' || data.status === 'already_started') {
                         updateStatus(true);
-                        showToast('语音转写已开始！', 'success');
-                    } else if (data.status === 'already_started') {
-                        showToast('语音转写已经在运行中！', 'info');
+                        showToast(data.status === 'started' ? '语音转写已开始！' : '语音转写已经在运行中！', data.status === 'started' ? 'success' : 'info');
                     } else {
-                        showToast('启动失败: ' + data.message, 'error');
+                        updateStatus(false);
+                        showToast('启动失败: ' + (data.message || data.status), 'error');
                     }
                 })
                 .catch(error => {
                     showToast('请求错误: ' + error, 'error');
+                    syncRunningFromServer();
                 });
         }
 
@@ -1007,10 +1076,17 @@
                 .then(response => response.json())
                 .then(data => {
                     updateStatus(false);
-                    showToast('语音转写已停止', 'info');
+                    if (data.status === 'stopped') {
+                        showToast('语音转写已停止！', 'success');
+                    } else if (data.status === 'already_stopped') {
+                        showToast('语音转写已经停止！', 'info');
+                    } else {
+                        showToast(data.message || ('停止结果: ' + data.status), 'info');
+                    }
                 })
                 .catch(error => {
                     showToast('请求错误: ' + error, 'error');
+                    syncRunningFromServer();
                 });
         }
 
@@ -1101,17 +1177,15 @@
         // 切换模型
         function changeModel() {
             if (isRunning) {
-                showToast('请先停止转写再切换模型', 'info');
+                showToast('请先点「停止转写」，再切换模型', 'info');
+                updateStatus(true);
                 return;
             }
-            
             const model = modelSelect.value;
-            
+            savePrefs({ model: model });
             fetch(apiUrl('/change_model'), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ model: model })
             })
                 .then(response => response.json())
@@ -1119,11 +1193,16 @@
                     if (data.status === 'success') {
                         showToast(data.message, 'success');
                     } else {
-                        showToast(data.message, 'error');
+                        showToast(data.message || '切换模型失败', 'error');
+                        if (data.message && String(data.message).indexOf('停止转写') >= 0) {
+                            updateStatus(true);
+                        }
+                        syncRunningFromServer();
                     }
                 })
                 .catch(error => {
                     showToast('请求错误: ' + error, 'error');
+                    syncRunningFromServer();
                 });
         }
 
