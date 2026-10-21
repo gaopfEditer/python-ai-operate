@@ -27,7 +27,8 @@ async def websocket_endpoint(websocket: WebSocket):
             "data": {
                 'status': 'connected',
                 'model': whisper_service.model_name,
-                'language': transcription_service.current_language
+                'language': transcription_service.current_language,
+                'running': bool(transcription_service.running),
             }
         })
         # 保持连接；浏览器刷新会触发 disconnect，不应拖垮进程

@@ -19,6 +19,17 @@ class AntiHallucinationConfigRequest(BaseModel):
     energy_threshold: float = None
     silence_threshold: float = None
 
+
+@router.get('/status')
+def get_status():
+    """返回当前转写是否在运行，供前端同步按钮状态。"""
+    return {
+        "status": "ok",
+        "running": bool(transcription_service.running),
+        "model": whisper_service.model_name,
+        "language": transcription_service.current_language,
+    }
+
 @router.get('/models')
 def get_models():
     """返回可用的模型列表"""
