@@ -66,6 +66,8 @@ def status() -> Dict[str, Any]:
             "running": _RUNNING_JOB,
         }
     )
+    if not _RUNNING_JOB:
+        snap["active_job_id"] = ""
     return snap
 
 

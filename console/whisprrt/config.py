@@ -14,7 +14,7 @@ AVAILABLE_MODELS = {
     "small": "小型模型，速度和精度平衡",
     "large-v3-turbo": "大型模型，精度高，接近tiny的速度"
 }
-DEFAULT_MODEL = "small"
+DEFAULT_MODEL = "large-v3-turbo"
 DEFAULT_LANGUAGE = "zh"
 
 # 反幻觉配置 - 速度优化

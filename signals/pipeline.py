@@ -113,12 +113,21 @@ def run_list_signal_pipeline(
     if _wait_if_paused(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "message": "用户终止"}
 
+    from signals.store import is_tweet_fully_stored
+
+    def _list_stop_tid(tid: str) -> bool:
+        if reparse_seen:
+            return False
+        return is_tweet_fully_stored(tid)
+
     crawled = crawl_list_timeline(
         lid,
         since=floor,
         max_tweets=limit,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        stop_if_known=_list_stop_tid,
+        stop_known_streak=2,
     )
     if not crawled.get("success"):
         return crawled
@@ -136,8 +145,8 @@ def run_list_signal_pipeline(
             continue
         if tid and is_seen(tid) and not reparse_seen:
             filtered_seen += 1
-            _log(progress, f"[过滤] 已处理过 · {fmt_tweet_line(it)}")
-            continue
+            _log(progress, f"[截止] 已收录 · {fmt_tweet_line(it)}，不再向更早拉取")
+            break
         fresh.append(it)
 
     page_seen = int(crawled.get("page_seen") or 0)
@@ -596,6 +605,18 @@ def run_user_signal_pipeline(
     if _wait_if_paused(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "message": "用户终止"}
 
+    from signals.store import is_tweet_fully_stored
+
+    def _user_stop_tid(tid: str) -> bool:
+        if reparse_seen:
+            return False
+        return is_tweet_fully_stored(
+            tid,
+            author=str(handle),
+            user_handle=handle,
+        )
+
+    known_streak = 3 if kol_realtime else 1
     crawled = crawl_user_timeline(
         handle,
         since=since,
@@ -603,6 +624,8 @@ def run_user_signal_pipeline(
         max_scroll=max_scroll,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        stop_if_known=_user_stop_tid,
+        stop_known_streak=known_streak,
     )
     if not crawled.get("success"):
         return crawled
@@ -626,8 +649,11 @@ def run_user_signal_pipeline(
             )
             if cached and isinstance(cached.get("signal"), dict):
                 filtered_seen += 1
-                _log(progress, f"[跳过] 已抓取 · {fmt_tweet_line(it)}")
-                continue
+                if kol_realtime:
+                    _log(progress, f"[跳过] 已收录 · {fmt_tweet_line(it)}")
+                    continue
+                _log(progress, f"[截止] 已收录 · {fmt_tweet_line(it)}，不再向更早拉取")
+                break
             fresh.append(it)
             _log(progress, f"[补解析] 无缓存记录 · {fmt_tweet_line(it)}")
             continue
@@ -854,6 +880,8 @@ def run_user_signal_pipeline(
         if not time_label:
             time_label = time_s
 
+        from signals.cards_id import cards_api_external_id
+
         card = {
             "id": f"sig_{uuid4().hex[:10]}",
             "list_id": scope,
@@ -868,8 +896,10 @@ def run_user_signal_pipeline(
             "images": images_meta,
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
+            "realtime_push": bool(kol_realtime),
             **src_meta,
         }
+        card["cards_external_id"] = cards_api_external_id(card)
         upsert_card(card)
         cards.append(card)
         if signal.get("has_trade_signal"):

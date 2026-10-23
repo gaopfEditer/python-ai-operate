@@ -82,6 +82,65 @@ const SIG_KOL_RT_LS = "sigKolRealtimePrefs";
 const SIG_CARDS_VIEW_LS = "sigCardsView";
 const SIG_BS_FEED_LS = "sigBsFeedView";
 const SIG_BS_PROFILE_LS = "sigBsProfileSelection";
+const _sigCardsCacheByScope = Object.create(null);
+const _sigCardsPageByScope = Object.create(null);
+
+function currentSigCardsScope() {
+  if (state.sigMode === "binance") return `binance:${state.sigBsFeedView}`;
+  if (state.sigMode === "list") return `list:${state.sigCardsView}`;
+  return state.sigMode;
+}
+
+function sigCardsCache() {
+  const key = currentSigCardsScope();
+  if (!Array.isArray(_sigCardsCacheByScope[key])) _sigCardsCacheByScope[key] = [];
+  return _sigCardsCacheByScope[key];
+}
+
+function setSigCardsCache(items) {
+  _sigCardsCacheByScope[currentSigCardsScope()] = Array.isArray(items) ? items : [];
+}
+
+function getSigCardsPage() {
+  const key = currentSigCardsScope();
+  const p = _sigCardsPageByScope[key];
+  return typeof p === "number" && p >= 1 ? p : 1;
+}
+
+function setSigCardsPage(p) {
+  _sigCardsPageByScope[currentSigCardsScope()] = Math.max(1, Number(p) || 1);
+}
+
+function readSigBsRtMaxPosts() {
+  const rt = Number($("#sigBsRtMaxPosts")?.value);
+  if (Number.isFinite(rt) && rt > 0) return rt;
+  return Number($("#sigBsMaxPosts")?.value || 40) || 40;
+}
+
+function readSigBsRtTryBapi() {
+  if ($("#sigBsRtTryBapi")) return !!$("#sigBsRtTryBapi").checked;
+  return !!$("#sigBsTryBapi")?.checked;
+}
+
+function syncSigBsRealtimeFormFromConfig(cfg) {
+  const max = cfg?.max_posts_per_profile ?? Number($("#sigBsMaxPosts")?.value || 40);
+  if ($("#sigBsMaxPosts") && cfg?.max_posts_per_profile != null) {
+    $("#sigBsMaxPosts").value = String(cfg.max_posts_per_profile);
+  }
+  if ($("#sigBsRtMaxPosts")) $("#sigBsRtMaxPosts").value = String(max);
+  if ($("#sigBsTryBapi") && cfg?.try_bapi_first != null) {
+    $("#sigBsTryBapi").checked = !!cfg.try_bapi_first;
+  }
+  if ($("#sigBsRtTryBapi") && cfg?.try_bapi_first != null) {
+    $("#sigBsRtTryBapi").checked = !!cfg.try_bapi_first;
+  }
+}
+
+function updateSigBsRtWindowHint() {
+  const h = Math.max(1, Number($("#sigBsCycleCutoffHours")?.value || 8) || 8);
+  const el = $("#sigBsRtWindowHint");
+  if (el) el.textContent = String(h);
+}
 const SIG_OVERVIEW_PREFS_LS = "sigOverviewPrefs";
 const LAB_SESSION_KEY = "pai_lab_session";
 const LAB_SESSION_MAX_BYTES = 2.5 * 1024 * 1024;
@@ -6685,9 +6744,9 @@ function bind() {
     const prev = e.target.closest("#btnSigCardsPrev");
     const next = e.target.closest("#btnSigCardsNext");
     if (prev && !prev.disabled) {
-      goSigCardsPage(_sigCardsPage - 1);
+      goSigCardsPage(getSigCardsPage() - 1);
     } else if (next && !next.disabled) {
-      goSigCardsPage(_sigCardsPage + 1);
+      goSigCardsPage(getSigCardsPage() + 1);
     }
   });
   $("#sigCardsPager")?.addEventListener("keydown", (e) => {
@@ -6828,6 +6887,7 @@ function bind() {
   document.querySelectorAll(".sig-mode-tab[data-sig-mode]").forEach((btn) => {
     btn.addEventListener("click", () => switchSigMode(btn.getAttribute("data-sig-mode")));
   });
+  restoreSigBsFeedViewFromStorage();
   restoreSigModeFromStorage();
   restoreSigCardsFilter();
   $("#btnSigUserRun")?.addEventListener("click", () => runUserSignalsCrawl());
@@ -6852,9 +6912,13 @@ function bind() {
   $("#btnSigBsRtPause")?.addEventListener("click", () => signalsControl("pause"));
   $("#btnSigBsRtResume")?.addEventListener("click", () => signalsControl("resume"));
   $("#btnSigBsRtStop")?.addEventListener("click", () => signalsControl("stop"));
-  $("#sigBsCycleCutoffHours")?.addEventListener("blur", () =>
-    saveSigBsRealtimeSettings().catch(() => {})
-  );
+  $("#sigBsCycleCutoffHours")?.addEventListener("blur", () => {
+    updateSigBsRtWindowHint();
+    saveSigBsRealtimeSettings().catch(() => {});
+  });
+  $("#sigBsRtMaxPosts")?.addEventListener("blur", () => {
+    if ($("#sigBsMaxPosts")) $("#sigBsMaxPosts").value = String(readSigBsRtMaxPosts());
+  });
   $("#sigBsFirstCrawlHours")?.addEventListener("blur", () =>
     saveSigBsRealtimeSettings().catch(() => {})
   );
@@ -6869,15 +6933,23 @@ function bind() {
   $("#btnSigBsSaveCfg")?.addEventListener("click", () =>
     saveSigBinanceConfig().catch((e) => setStatus($("#sigBsStatus"), String(e), "error"))
   );
-  $("#btnSigBsSelectAll")?.addEventListener("click", () => {
-    setSigBsProfileSelection(true);
-    persistSigBsProfileSelection();
-  });
-  $("#btnSigBsSelectNone")?.addEventListener("click", () => {
-    setSigBsProfileSelection(false);
-    persistSigBsProfileSelection();
-  });
-  $("#sigBsProfileList")?.addEventListener("change", () => {
+  for (const [allId, noneId] of [
+    ["btnSigBsHistSelectAll", "btnSigBsHistSelectNone"],
+    ["btnSigBsRtSelectAll", "btnSigBsRtSelectNone"],
+  ]) {
+    $(`#${allId}`)?.addEventListener("click", () => {
+      setSigBsProfileSelection(true);
+      persistSigBsProfileSelection();
+    });
+    $(`#${noneId}`)?.addEventListener("click", () => {
+      setSigBsProfileSelection(false);
+      persistSigBsProfileSelection();
+    });
+  }
+  $("#sigBsShowAllWindows")?.addEventListener("change", () => renderSigWindows(_sigWindowsCache));
+  $("#sigModeBinance")?.addEventListener("change", (e) => {
+    if (!e.target?.matches?.(".sig-bs-profile-list input[data-bs-profile]")) return;
+    syncSigBsProfileChecksFrom(e.target);
     persistSigBsProfileSelection();
     if (state.sigMode === "binance") loadSignalCards();
   });
@@ -7530,14 +7602,34 @@ function applySigModeUi(mode) {
     if (el) el.hidden = m === "value";
   }
   const feedWrap = $("#sigFeedViewTabsWrap");
-  if (feedWrap) feedWrap.hidden = m !== "list" && m !== "binance";
+  if (feedWrap) feedWrap.hidden = m !== "list";
   updateSigCardsViewTabs();
   updateSigBsFeedView();
   updateSigCardsFiltersBarVisibility();
+  updateSigCardsDeckVisibility();
   ensureSigCardsFilterDefault();
   const recOnly = $("#sigValueRecommendedOnly")?.closest("label");
   // already in value panel
   void recOnly;
+}
+
+function updateSigCardsDeckVisibility() {
+  const meta = document.querySelector("#panel-signals .sig-meta");
+  const bar = $("#sigCardsFiltersBar");
+  const pager = $("#sigCardsPager");
+  const cards = $("#sigCards");
+  const showDeck =
+    state.sigMode === "list" ||
+    state.sigMode === "binance" ||
+    state.sigMode === "value" ||
+    state.sigMode === "user";
+  if (meta) meta.hidden = !showDeck;
+  if (pager && !showDeck) pager.hidden = true;
+  if (cards && !showDeck) {
+    cards.innerHTML = "";
+    cards.hidden = true;
+  } else if (cards) cards.hidden = false;
+  if (bar && !showDeck) bar.hidden = true;
 }
 
 function restoreSigModeFromStorage() {
@@ -7552,7 +7644,12 @@ function restoreSigModeFromStorage() {
 }
 
 async function switchSigMode(mode) {
+  const prev = state.sigMode;
   applySigModeUi(mode);
+  if (prev !== state.sigMode) {
+    setSigCardsPage(1);
+    renderSigCardsView();
+  }
   try {
     localStorage.setItem(APP_SIG_MODE_LS, state.sigMode);
   } catch (_) {
@@ -7586,10 +7683,11 @@ function effectiveSigCardsFilter(filter) {
   const r = String(base.range || "").trim();
   if (r === "custom") return base;
   if (r) return base;
-  if (state.sigMode === "binance") {
+  if (state.sigMode === "binance" && state.sigBsFeedView === "history") {
     base.range = normalizeSigBackfillRange(getSigBsBackfillRange());
     return base;
   }
+  if (state.sigMode === "binance") return base;
   if (state.sigMode === "list") {
     base.range = "last_7d";
     return base;
@@ -7674,8 +7772,8 @@ function sigOverviewPlatformLabel(card) {
       ? [card.source_mode]
       : [];
   if (modes.includes("binance_square") || modes.includes("binance_backfill")) return "币安广场";
-  if (modes.includes("user_backfill")) return "推特回溯";
-  if (card?.list_id && String(card.list_id).startsWith("user:")) return "推特回溯";
+  if (modes.includes("user_backfill")) return "推特历史";
+  if (card?.list_id && String(card.list_id).startsWith("user:")) return "推特历史";
   if (String(card?.source_mode || "") === "binance_square") return "币安广场";
   return sigSourceLabel(card) || "—";
 }
@@ -7838,8 +7936,8 @@ function renderSigCardsOverview(items, meta = {}) {
     ($("#sigOverviewPlatform")?.value === "binance_square"
       ? "币安广场"
       : $("#sigOverviewPlatform")?.value === "user_backfill"
-        ? "推特回溯"
-        : "币安广场 + 推特回溯");
+        ? "推特历史"
+        : "币安广场 + 推特历史");
   if (hint) {
     hint.textContent = `${plat} · 近 ${hours} 小时 · ${rows.length} 条（悬浮卡片可看全文）`;
   }
@@ -7858,13 +7956,13 @@ function mergeSigCardsIntoCache(incoming, { replace = false } = {}) {
   const bounds = computeSigCardsTimeBounds();
   const filtered = filterSigCardsByTimeWindow(incoming || [], bounds);
   if (replace) {
-    _sigCardsCache = dedupSigCards(filtered);
-    return { added: _sigCardsCache.length, inWindow: filtered.length };
+    setSigCardsCache(dedupSigCards(filtered));
+    return { added: sigCardsCache().length, inWindow: filtered.length };
   }
-  const prevKeys = new Set(_sigCardsCache.map((c) => sigCardDedupKey(c)));
-  const merged = dedupSigCards([...filtered, ..._sigCardsCache]);
+  const prevKeys = new Set(sigCardsCache().map((c) => sigCardDedupKey(c)));
+  const merged = dedupSigCards([...filtered, ...sigCardsCache()]);
   const pruned = filterSigCardsByTimeWindow(merged, bounds);
-  _sigCardsCache = pruned;
+  setSigCardsCache(pruned);
   let added = 0;
   for (const c of filtered) {
     const k = sigCardDedupKey(c);
@@ -7873,25 +7971,60 @@ function mergeSigCardsIntoCache(incoming, { replace = false } = {}) {
   return { added, inWindow: filtered.length };
 }
 
+function isBinanceSquareCard(c) {
+  const modes = Array.isArray(c?.source_modes) ? c.source_modes : [];
+  const mode = String(c?.source_mode || "");
+  if (mode === "binance_square" || modes.includes("binance_square") || modes.includes("binance_backfill")) {
+    return true;
+  }
+  const lid = String(c?.list_id || "");
+  return lid.startsWith("binance:");
+}
+
+function isUserBackfillCard(c) {
+  const modes = Array.isArray(c?.source_modes) ? c.source_modes : [];
+  const mode = String(c?.source_mode || "");
+  if (mode === "user_backfill" || modes.includes("user_backfill")) return true;
+  const lid = String(c?.list_id || "");
+  return lid.startsWith("user:");
+}
+
+function filterSigCardsForActiveMode(items) {
+  const m = state.sigMode;
+  const arr = Array.isArray(items) ? items : [];
+  if (m === "binance") return arr.filter(isBinanceSquareCard);
+  if (m === "user") return arr.filter(isUserBackfillCard);
+  if (m === "value") {
+    return arr.filter((c) => {
+      const modes = Array.isArray(c?.source_modes) ? c.source_modes : [];
+      const mode = String(c?.source_mode || "");
+      return mode === "value_return" || modes.includes("value_return");
+    });
+  }
+  if (m === "list") return arr.filter((c) => !isBinanceSquareCard(c));
+  return arr;
+}
+
 function applySigCardsData(items, opts = {}) {
   const background = !!opts.background;
   const replace = opts.replace !== false && !background;
   const scrollEl = sigCardsScrollEl();
   const nearBottom = isSigCardsNearBottom(scrollEl);
-  const prevPage = _sigCardsPage;
-  const { added } = mergeSigCardsIntoCache(items, { replace });
+  const prevPage = getSigCardsPage();
+  const scoped = filterSigCardsForActiveMode(items);
+  const { added } = mergeSigCardsIntoCache(scoped, { replace });
   if (replace) {
-    _sigCardsPage = 1;
+    setSigCardsPage(1);
   } else if (!added) {
-    _sigCardsPage = prevPage;
+    setSigCardsPage(prevPage);
   } else if (nearBottom) {
-    _sigCardsPage = 1;
+    setSigCardsPage(1);
   } else {
-    _sigCardsPage = prevPage;
+    setSigCardsPage(prevPage);
   }
   renderSigCardsView();
   const shouldScroll =
-    !replace && added > 0 && nearBottom && (prevPage <= 1 || _sigCardsPage === 1);
+    !replace && added > 0 && nearBottom && (prevPage <= 1 || getSigCardsPage() === 1);
   if (shouldScroll) {
     requestAnimationFrame(() => {
       const el = sigCardsScrollEl();
@@ -8038,7 +8171,7 @@ function updateSigWhisperOutPathHint() {
 
 async function openSigWhisperDialog(tweetId) {
   const tid = String(tweetId || "").trim();
-  const card = _sigCardsCache.find((c) => String(c.tweet_id || "") === tid);
+  const card = sigCardsCache().find((c) => String(c.tweet_id || "") === tid);
   if (!card) {
     toast("未找到卡片", "error");
     return;
@@ -8181,14 +8314,36 @@ function persistSigBsProfileSelection() {
 }
 
 function syncBinanceCardsTimeFilterUi() {
-  if (state.sigMode !== "binance") return;
+  if (state.sigMode !== "binance" || state.sigBsFeedView !== "history") return;
   const br = normalizeSigBackfillRange(getSigBsBackfillRange());
   if ($("#sigFilterRange")) $("#sigFilterRange").value = br;
   persistSigCardsFilter();
 }
 
+function sigBsProfileListNodes() {
+  return [...document.querySelectorAll(".sig-bs-profile-list")].filter(Boolean);
+}
+
+function syncSigBsProfileChecksFrom(sourceInput) {
+  const id = sourceInput?.getAttribute?.("data-bs-profile");
+  const on = !!sourceInput?.checked;
+  if (!id) return;
+  document.querySelectorAll(".sig-bs-profile-list input[data-bs-profile]").forEach((el) => {
+    if (el.getAttribute("data-bs-profile") === id) el.checked = on;
+  });
+}
+
+function renderSigBsProfileLists(profiles, selectedIds) {
+  const boxes = sigBsProfileListNodes();
+  if (!boxes.length) {
+    renderSigBsProfileList(profiles, selectedIds, $("#sigBsProfileList"));
+    return;
+  }
+  for (const box of boxes) renderSigBsProfileList(profiles, selectedIds, box);
+}
+
 function renderSigBsProfileList(profiles, selectedIds, boxEl) {
-  const box = boxEl || $("#sigBsProfileList");
+  const box = boxEl || sigBsProfileListNodes()[0] || $("#sigBsProfileList");
   if (!box) return;
   const defaultEnabled = selectedIds === undefined || selectedIds === null;
   const sel = new Set(
@@ -8218,13 +8373,19 @@ function renderSigBsProfileList(profiles, selectedIds, boxEl) {
 }
 
 function selectedSigBsProfileIds() {
-  return [...document.querySelectorAll("#sigBsProfileList input[data-bs-profile]:checked")]
-    .map((el) => el.getAttribute("data-bs-profile"))
-    .filter(Boolean);
+  const seen = new Set();
+  const out = [];
+  for (const el of document.querySelectorAll(".sig-bs-profile-list input[data-bs-profile]:checked")) {
+    const id = el.getAttribute("data-bs-profile");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 function setSigBsProfileSelection(on) {
-  document.querySelectorAll("#sigBsProfileList input[data-bs-profile]").forEach((el) => {
+  document.querySelectorAll(".sig-bs-profile-list input[data-bs-profile]").forEach((el) => {
     el.checked = !!on;
   });
   persistSigBsProfileSelection();
@@ -8238,10 +8399,7 @@ async function loadSigBinancePanel() {
     if ($("#sigBsBackfillRange")) {
       $("#sigBsBackfillRange").value = getSigBsBackfillRange(cfg);
     }
-    if ($("#sigBsMaxPosts") && cfg.max_posts_per_profile != null) {
-      $("#sigBsMaxPosts").value = cfg.max_posts_per_profile;
-    }
-    if ($("#sigBsTryBapi")) $("#sigBsTryBapi").checked = !!cfg.try_bapi_first;
+    syncSigBsRealtimeFormFromConfig(cfg);
     if ($("#sigBsReplayWhisper")) {
       $("#sigBsReplayWhisper").checked = !!cfg.replay_whisper_auto;
     }
@@ -8250,7 +8408,7 @@ async function loadSigBinancePanel() {
       $("#sigFilterRange").value = br;
     }
     const bsSaved = readSigBsProfileLocal();
-    renderSigBsProfileList(
+    renderSigBsProfileLists(
       _sigBsProfilesCache,
       bsSaved !== undefined ? bsSaved : selectedSigBsProfileIds()
     );
@@ -8273,7 +8431,7 @@ async function loadSigBinancePanel() {
     const cycleOn = !!(cycle.cycle_enabled ?? cfg.cycle_enabled);
     _sigBgBsCycleOn = cycleOn;
     ensureSigBsCyclePoller(cycleOn);
-    restoreSigBsFeedViewFromStorage();
+    updateSigBsRtWindowHint();
     updateSigBsFeedView();
     updateSigRtActiveBanner();
   } catch (e) {
@@ -8444,8 +8602,8 @@ async function runSigBinanceCrawl(profileIdsOverride, opts = {}) {
           ? {
               profile_ids: ids,
               cutoff_hours: cycleHours,
-              max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
-              try_bapi_first: !!$("#sigBsTryBapi")?.checked,
+              max_posts_per_profile: readSigBsRtMaxPosts(),
+              try_bapi_first: readSigBsRtTryBapi(),
               replay_whisper_auto: !!$("#sigBsReplayWhisper")?.checked,
               debugger_url: publishDebuggerUrl(),
             }
@@ -8683,14 +8841,15 @@ async function pollSigBsCycleInBackground() {
     if (cycle.running && activeId) {
       _sigBsCycleActiveJobId = activeId;
       if (!_sigActiveJobId) {
-        try {
-          const jd = await api(`/api/jobs/${encodeURIComponent(activeId)}`);
+        const jd = await api(`/api/jobs/${encodeURIComponent(activeId)}`);
+        if (isJobPollGone(jd)) {
+          _sigBsCycleActiveJobId = "";
+          setSigBsControlButtons({ running: false, paused: false });
+        } else {
           const job = jd.job || {};
           const paused = job.status === "paused" || job.control_status === "paused";
           const jobRunning = !["done", "error", "cancelled"].includes(job.status);
           setSigBsControlButtons({ running: jobRunning, paused });
-        } catch (_) {
-          setSigBsControlButtons({ running: true, paused: false });
         }
       }
     } else {
@@ -8819,12 +8978,12 @@ function sigSourceLabel(c) {
   const labels = [];
   if (modes.includes("list_realtime")) labels.push("列表");
   if (modes.includes("kol_realtime")) labels.push("KOL实时");
-  if (modes.includes("user_backfill")) labels.push("推特回溯");
+  if (modes.includes("user_backfill")) labels.push("推特历史");
   if (modes.includes("value_return")) labels.push("价值");
   if (modes.includes("binance_square")) labels.push("广场");
   if (modes.includes("binance_backfill")) labels.push("回溯");
   if (!labels.length && c.source_mode === "binance_square") labels.push("广场");
-  if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("推特回溯");
+  if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("推特历史");
   if (!labels.length && c.source_mode === "value_return") labels.push("价值");
   if (!labels.length && c.list_id) labels.push("列表");
   return labels.length ? labels.join("+") : "";
@@ -9305,7 +9464,7 @@ function formatBacktestResultItem(it) {
 
   const signalId = String(it.signalId || it.id || "");
   const tweetId = signalId.split("-")[0];
-  const srcCard = _sigCardsCache.find((c) => String(c.tweet_id || "") === tweetId);
+  const srcCard = sigCardsCache().find((c) => String(c.tweet_id || "") === tweetId);
   const summaryRaw = srcCard
     ? stripSigTimePrefix(srcCard.signal?.summary || srcCard.text || "")
     : "";
@@ -9507,7 +9666,7 @@ async function startSigCardsBacktest() {
     log.textContent = "";
   }
   if ($("#sigBacktestProgress")) $("#sigBacktestProgress").textContent = "";
-  const signals = collectBacktestSignalsFromCards(_sigCardsCache);
+  const signals = collectBacktestSignalsFromCards(sigCardsCache());
   if (!signals.length) {
     toast("无有效交易信号可回测（需币种 + 做多/做空 + 时间）", "error");
     if (btn) btn.disabled = false;
@@ -9684,7 +9843,7 @@ async function runUserSignalsCrawl() {
         );
         renderSigUserRunLog(job.logs || [], result.item_logs, result);
         if (ok) {
-          toast(result.message || "博主回溯完成", hasFail ? "error" : "ok");
+          toast(result.message || "推特历史抓取完成", hasFail ? "error" : "ok");
           const savedRange = form.user_backfill_range;
           const savedIds = form.user_blogger_ids;
           await loadSignalsPanel();
@@ -9950,8 +10109,13 @@ function setSigKolRtControlButtons({ running = false, paused = false } = {}) {
 
 function switchSigBsFeedView(view) {
   const v = view === "realtime" ? "realtime" : "history";
+  if (state.sigBsFeedView === v && state.sigMode === "binance") {
+    updateSigBsFeedView();
+    return;
+  }
   state.sigBsFeedView = v;
   localStorage.setItem(SIG_BS_FEED_LS, v);
+  setSigCardsPage(1);
   updateSigBsFeedView();
   loadSignalCards();
 }
@@ -9961,7 +10125,6 @@ function updateSigBsFeedView() {
   const view = state.sigBsFeedView === "realtime" ? "realtime" : "history";
   state.sigBsFeedView = view;
   const tabs = $("#sigBsFeedTabs");
-  if (tabs) tabs.hidden = !isBinance;
   tabs?.querySelectorAll(".sig-cards-view-tab[data-sig-bs-feed]").forEach((btn) => {
     const v = btn.getAttribute("data-sig-bs-feed");
     btn.classList.toggle("on", v === view);
@@ -9971,6 +10134,7 @@ function updateSigBsFeedView() {
   const rt = $("#sigBsRealtimePanel");
   if (hist) hist.hidden = !isBinance || view !== "history";
   if (rt) rt.hidden = !isBinance || view !== "realtime";
+  updateSigBsRtWindowHint();
   updateSigCardsFiltersBarVisibility();
   updateSigRtActiveBanner();
 }
@@ -9986,21 +10150,30 @@ function updateSigCardsFiltersBarVisibility() {
   const show = listMode || bsMode;
   bar.hidden = !show;
   if (kolBlock) kolBlock.hidden = !listMode;
-  if (bsBlock) bsBlock.hidden = !bsMode;
+  if (bsBlock) {
+    bsBlock.hidden = true;
+    bsBlock.setAttribute("aria-hidden", "true");
+  }
   if (badge) {
     if (listMode) {
-      const v = state.sigCardsView === "realtime" ? "实时" : "历史";
-      badge.textContent = `列表信号 · ${v}`;
+      const v = state.sigCardsView === "realtime" ? "KOL 实时" : "List 历史";
+      badge.textContent = `推特实时 · ${v}`;
     } else if (bsMode) {
       const v = state.sigBsFeedView === "realtime" ? "实时" : "历史回溯";
       badge.textContent = `币安广场 · ${v}`;
     } else badge.textContent = "";
   }
+  const timeRow = $("#sigCardsFilterTimeRow");
+  if (timeRow) {
+    timeRow.hidden =
+      (listMode && state.sigCardsView === "realtime") ||
+      (bsMode && state.sigBsFeedView === "realtime");
+  }
   if (bsMode) {
-    syncBinanceCardsTimeFilterUi();
+    if (state.sigBsFeedView === "history") syncBinanceCardsTimeFilterUi();
     if (_sigBsProfilesCache.length) {
       const saved = readSigBsProfileLocal();
-      renderSigBsProfileList(
+      renderSigBsProfileLists(
         _sigBsProfilesCache,
         saved !== undefined ? saved : selectedSigBsProfileIds()
       );
@@ -10010,9 +10183,14 @@ function updateSigCardsFiltersBarVisibility() {
 
 function switchSigListFeedView(view) {
   const v = view === "realtime" ? "realtime" : "history";
+  if (state.sigCardsView === v && state.sigMode === "list") {
+    updateSigCardsViewTabs();
+    return;
+  }
   state.sigCardsView = v;
   localStorage.setItem(SIG_CARDS_VIEW_LS, v);
   writeSigKolRtLocal({ sig_cards_view: v });
+  setSigCardsPage(1);
   updateSigCardsViewTabs();
   loadSignalCards();
 }
@@ -10125,14 +10303,15 @@ async function pollSigKolRtInBackground() {
     if (rt.enabled && rt.running && rt.active_job_id) {
       _sigKolRtActiveJobId = String(rt.active_job_id);
       if (!_sigActiveJobId) {
-        try {
-          const jd = await api(`/api/jobs/${encodeURIComponent(rt.active_job_id)}`);
+        const jd = await api(`/api/jobs/${encodeURIComponent(rt.active_job_id)}`);
+        if (isJobPollGone(jd)) {
+          _sigKolRtActiveJobId = "";
+          setSigKolRtControlButtons({ running: false, paused: false });
+        } else {
           const job = jd.job || {};
           const paused = job.status === "paused" || job.control_status === "paused";
           const jobRunning = !["done", "error", "cancelled"].includes(job.status);
           setSigKolRtControlButtons({ running: jobRunning, paused });
-        } catch (_) {
-          setSigKolRtControlButtons({ running: true, paused: false });
         }
       }
     } else {
@@ -10380,14 +10559,25 @@ function applySigKolVisibility() {
 }
 
 function renderSigWindows(windows) {
-  const box = $("#sigWindows");
-  if (!box) return;
   _sigWindowsCache = Array.isArray(windows) ? windows.slice() : [];
-  if (!_sigWindowsCache.length) {
-    box.textContent = "暂无记录（跑完一轮后会写入，下次默认只拉新区间）";
+  let box = $("#sigWindows");
+  let showAllCb = $("#sigShowAllWindows");
+  if (state.sigMode === "binance") {
+    if (state.sigBsFeedView !== "history") return;
+    box = $("#sigBsWindows") || box;
+    showAllCb = $("#sigBsShowAllWindows") || showAllCb;
+  } else if (state.sigMode !== "list") {
     return;
   }
-  const showAll = !!$("#sigShowAllWindows")?.checked;
+  if (!box) return;
+  if (!_sigWindowsCache.length) {
+    box.textContent =
+      state.sigMode === "binance"
+        ? "暂无 Square 回溯记录"
+        : "暂无记录（跑完一轮后会写入，下次默认只拉新区间）";
+    return;
+  }
+  const showAll = !!showAllCb?.checked;
   const rows = showAll ? _sigWindowsCache : _sigWindowsCache.slice(0, 1);
   box.innerHTML = rows.map((w) => `<div>${formatSigWindowLine(w)}</div>`).join("");
   if (!showAll && _sigWindowsCache.length > 1) {
@@ -10764,7 +10954,7 @@ async function runSignalsCrawl() {
           toast(
             job.status === "cancelled"
               ? result.message || "已终止"
-              : result.message || "列表信号已更新",
+              : result.message || "推特实时已更新",
             "ok"
           );
           await loadSignalsPanel();
@@ -10823,9 +11013,7 @@ function formatSigCardTime(c) {
   return formatDateFullCST(new Date()).replace(/ \+08:00$/, "");
 }
 
-let _sigCardsCache = [];
 const SIG_CARDS_PAGE_SIZE = 20;
-let _sigCardsPage = 1;
 
 function renderSigCardItem(c) {
   const isValue = state.sigMode === "value" || c.source_mode === "value_return";
@@ -10967,15 +11155,15 @@ function renderSigCardItem(c) {
   return `<div class="sig-card-wrap has-backtest">${article}</div>`;
 }
 
-function sigCardsTotalPages(total = _sigCardsCache.length) {
+function sigCardsTotalPages(total = sigCardsCache().length) {
   return Math.max(1, Math.ceil(total / SIG_CARDS_PAGE_SIZE));
 }
 
 function goSigCardsPage(page) {
   const pages = sigCardsTotalPages();
   const p = Math.max(1, Math.min(pages, parseInt(String(page), 10) || 1));
-  if (p === _sigCardsPage) return;
-  _sigCardsPage = p;
+  if (p === getSigCardsPage()) return;
+  setSigCardsPage(p);
   renderSigCardsView();
 }
 
@@ -11004,26 +11192,30 @@ function renderSigCardsPager(total, page) {
 function renderSigCardsView() {
   const box = $("#sigCards");
   if (!box) return;
-  const items = _sigCardsCache;
+  const items = sigCardsCache();
   const total = items.length;
   const pages = Math.max(1, Math.ceil(total / SIG_CARDS_PAGE_SIZE));
-  if (_sigCardsPage > pages) _sigCardsPage = pages;
-  if (_sigCardsPage < 1) _sigCardsPage = 1;
+  let page = getSigCardsPage();
+  if (page > pages) page = pages;
+  if (page < 1) page = 1;
+  setSigCardsPage(page);
   const badge = $("#countSignals");
   if (badge) badge.textContent = String(total);
   if (!total) {
     const emptyBinance =
       state.sigMode === "binance"
         ? "暂无 Square 贴文（或已被周期/置顶规则过滤）。请抓取博主贴文，或取消「仅显示交易卡」。"
-        : "暂无卡片。确认 Chrome 已开调试口并登录 X 后，点「开始抓取解析」。";
+        : state.sigMode === "user"
+          ? "暂无推特历史卡片。选好博主后点「一键抓取并解析」。"
+          : "暂无卡片。确认 Chrome 已开调试口并登录 X 后，点「开始抓取解析」。";
     box.innerHTML = `<p class="muted">${escapeHtml(emptyBinance)}</p>`;
     renderSigCardsPager(0, 1);
     return;
   }
-  const start = (_sigCardsPage - 1) * SIG_CARDS_PAGE_SIZE;
+  const start = (page - 1) * SIG_CARDS_PAGE_SIZE;
   const slice = items.slice(start, start + SIG_CARDS_PAGE_SIZE);
   box.innerHTML = slice.map((c) => renderSigCardItem(c)).join("");
-  renderSigCardsPager(total, _sigCardsPage);
+  renderSigCardsPager(total, page);
   applySigKolVisibility();
 }
 
@@ -11058,8 +11250,8 @@ async function loadSigCardsOverviewMerged() {
         platform === "binance_square"
           ? "币安广场"
           : platform === "user_backfill"
-            ? "推特回溯"
-            : "币安广场 + 推特回溯",
+            ? "推特历史"
+            : "币安广场 + 推特历史",
     });
   } catch (e) {
     box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
@@ -11069,7 +11261,7 @@ async function loadSigCardsOverviewMerged() {
 
 function openSigCardEdit(tweetId) {
   const tid = String(tweetId || "").trim();
-  const card = _sigCardsCache.find((c) => String(c.tweet_id || "") === tid);
+  const card = sigCardsCache().find((c) => String(c.tweet_id || "") === tid);
   if (!card) {
     toast("未找到卡片", "error");
     return;
@@ -11141,7 +11333,7 @@ async function loadSignalCards(opts = {}) {
           background,
           replace: !background,
         });
-        if (!_sigCardsCache.length) {
+        if (!sigCardsCache().length) {
           box.innerHTML = `<p class="muted">实时视图：近 ${hours} 小时内暂无 Square 卡片。请开启周期或点「立即抓取（增量）」。</p>`;
           renderSigCardsPager(0, 1);
         }
@@ -11172,6 +11364,28 @@ async function loadSignalCards(opts = {}) {
   const onlyTrade = !!$("#sigFilterTrade")?.checked;
   const filter = effectiveSigCardsFilter(collectSigCardsFilter());
   const valueMode = state.sigMode === "value";
+  if (state.sigMode === "user") {
+    const form = collectSigUserForm();
+    const range = normalizeSigBackfillRange(form.user_backfill_range || "last_7d");
+    let url = `/api/signals/cards?limit=500&merge=1&source_mode=user_backfill&range=${encodeURIComponent(range)}`;
+    if (onlyTrade) url += "&trade=1";
+    const handles = [...(form.user_blogger_ids || [])];
+    if (form.user_handle) handles.push(form.user_handle);
+    const uniq = [...new Set(handles.map((h) => String(h || "").toLowerCase()).filter(Boolean))];
+    url = appendSigCardsHandleQuery(url, { handles: uniq });
+    try {
+      const data = await api(url);
+      applySigCardsData(data.items || [], { background, replace: true });
+      if (!sigCardsCache().length) {
+        box.innerHTML = `<p class="muted">暂无推特历史卡片。选好博主后点「一键抓取并解析」。</p>`;
+        renderSigCardsPager(0, 1);
+      }
+    } catch (e) {
+      box.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e))}</p>`;
+      renderSigCardsPager(0, 1);
+    }
+    return;
+  }
   if (state.sigMode === "list" && state.sigCardsView === "realtime") {
     const fromIso = sigCardsMinTimeIso();
     let url = `/api/signals/cards?limit=500&merge=1&source_mode=kol_realtime&from=${encodeURIComponent(fromIso)}`;
@@ -11185,7 +11399,7 @@ async function loadSignalCards(opts = {}) {
         background,
         replace: !background,
       });
-      if (!_sigCardsCache.length) {
+      if (!sigCardsCache().length) {
         box.innerHTML = `<p class="muted">本次实时会话暂无卡片（会话 ${escapeHtml(sid || "—")}）。等待下一轮抓取或点「立即抓取（增量）」。</p>`;
       }
     } catch (e) {

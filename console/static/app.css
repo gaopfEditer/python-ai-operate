@@ -3084,6 +3084,20 @@ label.publish-media-add {
 .sig-list-feed-panel[hidden] {
   display: none !important;
 }
+.sig-bs-feed-intro {
+  margin: 0 0 12px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.sig-bs-mode-feed-tabs {
+  margin: 0 0 14px;
+}
+.sig-bs-profile-pick {
+  margin: 0 0 14px;
+}
+.sig-bs-windows-block {
+  margin-top: 14px;
+}
 .sig-cards-view-tabs {
   display: flex;
   gap: 8px;
@@ -3128,137 +3142,255 @@ label.publish-media-add {
   font-family: var(--mono);
   line-height: 1.5;
 }
+/* —— 信号总览弹窗 —— */
 #sigCardsOverviewDialog.el-dialog {
-  width: min(920px, 96vw);
+  box-sizing: border-box;
+  width: min(960px, 96vw);
   max-width: 96vw;
+  max-height: 88vh;
+  margin: auto;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--ink);
   font-family: var(--body);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
 #sigCardsOverviewDialog.el-dialog::backdrop {
-  background: rgba(16, 24, 22, 0.45);
+  background: rgba(16, 24, 22, 0.48);
+  backdrop-filter: blur(2px);
+}
+#sigCardsOverviewDialog .sig-cards-overview-form {
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+  margin: 0;
+  overflow: hidden;
 }
 #sigCardsOverviewDialog .el-dialog__header {
   position: relative;
+  flex: 0 0 auto;
   padding: 18px 52px 14px 20px;
+  margin: 0;
   border-bottom: 1px solid var(--line);
   background: var(--paper);
 }
 #sigCardsOverviewDialog .el-dialog__title {
+  display: block;
   font-size: 1.05rem;
   font-weight: 600;
   font-family: var(--display);
+  color: var(--ink);
+  line-height: 1.3;
 }
 #sigCardsOverviewDialog .el-dialog__headerbtn {
   position: absolute;
   top: 14px;
   right: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
-  border: none;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
 }
-#sigCardsOverviewDialog .el-dialog__footer {
-  padding: 12px 20px 16px;
-  border-top: 1px solid var(--line);
-  text-align: right;
-  background: var(--paper);
+#sigCardsOverviewDialog .el-dialog__headerbtn:hover {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.25);
 }
-#sigCardsOverviewDialog .sig-cards-overview-form {
-  display: flex;
-  flex-direction: column;
-  max-height: 85vh;
-  margin: 0;
-  overflow: hidden;
+#sigCardsOverviewDialog .el-dialog__close-icon {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  font-style: normal;
+}
+#sigCardsOverviewDialog .el-dialog__headerbtn:hover .el-dialog__close-icon {
+  color: var(--teal);
 }
 #sigCardsOverviewDialog .el-dialog__body {
   flex: 1 1 auto;
   min-height: 0;
+  padding: 16px 20px 18px;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--panel);
 }
-.sig-overview-filters {
+#sigCardsOverviewDialog .el-dialog__footer {
+  flex: 0 0 auto;
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--line);
+  text-align: right;
+  background: var(--paper);
+}
+#sigCardsOverviewDialog .el-dialog__footer .btn {
+  margin-bottom: 0;
+}
+#sigCardsOverviewDialog .sig-overview-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 14px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
 }
-.sig-overview-trade-only {
+#sigCardsOverviewDialog .sig-overview-filters .field span {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+#sigCardsOverviewDialog .sig-overview-filters select {
+  min-width: 7.5rem;
+  font-size: 0.82rem;
+}
+#sigCardsOverviewDialog .sig-overview-trade-only {
   margin: 0;
   align-self: center;
+  font-size: 0.82rem;
 }
-.sig-overview-hint {
-  margin: 0 0 10px;
+#sigCardsOverviewDialog .sig-overview-hint {
+  margin: 0 0 12px;
+  padding: 8px 12px;
   font-size: 0.78rem;
-}
-.sig-cards-overview {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-}
-.sig-overview-card {
-  position: relative;
-  border: 1px solid var(--line);
+  line-height: 1.45;
+  color: var(--muted);
   border-radius: 10px;
-  padding: 10px 11px;
-  background: var(--panel);
-  font-size: .78rem;
+  border: 1px dashed color-mix(in srgb, var(--line) 80%, var(--teal));
+  background: color-mix(in srgb, var(--paper) 70%, var(--panel));
+}
+#sigCardsOverviewDialog .sig-overview-hint:empty {
+  display: none;
+}
+#sigCardsOverviewDialog .sig-cards-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+#sigCardsOverviewDialog .sig-cards-overview > .muted {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 0.88rem;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+#sigCardsOverviewDialog .sig-overview-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px 10px;
+  background: var(--paper);
+  font-size: 0.78rem;
   line-height: 1.45;
   cursor: default;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
 }
-.sig-overview-card.is-trade {
-  border-color: rgba(15, 118, 110, 0.35);
+#sigCardsOverviewDialog .sig-overview-card.is-trade {
+  border-color: rgba(15, 118, 110, 0.32);
+  box-shadow: inset 3px 0 0 var(--teal);
 }
-.sig-overview-card:hover {
-  border-color: rgba(15, 118, 110, 0.55);
-  box-shadow: 0 2px 10px rgba(16, 24, 22, 0.06);
+#sigCardsOverviewDialog .sig-overview-card:hover {
+  border-color: rgba(15, 118, 110, 0.5);
+  box-shadow: 0 4px 14px rgba(16, 24, 22, 0.07);
+  transform: translateY(-1px);
 }
-.sig-overview-top {
+#sigCardsOverviewDialog .sig-overview-card.is-trade:hover {
+  box-shadow: inset 3px 0 0 var(--teal), 0 4px 14px rgba(16, 24, 22, 0.07);
+}
+#sigCardsOverviewDialog .sig-overview-top {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 6px 8px;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
-.sig-overview-dir {
-  font-size: .72rem;
+#sigCardsOverviewDialog .sig-overview-top > .muted {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-family: var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+}
+#sigCardsOverviewDialog .sig-overview-dir {
+  font-size: 0.7rem;
   font-weight: 600;
-  padding: 1px 7px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: rgba(16, 24, 22, 0.06);
+  letter-spacing: 0.02em;
 }
-.sig-overview-dir.long { color: #0f766e; background: rgba(15, 118, 110, 0.12); }
-.sig-overview-dir.short { color: #b45309; background: rgba(217, 119, 6, 0.12); }
-.sig-overview-platform {
-  font-size: 0.68rem;
+#sigCardsOverviewDialog .sig-overview-dir.long {
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.12);
+}
+#sigCardsOverviewDialog .sig-overview-dir.short {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.12);
+}
+#sigCardsOverviewDialog .sig-overview-platform {
+  font-size: 0.66rem;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
   background: rgba(59, 130, 246, 0.1);
   color: #1d4ed8;
+  border: 1px solid rgba(59, 130, 246, 0.18);
 }
-.sig-overview-excerpt {
-  margin: 0 0 6px;
-  color: var(--text);
+#sigCardsOverviewDialog .sig-overview-excerpt {
+  margin: 0 0 8px;
+  flex: 1 1 auto;
+  color: var(--ink);
+  font-size: 0.8rem;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.sig-overview-meta {
+#sigCardsOverviewDialog .sig-overview-meta {
   display: grid;
-  gap: 2px;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
   color: var(--muted);
-  font-size: .72rem;
+  font-size: 0.71rem;
 }
-.sig-overview-meta b {
+#sigCardsOverviewDialog .sig-overview-meta b {
+  display: inline-block;
+  min-width: 2.4em;
   color: var(--text);
   font-weight: 600;
+}
+@media (max-width: 560px) {
+  #sigCardsOverviewDialog .el-dialog__body {
+    padding: 12px 14px 16px;
+  }
+  #sigCardsOverviewDialog .sig-overview-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #sigCardsOverviewDialog .sig-overview-filters .btn {
+    width: 100%;
+  }
+  #sigCardsOverviewDialog .sig-overview-top > .muted {
+    margin-left: 0;
+    width: 100%;
+  }
 }
 .sig-cards {
   display: grid;

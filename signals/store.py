@@ -597,6 +597,28 @@ def clear_user_cache(handle: str) -> Dict[str, Any]:
     }
 
 
+def is_tweet_fully_stored(
+    tweet_id: str,
+    *,
+    author: str = "",
+    created_at: str = "",
+    user_handle: str = "",
+) -> bool:
+    """已见过且本地有完整 signal 缓存（用于抓取时停止深滚）。"""
+    tid = str(tweet_id or "").strip()
+    if not tid:
+        return False
+    row = get_card_by_dedup(
+        tweet_id=tid,
+        author=author,
+        created_at=created_at,
+        user_handle=user_handle,
+    )
+    if row and isinstance(row.get("signal"), dict):
+        return True
+    return is_seen(tid)
+
+
 def is_seen(tweet_id: str) -> bool:
     tid = str(tweet_id or "").strip()
     if not tid:
