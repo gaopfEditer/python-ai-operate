@@ -437,9 +437,16 @@ def parse_dt(raw: str) -> Optional[datetime]:
 
 
 def _card_sort_ts(card: Dict[str, Any]) -> datetime:
-    """卡片排序用时间戳：优先发帖时间，其次解析时间。"""
-    for key in ("created_at", "parsed_at", "display_time"):
+    """卡片排序用发帖时间（不用 parsed_at 抓取时间）。"""
+    for key in ("created_at", "display_time"):
         dt = parse_dt(str(card.get(key) or ""))
+        if dt is not None:
+            return dt
+    tid = str(card.get("tweet_id") or "").strip()
+    if tid:
+        from signals.tweet_log import tweet_id_to_post_datetime
+
+        dt = tweet_id_to_post_datetime(tid)
         if dt is not None:
             return dt
     return datetime(1970, 1, 1, tzinfo=timezone.utc)

@@ -1,16 +1,19 @@
 debugger_url: 127.0.0.1:9223
 backfill_range: last_7d
-cutoff_hours: 24
+cutoff_hours: 8
 max_posts_per_profile: 40
 try_bapi_first: false
 replay_whisper_auto: true
 replay_whisper_max_days: 2
-cycle_enabled: true
+cycle_enabled: false
 cycle_min_minutes: 5
 cycle_max_minutes: 15
-first_crawl_hours: 8
+first_crawl_hours: 24
 cycle_cutoff_hours: 8
-last_crawl_at: '2026-10-23T08:18:46+08:00'
+last_crawl_at: '2026-10-24T22:41:38+08:00'
+cycle_profile_ids:
+- yanchibit
+- square-creator-446e63a9fd9ef
 profiles:
 - id: yanchibit
   name: yanchibit

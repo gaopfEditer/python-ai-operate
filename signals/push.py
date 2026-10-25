@@ -286,8 +286,13 @@ def resolve_channel(author: str, cfg: Optional[Dict[str, Any]] = None) -> Dict[s
 
 def _signal_at_iso(card: Dict[str, Any]) -> str:
     """Cards API signalAt：UTC ISO（与 cards-api.md 示例一致）。"""
-    raw = str(card.get("created_at") or "").strip()
-    dt = parse_dt(raw)
+    from signals.tweet_log import infer_tweet_post_datetime
+
+    dt = infer_tweet_post_datetime(
+        created_raw=str(card.get("created_at") or ""),
+        time_label=str(card.get("time_label") or ""),
+        tweet_id=str(card.get("tweet_id") or ""),
+    )
     if dt is None:
         dt = datetime.now(timezone.utc)
     elif dt.tzinfo is None:
@@ -346,7 +351,7 @@ def build_cards_payload(
     time_s = resolve_display_time(
         str(card.get("created_at") or ""),
         str(card.get("time_label") or ""),
-        str(card.get("parsed_at") or ""),
+        tweet_id=str(card.get("tweet_id") or ""),
     )
 
     note_parts = [f"发帖时间={time_s}（北京时间）"]
@@ -745,8 +750,8 @@ def enrich_card_channel(card: Dict[str, Any], cfg: Optional[Dict[str, Any]] = No
     out["display_time"] = resolve_display_time(
         str(card.get("created_at") or ""),
         str(card.get("time_label") or ""),
-        str(card.get("parsed_at") or ""),
-        fallback_now=True,
+        tweet_id=str(card.get("tweet_id") or ""),
+        fallback_now=False,
     )
     return out
 
@@ -799,7 +804,8 @@ def build_test_payload(
     time_s = resolve_display_time(
         str(card.get("created_at") or ""),
         "",
-        str(card.get("parsed_at") or ""),
+        tweet_id=str(card.get("tweet_id") or ""),
+        fallback_now=True,
     )
     coins = ",".join(str(c) for c in (signal.get("coins") or [])[:6]) or "-"
     dir_s = direction_cn(str(signal.get("direction") or "unknown"))

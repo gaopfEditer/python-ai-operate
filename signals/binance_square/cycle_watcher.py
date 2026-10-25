@@ -10,7 +10,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from signals.binance_square.store import load_config, load_state, save_config
+from signals.binance_square.store import cycle_profile_ids, load_config, load_state, save_config
 
 _LOCK = threading.RLock()
 _STOP = threading.Event()
@@ -39,6 +39,8 @@ def is_first_bs_crawl(cfg: Optional[Dict[str, Any]] = None) -> bool:
         return False
     st = load_state()
     if str(st.get("last_run_at") or "").strip():
+        if not (st.get("last_posts") or st.get("last_posts_raw")):
+            return True
         return False
     return True
 
@@ -108,16 +110,33 @@ def _run_once() -> Dict[str, Any]:
     ctl = register(job_id, RunControl(job_id))
     _set_status(active_job_id=job_id)
     tag = "首次" if first else "增量"
-    print(f"[bs-square-cycle] 开始{tag}抓取 · 时间窗≤{cutoff}h", flush=True)
+    selected = cycle_profile_ids(cfg)
+    if not selected:
+        msg = "未勾选博主：请在控制台勾选 Square 博主并保存后再跑周期抓取"
+        print(f"[bs-square-cycle] {msg}", flush=True)
+        _set_status(
+            last_status="skipped",
+            last_message=msg,
+            active_job_id="",
+        )
+        unregister(job_id)
+        with _LOCK:
+            _RUNNING_JOB = False
+        return {"success": True, "skipped": True, "message": msg, "posts": []}
+    print(
+        f"[bs-square-cycle] 开始{tag}抓取 · 时间窗≤{cutoff}h · 博主 {len(selected)} 个",
+        flush=True,
+    )
     try:
         result = run_binance_square_fetch(
-            profile_ids=None,
+            profile_ids=selected,
             debugger_url=str(cfg.get("debugger_url") or "").strip() or None,
             cutoff_hours=cutoff,
             max_posts_per_profile=int(cfg.get("max_posts_per_profile") or 40),
             try_bapi=bool(cfg.get("try_bapi_first")),
             progress=lambda m: print(f"[bs-square-cycle] {m}", flush=True),
             control=ctl,
+            incremental=True,
         )
         posts = result.get("posts") if isinstance(result.get("posts"), list) else []
         if result.get("success") and posts:

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 from signals.binance_square.store import parse_post_time, post_content_id
+from signals.tweet_log import fmt_beijing, fmt_beijing_iso
 
 ProgressCb = Optional[Callable[[str], None]]
 BINANCE_LIST_ROOT = "binance:square"
@@ -19,18 +20,27 @@ def _log(cb: ProgressCb, msg: str) -> None:
 
 
 def _display_time(post: Dict[str, Any]) -> str:
-    tl = str(post.get("time_label") or "").strip()
-    if tl:
-        return tl
+    from signals.binance_square.store import _extract_create_time_snippet, _parse_time_label
+
+    dt = parse_post_time(post)
+    if dt is not None:
+        return fmt_beijing(dt)
+    raw_tl = str(post.get("time_label") or "").strip()
+    snippet = _extract_create_time_snippet(raw_tl)
+    if snippet:
+        dt2 = _parse_time_label(snippet, now=datetime.now(timezone.utc))
+        if dt2 is not None:
+            return fmt_beijing(dt2)
+        return snippet
     iso = str(post.get("published_iso") or "").strip()
     if iso:
-        try:
-            dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return iso[:19]
+        from signals.binance_square.store import _parse_iso_time
+
+        pdt = _parse_iso_time(iso)
+        if pdt is not None:
+            return fmt_beijing(pdt)
+    if raw_tl and len(raw_tl) <= 56:
+        return raw_tl
     return ""
 
 
@@ -38,27 +48,25 @@ def _created_iso_and_ts(post: Dict[str, Any]) -> tuple[str, int]:
     """避免「10月5日」等同日帖共用同一 created_at_ts 被 SQLite 唯一索引覆盖。"""
     cid = post_content_id(post) or str(post.get("live_content_id") or "").strip()
     dt = parse_post_time(post)
-    now = datetime.now(timezone.utc)
     if dt is not None:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         base_ts = int(dt.timestamp())
-        iso = dt.astimezone().isoformat(timespec="seconds")
+        iso = fmt_beijing_iso(dt)
     elif post.get("published_iso"):
-        iso = str(post.get("published_iso") or "").strip()
-        try:
-            pdt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-            if pdt.tzinfo is None:
-                pdt = pdt.replace(tzinfo=timezone.utc)
+        from signals.binance_square.store import _parse_iso_time
+
+        raw_iso = str(post.get("published_iso") or "").strip()
+        pdt = _parse_iso_time(raw_iso)
+        if pdt is not None:
             base_ts = int(pdt.timestamp())
-        except Exception:
-            base_ts = int(now.timestamp())
+            iso = fmt_beijing_iso(pdt)
+        else:
+            iso = ""
+            base_ts = 0
     else:
-        iso = now.astimezone().isoformat(timespec="seconds")
-        base_ts = int(now.timestamp())
-    if cid.isdigit():
-        spread = int(cid[-7:]) % 86400
-        base_ts += spread
+        iso = ""
+        base_ts = 0
     return iso, base_ts
 
 
@@ -88,7 +96,8 @@ def square_post_to_card(post: Dict[str, Any]) -> Dict[str, Any]:
         "text": text,
         "created_at": created,
         "time_label": time_label,
-        "display_time": disp or time_label or created[:19],
+        "published_iso": str(post.get("published_iso") or "").strip(),
+        "display_time": disp or time_label or (created[:19] if created else ""),
         "images": images[:12],
         "signal": post.get("signal") if isinstance(post.get("signal"), dict) else {},
         "parsed_at": now,
@@ -132,10 +141,12 @@ def sync_posts_to_signal_cards(
         tid = str(card.get("tweet_id") or "").strip()
         if tid:
             existing = db_get_card_by_tweet_id(tid)
-            sig = existing.get("signal") if isinstance(existing, dict) else None
-            if existing and isinstance(sig, dict) and sig:
+            ex_sig = existing.get("signal") if isinstance(existing, dict) else None
+            if existing and isinstance(ex_sig, dict) and ex_sig:
+                new_sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
+                if not new_sig:
+                    card["signal"] = ex_sig
                 skipped_existing += 1
-                continue
         upsert_card(card)
         synced += 1
         dt = parse_post_time(p)
@@ -204,6 +215,118 @@ def sync_posts_to_signal_cards(
         "skipped": max(0, len(rows) - synced),
         "skipped_existing": skipped_existing,
     }
+
+
+def list_binance_realtime_cards(
+    *,
+    cutoff_hours: float = 8,
+    profile_ids: Optional[List[str]] = None,
+    only_trade: bool = False,
+    limit: int = 500,
+) -> List[Dict[str, Any]]:
+    """Square 实时视图：合并时间窗内 state 帖文与 SQLite 卡片（帖文优先带 signal）。"""
+    from signals.binance_square.store import apply_binance_time_filter, load_config, load_state
+    from signals.card_db import db_list_cards
+    from signals.labels import is_trade_signal
+
+    cfg = load_config()
+    st = load_state()
+    pool = st.get("last_posts")
+    if not isinstance(pool, list) or not pool:
+        pool = st.get("last_posts_raw") or []
+    posts = apply_binance_time_filter(
+        [p for p in pool if isinstance(p, dict)],
+        cutoff_hours=cutoff_hours,
+        cfg=cfg,
+    )
+    want: set[str] = set()
+    if profile_ids:
+        for raw in profile_ids:
+            pid = str(raw or "").strip().lower().lstrip("@")
+            if pid:
+                want.add(pid)
+    if want:
+        posts = [
+            p
+            for p in posts
+            if str(p.get("profile_id") or p.get("author_slug") or "").strip().lower() in want
+        ]
+
+    cards: List[Dict[str, Any]] = []
+    for p in posts:
+        card = square_post_to_card(p)
+        modes = list(card.get("source_modes") or [])
+        if "binance_realtime" not in modes:
+            modes.append("binance_realtime")
+        card["source_modes"] = modes
+        sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
+        if only_trade and not is_trade_signal(sig):
+            continue
+        cards.append(card)
+
+    hours = max(1.0, float(cutoff_hours or 8))
+    from_ts = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
+    lim = max(1, min(int(limit or 500), 500))
+    db_cards = db_list_cards(
+        limit=lim,
+        merge_sources=True,
+        source_mode="binance_square",
+        from_ts=from_ts,
+        only_trade=only_trade,
+        hide_expired=True,
+    )
+
+    def _key(c: Dict[str, Any]) -> str:
+        tid = str(c.get("tweet_id") or "").strip()
+        if tid:
+            return f"t:{tid}"
+        return f"id:{c.get('id') or c.get('url') or id(c)}"
+
+    # 实时展示以 state 帖文为准（时间/正文），SQLite 仅补 signal 或帖文未覆盖的条目
+    merged: Dict[str, Dict[str, Any]] = {}
+    for c in cards:
+        merged[_key(c)] = c
+    for c in db_cards:
+        k = _key(c)
+        post_card = merged.get(k)
+        if post_card is not None:
+            sig_post = post_card.get("signal") if isinstance(post_card.get("signal"), dict) else {}
+            sig_db = c.get("signal") if isinstance(c.get("signal"), dict) else {}
+            if not sig_post and sig_db:
+                post_card["signal"] = sig_db
+            continue
+        merged[k] = c
+
+    from signals.store import upsert_card
+
+    for p in posts:
+        try:
+            upsert_card(square_post_to_card(p))
+        except Exception:
+            pass
+
+    def _card_sort_ts(card: Dict[str, Any]) -> int:
+        for key in ("_created_at_ts", "created_at_ts"):
+            try:
+                v = int(card.get(key) or 0)
+                if v > 0:
+                    return v
+            except (TypeError, ValueError):
+                continue
+        raw = str(card.get("created_at") or "").strip()
+        if raw:
+            try:
+                pdt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if pdt.tzinfo is None:
+                    pdt = pdt.replace(tzinfo=timezone.utc)
+                return int(pdt.timestamp())
+            except Exception:
+                pass
+        return 0
+
+    out = list(merged.values())
+    out.sort(key=_card_sort_ts, reverse=True)
+    return out[:lim]
 
 
 def _binance_cards_in_db() -> int:

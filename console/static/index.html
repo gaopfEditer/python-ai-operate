@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261022c" />
+  <link rel="stylesheet" href="/app.css?v=20261024g" />
 </head>
 <body>
   <div class="shell">
@@ -699,10 +699,14 @@
             <button type="button" class="btn ghost xs" id="btnSigRtBannerStopBs" hidden>关闭 Square 周期</button>
           </span>
         </div>
-        <div id="sigFeedViewTabsWrap" class="sig-feed-view-tabs-wrap">
+        <div id="sigFeedViewTabsWrap" class="sig-feed-view-tabs-wrap" hidden>
           <nav id="sigListFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="推特实时数据视图" hidden>
-            <button type="button" class="sig-cards-view-tab" data-sig-cards-view="realtime" role="tab">KOL 实时</button>
-            <button type="button" class="sig-cards-view-tab on" data-sig-cards-view="history" role="tab">List 历史</button>
+            <button type="button" class="sig-cards-view-tab" data-sig-cards-view="realtime" role="tab" aria-selected="false" tabindex="-1">KOL 实时</button>
+            <button type="button" class="sig-cards-view-tab on" data-sig-cards-view="history" role="tab" aria-selected="true" tabindex="0">List 历史</button>
+          </nav>
+          <nav id="sigBsFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="币安广场数据视图" hidden>
+            <button type="button" class="sig-cards-view-tab" data-sig-bs-feed="realtime" role="tab" aria-selected="false" tabindex="-1">Square 实时</button>
+            <button type="button" class="sig-cards-view-tab on" data-sig-bs-feed="history" role="tab" aria-selected="true" tabindex="0">Square 历史</button>
           </nav>
         </div>
         <div id="sigModeList">
@@ -904,11 +908,6 @@
         </div>
 
         <div id="sigModeBinance" hidden>
-          <nav id="sigBsFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs sig-bs-mode-feed-tabs" role="tablist" aria-label="币安广场数据视图">
-            <button type="button" class="sig-cards-view-tab" data-sig-bs-feed="realtime" role="tab">实时</button>
-            <button type="button" class="sig-cards-view-tab on" data-sig-bs-feed="history" role="tab">历史回溯</button>
-          </nav>
-
           <div id="sigBsHistoryPanel" class="sig-list-feed-panel">
             <p class="muted sig-bs-feed-intro">
               <strong>历史回溯</strong>：按回溯范围深滚入库。配置见 <code>config/binance_square_signals.yaml</code>。
@@ -987,6 +986,7 @@
                 </span>
               </div>
               <div id="sigBsRtProfileList" class="sig-blogger-list sig-bs-profile-list" role="group" aria-label="币安 Square 博主（实时）"></div>
+              <p class="muted sig-filter-kol-hint">仅抓取已勾选博主（周期与「立即抓取」均以此为准）</p>
             </div>
             <div class="sig-config form-grid sig-kol-realtime-grid">
               <label class="field">
@@ -1012,7 +1012,8 @@
               <p id="sigBsCycleHint" class="status full" style="grid-column:1/-1;margin:0">周期抓取未开启</p>
               <div class="field full sig-action-bar" style="grid-column:1/-1">
                 <button id="btnSigBsCycleToggle" class="btn ghost" type="button">开启周期抓取</button>
-                <button id="btnSigBsRunNow" class="btn primary" type="button">立即抓取（增量）</button>
+                <button id="btnSigBsRunNow" class="btn primary" type="button">立即抓取（近 8h）</button>
+                <button id="btnSigBsResetRealtime" class="btn ghost" type="button">重置实时并重抓</button>
                 <button id="btnSigBsRtPause" class="btn ghost" type="button" disabled>暂停</button>
                 <button id="btnSigBsRtResume" class="btn ghost" type="button" disabled hidden>继续</button>
                 <button id="btnSigBsRtStop" class="btn danger" type="button" disabled>终止</button>
@@ -1168,6 +1169,7 @@
                   <select id="sigOverviewPlatform">
                     <option value="all" selected>全部</option>
                     <option value="binance_square">币安广场</option>
+                    <option value="kol_realtime">推特实时</option>
                     <option value="user_backfill">推特历史</option>
                   </select>
                 </label>
@@ -1236,6 +1238,11 @@
               <button id="btnSigWhisperStart" value="default" class="btn primary" type="button">开始转写</button>
             </div>
           </form>
+        </dialog>
+
+        <dialog id="sigImgPreviewDialog" class="sig-img-preview-dialog" aria-label="图片预览">
+          <button type="button" class="sig-img-preview-close" aria-label="关闭">×</button>
+          <img id="sigImgPreviewImg" alt="" />
         </dialog>
 
         <dialog id="sigCardEditDialog" class="corpus-dialog sig-card-edit-dialog">
@@ -1486,6 +1493,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261022e"></script>
+  <script src="/app.js?v=20261024j"></script>
 </body>
 </html>

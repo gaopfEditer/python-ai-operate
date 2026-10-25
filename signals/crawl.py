@@ -104,7 +104,9 @@ for (const a of arts) {
     if (/^(Relevant|People|Top|Latest|Post|Posts)$/i.test(head)) continue;
     const st = pickStatus(a);
     if (!st || !st.tweet_id) continue;
-    const timeEl = a.querySelector('time');
+    let timeEl = a.querySelector('a[href*="/status/"] time[datetime]');
+    if (!timeEl) timeEl = a.querySelector('time[datetime]');
+    if (!timeEl) timeEl = a.querySelector('time');
     const created_at = timeEl ? (timeEl.getAttribute('datetime') || '') : '';
     const time_label = timeEl ? (timeEl.textContent || '').trim() : '';
     const textParts = [...a.querySelectorAll('[data-testid="tweetText"]')]
@@ -366,10 +368,27 @@ def _merge_tweet_item(store: Dict[str, Dict[str, Any]], it: Dict[str, Any]) -> b
     old_text = str(old.get("text") or "").strip()
     if len(new_text) > len(old_text):
         old["text"] = it.get("text")
-    if not old.get("created_at") and it.get("created_at"):
-        old["created_at"] = it.get("created_at")
-    if not old.get("time_label") and it.get("time_label"):
-        old["time_label"] = it.get("time_label")
+    def _time_rank(row: Dict[str, Any]) -> int:
+        raw = str(row.get("created_at") or "").strip()
+        score = 0
+        if raw:
+            score += 8
+            if parse_dt(raw):
+                score += 12
+        if str(row.get("time_label") or "").strip():
+            score += 2
+        return score
+
+    if _time_rank(it) > _time_rank(old):
+        if it.get("created_at"):
+            old["created_at"] = it.get("created_at")
+        if it.get("time_label"):
+            old["time_label"] = it.get("time_label")
+    else:
+        if not old.get("created_at") and it.get("created_at"):
+            old["created_at"] = it.get("created_at")
+        if not old.get("time_label") and it.get("time_label"):
+            old["time_label"] = it.get("time_label")
     if not old.get("author") and it.get("author"):
         old["author"] = it.get("author")
     if not old.get("url") and it.get("url"):
@@ -527,6 +546,49 @@ def _scroll_feed_page(page, *, rounds: int = 4, aggressive: bool = False) -> Non
 })()
 """
         )
+    except Exception:
+        pass
+
+
+_RESET_TIMELINE_SCROLL_JS = r"""
+(() => {
+  const reset = (el) => {
+    try {
+      if (!el) return;
+      if (el.scrollHeight > el.clientHeight + 40) el.scrollTop = 0;
+    } catch (e) {}
+  };
+  reset(document.scrollingElement);
+  reset(document.documentElement);
+  reset(document.body);
+  const col = document.querySelector('[data-testid="primaryColumn"]');
+  reset(col);
+  if (col) {
+    col.querySelectorAll('*').forEach((el) => {
+      try {
+        const st = getComputedStyle(el);
+        if (
+          (st.overflowY === 'auto' || st.overflowY === 'scroll' || st.overflowY === 'overlay')
+          && el.scrollHeight > el.clientHeight + 40
+        ) {
+          el.scrollTop = 0;
+        }
+      } catch (e) {}
+    });
+  }
+  window.scrollTo(0, 0);
+  return true;
+})()
+"""
+
+
+def _reset_timeline_scroll_top(page, *, progress: ProgressCb = None, label: str = "") -> None:
+    """复用 CDP 页签时 X 会留在上次滚动深度，每次抓取前必须先回到顶部。"""
+    try:
+        page.eval_js(_RESET_TIMELINE_SCROLL_JS)
+        time.sleep(0.55)
+        head = f"{label} " if label else ""
+        _log(progress, f"{head}已滚回时间线顶部，从最新帖重新向下（不接上次位置）")
     except Exception:
         pass
 
@@ -721,6 +783,7 @@ def _crawl_timeline_at_url(
     wait_s = 5.0 if page_kind == "search" else 3.5
     time.sleep(wait_s)
     _prepare_timeline_page(page, kind=page_kind, prefer_live=prefer_live)
+    _reset_timeline_scroll_top(page, progress=progress, label=label)
 
     for round_i in range(max_scroll):
         if should_abort and should_abort():
@@ -1149,6 +1212,7 @@ def crawl_list_timeline(
 
         _, page = _acquire_list_page(url, progress=progress)
         time.sleep(2.5)
+        _reset_timeline_scroll_top(page, progress=progress, label=f"列表 {lid}")
 
         by_id: Dict[str, Dict[str, Any]] = {}
         seen_log: set = set()
@@ -1209,6 +1273,9 @@ def crawl_list_timeline(
                             + (f" · 图{nimg}" if nimg else ""),
                         )
 
+                if too_old:
+                    continue
+
                 if stop_if_known and tid and stop_if_known(tid):
                     known_streak += 1
                     if known_streak >= need_known:
@@ -1221,8 +1288,6 @@ def crawl_list_timeline(
                 elif stop_if_known:
                     known_streak = 0
 
-                if too_old:
-                    continue
                 _merge_tweet_item(by_id, it)
             if stopped_known:
                 break

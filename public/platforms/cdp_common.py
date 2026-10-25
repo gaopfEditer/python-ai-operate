@@ -445,7 +445,14 @@ def _http_list_tabs(driver) -> List[Dict[str, Any]]:
         if not _is_usable_page_url(url):
             continue
         tid = str(t.get("id") or t.get("targetId") or "")
-        out.append({"targetId": tid, "id": tid, "url": url})
+        out.append(
+            {
+                "targetId": tid,
+                "id": tid,
+                "url": url,
+                "title": str(t.get("title") or ""),
+            }
+        )
     return out
 
 
@@ -471,17 +478,27 @@ def _list_page_targets(driver) -> List[Dict[str, Any]]:
     return out
 
 
-def _score_site_tab(tab_url: str, want_url: str) -> int:
+def _score_site_tab(tab_url: str, want_url: str, tab_title: str = "") -> int:
     if not _same_site(tab_url, want_url):
         return 0
     if _urls_match(tab_url, want_url):
-        return 100
-    want_path = _path_of(want_url)
-    tab_path = _path_of(tab_url)
-    if want_path and tab_path:
-        if tab_path == want_path or tab_path.startswith(want_path + "/") or want_path.startswith(tab_path + "/"):
-            return 80
-    return 40
+        sc = 100
+    else:
+        want_path = _path_of(want_url)
+        tab_path = _path_of(tab_url)
+        if want_path and tab_path:
+            if tab_path == want_path or tab_path.startswith(want_path + "/") or want_path.startswith(
+                tab_path + "/"
+            ):
+                sc = 80
+            else:
+                sc = 40
+        else:
+            sc = 40
+    title = str(tab_title or "")
+    if re.search(r"human verification", title, re.I):
+        sc -= 60
+    return sc
 
 
 def find_existing_site_tab(driver, url: str) -> Optional[Dict[str, Any]]:
@@ -492,7 +509,7 @@ def find_existing_site_tab(driver, url: str) -> Optional[Dict[str, Any]]:
     best = None
     best_sc = 0
     for t in _list_page_targets(driver):
-        sc = _score_site_tab(str(t.get("url") or ""), url)
+        sc = _score_site_tab(str(t.get("url") or ""), url, str(t.get("title") or ""))
         if sc > best_sc:
             best, best_sc = t, sc
     return best if best_sc > 0 else None
@@ -1242,6 +1259,11 @@ const ae = document.activeElement;
 const focused = ae === el || (ae && el.contains(ae));
 return { ok: !!focused, activeTag: String(ae && ae.tagName || '') };
 """
+
+
+def activate_selenium_tab(driver) -> None:
+    """短暂激活当前 Selenium 页签，便于 SPA 在后台页签里完成渲染。"""
+    _activate_driver_tab_for_input(driver)
 
 
 def _activate_driver_tab_for_input(driver) -> None:

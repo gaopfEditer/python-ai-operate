@@ -109,10 +109,20 @@ def _card_created_ts(card: Dict[str, Any]) -> int:
                 return ts
         except (TypeError, ValueError):
             pass
-    for key in ("created_at", "display_time", "parsed_at"):
+    for key in ("created_at", "display_time"):
         dt = _parse_dt(str(card.get(key) or ""))
         if dt is not None:
             return int(dt.timestamp())
+    tid = str(card.get("tweet_id") or "").strip()
+    if tid:
+        try:
+            from signals.tweet_log import tweet_id_to_post_datetime
+
+            dt = tweet_id_to_post_datetime(tid)
+            if dt is not None:
+                return int(dt.timestamp())
+        except Exception:
+            pass
     return 0
 
 
@@ -128,7 +138,16 @@ def _merge_cards(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str
     from signals.labels import is_trade_signal
 
     out = dict(existing)
-    for key in ("url", "text", "author", "time_label", "display_time", "created_at", "parsed_at"):
+    for key in (
+        "url",
+        "text",
+        "author",
+        "time_label",
+        "published_iso",
+        "display_time",
+        "created_at",
+        "parsed_at",
+    ):
         val = incoming.get(key)
         if val:
             out[key] = val
@@ -213,6 +232,7 @@ def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
         "cache_only",
         "channel",
         "time_label",
+        "published_iso",
         "source_mode",
         "source_modes",
         "list_ids",
@@ -286,6 +306,14 @@ def _row_to_card(row: sqlite3.Row) -> Dict[str, Any]:
         card["expires_at"] = d.get("expires_at") or ""
     if "archived" in d:
         card["archived"] = int(d.get("archived") or 0)
+    try:
+        ts_col = int(d.get("created_at_ts") or 0)
+        if ts_col > 0:
+            card["created_at_ts"] = ts_col
+            if not card.get("_created_at_ts"):
+                card["_created_at_ts"] = ts_col
+    except (TypeError, ValueError):
+        pass
     return card
 
 
@@ -593,6 +621,14 @@ def db_list_cards(
     if to_ts is not None:
         clauses.append("created_at_ts<=?")
         params.append(int(to_ts))
+
+    want_mode_sql = str(source_mode or "").strip()
+    if want_mode_sql == "binance_square":
+        clauses.append("list_id LIKE 'binance:%'")
+    elif want_mode_sql == "user_backfill":
+        clauses.append("list_id LIKE 'user:%'")
+    elif want_mode_sql == "kol_realtime":
+        clauses.append("(list_id NOT LIKE 'binance:%' AND list_id NOT LIKE 'user:%')")
 
     if min_score is not None:
         clauses.append("(value_score IS NOT NULL AND value_score>=?)")
