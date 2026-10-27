@@ -222,6 +222,89 @@ def canonical_square_post_href(post: Dict[str, Any], *, locale: str = "zh-CN") -
     return str(post.get("href") or "").strip().split("#")[0]
 
 
+_TIME_LABEL_RE = re.compile(
+    r"(刚刚|昨天|"
+    r"\d+\s*分钟(?:前)?|\d+\s*小时(?:前)?|\d+\s*天(?:前)?|"
+    r"\d{4}\s*年?\s*\d{1,2}\s*月\s*\d{1,2}\s*日?|"
+    r"\d{1,2}\s*月\s*\d{1,2}\s*日|"
+    r"\d+\s*(?:minutes?|hours?|days?)\s*ago)",
+    re.I,
+)
+
+
+def sanitize_time_label(label: str) -> str:
+    """从 DOM 文本中抽出时间片段，避免把点赞/评论数等当成时间。"""
+    text = re.sub(r"\s+", " ", str(label or "").strip())
+    if not text:
+        return ""
+    if re.search(r"(点赞|评论|转发|收藏|views?|阅读|万|k\b|K\b)", text, re.I):
+        m = _TIME_LABEL_RE.search(text)
+        return m.group(0).strip() if m else ""
+    if len(text) > 40:
+        m = _TIME_LABEL_RE.search(text)
+        return m.group(0).strip() if m else text[:32]
+    m = _TIME_LABEL_RE.search(text)
+    if m:
+        return m.group(0).strip()
+    if _TIME_LABEL_RE.fullmatch(text):
+        return text
+    return text if len(text) <= 24 and not re.search(r"\d{2,}", text.replace(" ", "")) else ""
+
+
+def _time_meta_score(post: Dict[str, Any]) -> int:
+    iso = _parse_iso_time(str(post.get("published_iso") or ""))
+    label = sanitize_time_label(str(post.get("time_label") or ""))
+    score = 0
+    if iso:
+        score += 4
+    if label:
+        score += 2
+    if label and _TIME_LABEL_RE.search(label):
+        score += 1
+    return score
+
+
+def _pick_better_time_fields(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
+    """合并两条记录时保留更可靠的时间字段，避免重抓覆盖正确时间。"""
+    if _time_meta_score(src) > _time_meta_score(dst):
+        for field in ("published_iso", "time_label"):
+            if src.get(field):
+                dst[field] = src[field]
+        return
+    for field in ("published_iso", "time_label"):
+        if not dst.get(field) and src.get(field):
+            dst[field] = src[field]
+
+
+def merge_square_post_times_from_prior(
+    prior: List[Dict[str, Any]], rows: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """重扫时沿用已入库帖的发布时间，防止相对时间被刷成「刚刚」。"""
+    by_cid: Dict[str, Dict[str, Any]] = {}
+    for p in prior or []:
+        if not isinstance(p, dict):
+            continue
+        cid = post_content_id(p)
+        if cid:
+            by_cid[cid] = p
+    out: List[Dict[str, Any]] = []
+    for raw in rows or []:
+        if not isinstance(raw, dict):
+            continue
+        p = dict(raw)
+        cid = post_content_id(p)
+        old = by_cid.get(cid) if cid else None
+        if old:
+            _pick_better_time_fields(p, old)
+        tl = sanitize_time_label(str(p.get("time_label") or ""))
+        if tl:
+            p["time_label"] = tl
+        elif p.get("time_label"):
+            p.pop("time_label", None)
+        out.append(p)
+    return out
+
+
 def merge_square_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """按 square/post/{contentId} 去重，合并媒体与正文。"""
     by: Dict[str, Dict[str, Any]] = {}
@@ -237,13 +320,19 @@ def merge_square_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not key or key == "href:":
             continue
         if key not in by:
+            tl = sanitize_time_label(str(p.get("time_label") or ""))
+            if tl:
+                p["time_label"] = tl
+            elif "time_label" in p:
+                p.pop("time_label", None)
             by[key] = p
             continue
         o = by[key]
         if len(str(p.get("raw") or "")) > len(str(o.get("raw") or "")):
             o["raw"] = p.get("raw")
             o["title"] = p.get("title") or o.get("title")
-        for field in ("time_label", "published_iso", "profile_name", "profile_id"):
+        _pick_better_time_fields(o, p)
+        for field in ("profile_name", "profile_id"):
             if not o.get(field) and p.get(field):
                 o[field] = p[field]
         imgs = list(
@@ -278,8 +367,10 @@ def _parse_iso_time(iso: str) -> Optional[datetime]:
 
 
 def _parse_time_label(label: str, *, now: Optional[datetime] = None) -> Optional[datetime]:
-    text = str(label or "").strip()
+    text = sanitize_time_label(str(label or "").strip())
     if not text:
+        return None
+    if re.search(r"(点赞|评论|转发|收藏|万\s*$|\d+\.\d+k)", text, re.I):
         return None
     now = now or datetime.now(timezone.utc)
     if "刚刚" in text:
@@ -317,26 +408,21 @@ def save_state(state: Dict[str, Any]) -> None:
 
 def parse_post_time(post: Dict[str, Any]) -> Optional[datetime]:
     now = datetime.now(timezone.utc)
-    label = str(post.get("time_label") or post.get("time") or "").strip()
+    label = sanitize_time_label(str(post.get("time_label") or post.get("time") or ""))
     dt_label = _parse_time_label(label, now=now) if label else None
-    if dt_label is None:
-        head = str(post.get("raw") or post.get("title") or "")[:96]
-        m = re.search(
-            r"\d+\s*(?:分钟|小时|天)(?:前)?|刚刚|昨天|"
-            r"\d+\s*(?:minutes?|hours?|days?)\s*ago",
-            head,
-            re.I,
-        )
-        if m:
-            dt_label = _parse_time_label(m.group(0), now=now)
     dt_iso = _parse_iso_time(str(post.get("published_iso") or ""))
+    if dt_iso and dt_iso > now + timedelta(hours=2):
+        dt_iso = None
     if dt_label and dt_iso:
-        if dt_iso < now - timedelta(days=45) and dt_label >= now - timedelta(days=21):
-            return dt_label
-        if dt_label < now - timedelta(days=45) and dt_iso >= now - timedelta(days=21):
+        # 有 ISO 时优先 ISO（来自 time[datetime]），相对文案仅作辅助
+        if dt_iso >= now - timedelta(days=400):
+            if dt_label > now + timedelta(minutes=5):
+                return dt_iso
+            if abs((dt_iso - dt_label).total_seconds()) > 86400 * 3:
+                return dt_iso if dt_iso <= now else dt_label
             return dt_iso
-        return max(dt_label, dt_iso)
-    return dt_label or dt_iso
+        return dt_label or dt_iso
+    return dt_iso or dt_label
 
 
 def _parse_cn_month_day(label: str, *, now: datetime) -> Optional[datetime]:
