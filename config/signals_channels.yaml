@@ -10,8 +10,9 @@ cards_api:
   base_url: "http://127.0.0.1:3851"
   path: "/api/v1/cards"
   api_key: "1dd372b918ddae5188a9a781680"  # 默认密钥；环境变量 CARDS_API_KEY 可覆盖
-  # 来源后缀，请求体 source = python-ai-operate:<后缀>，列表信号默认 x
+  # 来源后缀：推特列表默认 x；币安广场用 source_binance（≤32 字符，便于 auto-script 筛选）
   source: "x"
+  source_binance: "binance_square"
   # 仅推送 AI 判定为交易信号的卡片
   only_trade_signals: true
   # 写入 Discord 时间线；单卡可覆盖
