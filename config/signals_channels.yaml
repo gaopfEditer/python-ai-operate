@@ -40,13 +40,13 @@ channels:
     name: "蛋挞"
     aliases: ["蛋挞", "CryptoDanta"]
     enabled: true
-  seffafnet:
-    channelId: ""
-    channelName: "Crypto Bond"
-    channelAvatar: ""
-    name: "Crypto Bond"
-    aliases: ["SeffafNet"]
-    enabled: true
+  # seffafnet:
+  #   channelId: ""
+  #   channelName: "Crypto Bond"
+  #   channelAvatar: ""
+  #   name: "Crypto Bond"
+  #   aliases: ["SeffafNet"]
+  #   enabled: true
   "0xtaibai":
     channelId: ""
     channelName: "太白"

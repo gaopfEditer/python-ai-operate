@@ -14,6 +14,7 @@ from signals.binance_square.profile_js import PROFILE_POST_EXTRACT_JS
 from signals.binance_square.enrich import enrich_posts_with_signals
 from signals.binance_square.store import (
     apply_binance_time_filter,
+    apply_canonical_square_post,
     backfill_soft_cutoff_from_time_spec,
     known_square_content_ids,
     load_config,
@@ -25,6 +26,7 @@ from signals.binance_square.store import (
     register_square_content_ids,
     resolve_binance_time_filter,
     save_state,
+    square_posts_index_by_content_id,
 )
 from signals.backfill_range import BACKFILL_RANGE_LABELS
 
@@ -430,6 +432,35 @@ def run_binance_square_fetch(
 
         known_ids = square_content_ids_skip_recent(skip_hours)
         skip_label = f"近 {skip_hours:g}h 内已抓取"
+    try:
+        from signals.card_db import db_get_card_by_tweet_id, db_known_binance_content_ids
+        from signals.binance_square.cards_sync import signal_card_to_square_post
+
+        known_ids |= db_known_binance_content_ids()
+    except Exception:
+        db_get_card_by_tweet_id = None  # type: ignore
+        signal_card_to_square_post = None  # type: ignore
+    st = load_state()
+    prior = st.get("last_posts") if isinstance(st.get("last_posts"), list) else []
+    prior_by_cid = square_posts_index_by_content_id(prior)
+    prior_by_cid.update(square_posts_index_by_content_id(st.get("last_posts_raw") or []))
+    if db_get_card_by_tweet_id and signal_card_to_square_post:
+        for cid in known_ids:
+            if cid in prior_by_cid:
+                continue
+            ex = db_get_card_by_tweet_id(cid)
+            if ex:
+                prior_by_cid[cid] = signal_card_to_square_post(ex)
+    canon_merged: List[Dict[str, Any]] = []
+    for p in merged:
+        if not isinstance(p, dict):
+            continue
+        cid = post_content_id(p)
+        if cid and cid in known_ids and cid in prior_by_cid:
+            canon_merged.append(apply_canonical_square_post(p, prior=prior_by_cid[cid]))
+        else:
+            canon_merged.append(dict(p))
+    merged = canon_merged
     to_process, skipped_known = partition_square_posts_by_known(merged, known_ids)
     if skipped_known:
         _log(progress, f"跳过 {skipped_known} 条（{skip_label}）")
@@ -450,8 +481,6 @@ def run_binance_square_fetch(
         except Exception as e:
             _log(progress, f"详情补媒体跳过: {e}")
 
-    st = load_state()
-    prior = st.get("last_posts") if isinstance(st.get("last_posts"), list) else []
     if to_process:
         _log(progress, f"AI/规则解析 {len(to_process)} 条新贴文信号…")
         enriched = enrich_posts_with_signals(to_process, prior_posts=prior, progress=progress)
@@ -473,19 +502,32 @@ def run_binance_square_fetch(
         if not isinstance(p, dict):
             continue
         cid = post_content_id(p)
-        persisted.append(enriched_map.get(cid) if cid and cid in enriched_map else dict(p))
+        if cid and cid in known_ids and cid not in enriched_map:
+            if cid in prior_by_cid:
+                persisted.append(dict(prior_by_cid[cid]))
+            continue
+        if cid and cid in enriched_map:
+            persisted.append(enriched_map[cid])
+        else:
+            persisted.append(dict(p))
 
     register_ids = [post_content_id(p) for p in to_process if post_content_id(p)]
-    for p in persisted:
-        cid = post_content_id(p)
-        if cid:
-            register_ids.append(cid)
     if register_ids:
-        register_square_content_ids(register_ids, posts=persisted or to_process)
+        register_square_content_ids(register_ids, posts=to_process)
 
     st = load_state()
     combined_posts = merge_square_posts([*prior, *persisted])[:200]
-    st["last_posts_raw"] = merge_square_posts(all_posts)[:300]
+    raw_pool = merge_square_posts(all_posts)
+    fixed_raw: List[Dict[str, Any]] = []
+    for p in raw_pool:
+        if not isinstance(p, dict):
+            continue
+        cid = post_content_id(p)
+        if cid and cid in prior_by_cid:
+            fixed_raw.append(apply_canonical_square_post(p, prior=prior_by_cid[cid]))
+        else:
+            fixed_raw.append(p)
+    st["last_posts_raw"] = fixed_raw[:300]
     st["last_posts"] = combined_posts
     st["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     save_state(st)
@@ -496,7 +538,9 @@ def run_binance_square_fetch(
         from signals.binance_square.cards_sync import sync_posts_to_signal_cards
         from signals.binance_square.enrich import fill_missing_signals_heuristic
 
-        for_cards = fill_missing_signals_heuristic(persisted)
+        for_cards = fill_missing_signals_heuristic(
+            [p for p in persisted if post_content_id(p) in enriched_map]
+        )
         rk = str(time_spec.get("backfill_range") or "last_7d")
         if time_spec.get("mode") == "range":
             since_dt, range_label = resolve_backfill_since(rk)

@@ -138,6 +138,13 @@ def _merge_cards(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str
     from signals.labels import is_trade_signal
 
     out = dict(existing)
+    same_tid = (
+        str(incoming.get("tweet_id") or "").strip()
+        and str(incoming.get("tweet_id") or "").strip() == str(existing.get("tweet_id") or "").strip()
+    )
+    time_keys = frozenset(
+        {"time_label", "published_iso", "display_time", "created_at", "parsed_at"}
+    )
     for key in (
         "url",
         "text",
@@ -149,8 +156,11 @@ def _merge_cards(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str
         "parsed_at",
     ):
         val = incoming.get(key)
-        if val:
-            out[key] = val
+        if not val:
+            continue
+        if same_tid and key in time_keys and existing.get(key):
+            continue
+        out[key] = val
     if incoming.get("tweet_id"):
         out["tweet_id"] = incoming["tweet_id"]
     if incoming.get("user_handle"):

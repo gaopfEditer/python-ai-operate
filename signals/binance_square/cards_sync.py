@@ -70,6 +70,31 @@ def _created_iso_and_ts(post: Dict[str, Any]) -> tuple[str, int]:
     return iso, base_ts
 
 
+def signal_card_to_square_post(card: Dict[str, Any]) -> Dict[str, Any]:
+    """SQLite 卡片 → state 帖文（已收录 contentId 沿用旧数据）。"""
+    if not isinstance(card, dict):
+        return {}
+    slug = str(card.get("user_handle") or "").strip().lower()
+    cid = str(card.get("tweet_id") or "").strip()
+    return {
+        "content_id": cid,
+        "href": str(card.get("url") or "").strip(),
+        "raw": str(card.get("text") or "").strip(),
+        "title": str(card.get("text") or "").strip()[:120],
+        "time_label": str(card.get("time_label") or "").strip(),
+        "published_iso": str(card.get("published_iso") or "").strip(),
+        "profile_id": slug,
+        "author_slug": slug,
+        "profile_name": str((card.get("channel") or {}).get("channelName") or slug),
+        "signal": card.get("signal") if isinstance(card.get("signal"), dict) else {},
+        "image_urls": [
+            str(im.get("url") or "")
+            for im in (card.get("images") or [])
+            if isinstance(im, dict) and str(im.get("url") or "").strip()
+        ],
+    }
+
+
 def square_post_to_card(post: Dict[str, Any]) -> Dict[str, Any]:
     slug = str(post.get("profile_id") or post.get("author_slug") or "").strip().lower()
     name = str(post.get("profile_name") or slug or "Square").strip()
@@ -141,12 +166,9 @@ def sync_posts_to_signal_cards(
         tid = str(card.get("tweet_id") or "").strip()
         if tid:
             existing = db_get_card_by_tweet_id(tid)
-            ex_sig = existing.get("signal") if isinstance(existing, dict) else None
-            if existing and isinstance(ex_sig, dict) and ex_sig:
-                new_sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
-                if not new_sig:
-                    card["signal"] = ex_sig
+            if existing:
                 skipped_existing += 1
+                continue
         upsert_card(card)
         synced += 1
         dt = parse_post_time(p)
