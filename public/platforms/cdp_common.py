@@ -1137,6 +1137,13 @@ def multiline_content_preserved(got: str, expected: str) -> bool:
     if not exp:
         return True
     got_s = sanitize_typed_text(got or "")
+    exp_nonempty = [ln.strip() for ln in exp.split("\n") if ln.strip()]
+    got_nonempty = [ln.strip() for ln in got_s.split("\n") if ln.strip()]
+    if len(exp_nonempty) > 1:
+        if len(got_nonempty) < len(exp_nonempty):
+            return False
+        if "\n" not in got_s and len(got_nonempty) <= 1:
+            return False
     pos = 0
     seen = 0
     for raw in exp.split("\n"):
@@ -1156,6 +1163,8 @@ def multiline_content_preserved(got: str, expected: str) -> bool:
     if head and head not in compact_got:
         return False
     if any(0xE000 <= ord(c) <= 0xF8FF for c in compact_got):
+        return False
+    if len(exp_nonempty) > 1 and compact_exp == compact_got and "\n" not in got_s:
         return False
     return True
 
@@ -1358,16 +1367,111 @@ def gate_body_acceptable(got: str, expected: str) -> bool:
     return got_len >= max(int(exp_len * 0.88), exp_len - 40)
 
 
+_PICK_EDITABLE_JS = """
+function pickEditable(n) {
+  if (!n) return null;
+  const tag = String(n.tagName || '').toUpperCase();
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return n;
+  if (n.isContentEditable && (n.getAttribute('role') === 'textbox' || n.className && String(n.className).includes('DraftEditor'))) return n;
+  const inner = n.querySelector && n.querySelector(
+    '[contenteditable="true"][role="textbox"], .public-DraftEditor-content[contenteditable="true"], [contenteditable="true"]'
+  );
+  if (inner) return inner;
+  if (n.isContentEditable) return n;
+  return n;
+}
+"""
+
+_TYPE_X_DRAFT_MULTILINE_JS = (
+    _PICK_EDITABLE_JS
+    + r"""
+function caretToEnd(el) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (_) {}
+}
+function softBreak() {
+  try { if (document.execCommand('insertLineBreak', false, null)) return true; } catch (_) {}
+  try { if (document.execCommand('insertParagraph', false, null)) return true; } catch (_) {}
+  return false;
+}
+function hardParagraph() {
+  try { if (document.execCommand('insertParagraph', false, null)) return true; } catch (_) {}
+  return softBreak();
+}
+const root = arguments[0];
+const body = String(arguments[1] || '');
+const clearFirst = !!arguments[2];
+const el = pickEditable(root);
+if (!el) return { ok: false, got: '' };
+try { el.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (_) {}
+try { el.click(); } catch (_) {}
+try { el.focus(); } catch (_) {}
+const tag = String(el.tagName || '').toUpperCase();
+if (tag === 'TEXTAREA' || tag === 'INPUT') {
+  el.value = clearFirst ? body : String(el.value || '') + body;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  return { ok: true, got: String(el.value || '') };
+}
+if (clearFirst) {
+  caretToEnd(el);
+  try { document.execCommand('selectAll', false, null); } catch (_) {}
+  try { document.execCommand('delete', false, null); } catch (_) {}
+}
+caretToEnd(el);
+const lines = body.split('\n');
+let i = 0;
+const n = lines.length;
+while (i < n) {
+  const line = lines[i];
+  if (!line) {
+    hardParagraph();
+    i += 1;
+    continue;
+  }
+  try { document.execCommand('insertText', false, line); } catch (_) {}
+  i += 1;
+  if (i >= n) break;
+  let blanks = 0;
+  while (i < n && !lines[i]) {
+    hardParagraph();
+    blanks += 1;
+    i += 1;
+  }
+  if (i < n && blanks === 0) {
+    softBreak();
+  }
+}
+const got = String(el.innerText || el.textContent || '').replace(/\u200b/g, '');
+return { ok: true, got: got };
+"""
+)
+
+
+def _type_x_draft_multiline_js(driver, element, body: str, *, clear_first: bool = True) -> str:
+    with preserve_os_focus():
+        _activate_driver_tab_for_input(driver)
+        _ensure_x_editor_focus(driver, element)
+        try:
+            res = driver.execute_script(
+                _TYPE_X_DRAFT_MULTILINE_JS, element, body, bool(clear_first)
+            )
+            if isinstance(res, dict):
+                return str(res.get("got") or "")
+        except Exception:
+            pass
+    return _read_x_compose_got(driver, element)
+
+
 def _insert_exact_newlines_at_caret(driver, element, body: str) -> None:
-    """按 split('\\n') 边界逐段 insertText，每个边界恰好一个 \\n（与原文一致）。"""
-    segments = body.split("\n")
-    for i, seg in enumerate(segments):
-        if seg:
-            append_text_at_caret(driver, element, seg)
-            human_pause(0.02, 0.05)
-        if i < len(segments) - 1:
-            append_text_at_caret(driver, element, "\n")
-            human_pause(0.03, 0.07)
+    """X Draft：勿用 insertText('\\n')，走 insertLineBreak / insertParagraph。"""
+    _type_x_draft_multiline_js(driver, element, body, clear_first=False)
 
 
 def _gate_body_needs_segmented_newlines(body: str) -> bool:
@@ -1501,7 +1605,8 @@ def x_editor_line_structure_ok(got: str, expected: str) -> bool:
         return True
     if _paragraph_gap_signature(got_s) == _paragraph_gap_signature(exp) and "\n" in got_s:
         return True
-    # 非空行已全部对齐：X 常把段落间多个空行压成单个换行，不再因此中止
+    if len(got_lines) != len(exp_lines):
+        return False
     return "\n" in got_s or len(got_lines) > 1
 
 
@@ -1513,50 +1618,12 @@ def _type_x_draft_paragraphs(
     clear_first: bool = True,
 ) -> str:
     """
-    X Draft.js：空行用 Enter（新段落/空块），相邻行用 Shift+Enter。
-    insertText 的 \\n 在 X 上常被压成一行，故不用整段粘贴。
+    X Draft.js：空行用 insertParagraph，相邻非空行用 insertLineBreak。
+    insertText 的 \\n 在 X 上常被压成一行，故不用整段 insertText。
     """
-    from selenium.webdriver.common.action_chains import ActionChains
-    from selenium.webdriver.common.keys import Keys
-
-    lines = _norm_editor_newlines(body).split("\n")
-    if clear_first:
-        try:
-            driver.execute_script(_CLEAR_EDITOR_JS, element)
-        except Exception:
-            pass
-        human_pause(0.12, 0.25)
-    if not _ensure_x_editor_focus(driver, element):
-        human_pause(0.1, 0.2)
-        _ensure_x_editor_focus(driver, element)
-    human_pause(0.08, 0.16)
-
-    i = 0
-    n = len(lines)
-    while i < n:
-        if not lines[i]:
-            ActionChains(driver).click(element).send_keys(Keys.ENTER).perform()
-            human_pause(0.06, 0.12)
-            i += 1
-            continue
-        append_text_at_caret(driver, element, lines[i])
-        human_pause(0.03, 0.08)
-        i += 1
-        if i >= n:
-            break
-        blanks = 0
-        while i < n and not lines[i]:
-            ActionChains(driver).click(element).send_keys(Keys.ENTER).perform()
-            human_pause(0.06, 0.12)
-            blanks += 1
-            i += 1
-        if i < n and blanks == 0:
-            ActionChains(driver).click(element).key_down(Keys.SHIFT).send_keys(
-                Keys.ENTER
-            ).key_up(Keys.SHIFT).perform()
-            human_pause(0.04, 0.09)
-    human_pause(0.12, 0.22)
-    return _read_x_compose_got(driver, element)
+    got = _type_x_draft_multiline_js(driver, element, body, clear_first=clear_first)
+    human_pause(0.1, 0.2)
+    return got or _read_x_compose_got(driver, element)
 
 
 def _type_x_multiline_into_element(
@@ -1579,14 +1646,7 @@ def _type_x_multiline_into_element(
             pass
         human_pause(0.1, 0.2)
     _ensure_x_editor_focus(driver, element)
-    segments = body.split("\n")
-    for i, seg in enumerate(segments):
-        if seg:
-            append_text_at_caret(driver, element, seg)
-            human_pause(0.02, 0.06)
-        if i < len(segments) - 1:
-            append_text_at_caret(driver, element, "\n")
-            human_pause(0.04, 0.08)
+    _type_x_draft_multiline_js(driver, element, body, clear_first=clear_first)
     human_pause(0.1, 0.2)
     return _read_x_compose_got(driver, element)
 
@@ -1631,6 +1691,9 @@ def type_x_compose_via_cdp_insert_text(
         return ""
 
     def _try_insert_js() -> str:
+        if "\n" in body:
+            attempts.append("insert_js=skip_multiline")
+            return ""
         if clear_first:
             try:
                 driver.execute_script(_CLEAR_EDITOR_JS, element)
@@ -1654,7 +1717,48 @@ def type_x_compose_via_cdp_insert_text(
         attempts.append(f"insert_js={(got or '')[:48]!r}")
         return ""
 
-    for fn in (_try_draft_keys, _try_multiline, _try_insert_js):
+    def _try_paste_plain() -> str:
+        if clear_first:
+            try:
+                driver.execute_script(_CLEAR_EDITOR_JS, element)
+            except Exception:
+                pass
+            human_pause(0.1, 0.2)
+        _ensure_x_editor_focus(driver, element)
+        human_pause(0.08, 0.14)
+        try:
+            got = str(
+                driver.execute_script(
+                    _PICK_EDITABLE_JS
+                    + r"""
+const el = pickEditable(arguments[0]);
+const text = String(arguments[1] || '');
+if (!el) return '';
+try { el.focus(); } catch (_) {}
+try {
+  const dt = new DataTransfer();
+  dt.setData('text/plain', text);
+  const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+  el.dispatchEvent(ev);
+} catch (_) {}
+return String(el.innerText || el.textContent || '').replace(/\u200b/g, '');
+""",
+                    element,
+                    body,
+                )
+                or ""
+            )
+        except Exception as exc:
+            attempts.append(f"paste={exc}")
+            return ""
+        human_pause(0.12, 0.22)
+        got = _norm_editor_newlines(got)
+        if x_editor_line_structure_ok(got, body):
+            return got
+        attempts.append(f"paste={(got or '')[:48]!r}")
+        return ""
+
+    for fn in (_try_draft_keys, _try_multiline, _try_paste_plain, _try_insert_js):
         got = fn()
         if got:
             logger.info(
