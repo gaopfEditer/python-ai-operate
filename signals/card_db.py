@@ -184,9 +184,10 @@ def _merge_cards(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str
         out["cards_api_id"] = incoming["cards_api_id"]
     elif existing.get("cards_api_id"):
         out["cards_api_id"] = existing["cards_api_id"]
-    if incoming.get("id"):
-        out["id"] = incoming["id"]
-    return out
+    if incoming.get("cards_push_allowed") is True or existing.get("cards_push_allowed") is True:
+        out["cards_push_allowed"] = True
+    elif "cards_push_allowed" in incoming:
+        out["cards_push_allowed"] = bool(incoming.get("cards_push_allowed"))
 
 
 def dedup_cards_by_user_time(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -223,6 +224,8 @@ def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
         "replay_url",
         "video_url",
         "live_content_id",
+        "cards_push_allowed",
+        "realtime_session_id",
     )
     extra = {k: card[k] for k in extra_keys if k in card}
     vs = card.get("value_score")
