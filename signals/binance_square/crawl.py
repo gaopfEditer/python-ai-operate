@@ -282,6 +282,8 @@ def run_binance_square_fetch(
     save_state(st)
 
     cards_sync: Dict[str, Any] = {}
+    push_result: Dict[str, Any] = {}
+    realtime_ingest = time_spec.get("mode") == "hours"
     if enriched:
         from signals.backfill_range import resolve_backfill_since
         from signals.binance_square.cards_sync import sync_posts_to_signal_cards
@@ -295,9 +297,21 @@ def run_binance_square_fetch(
                 range_label=range_label or BACKFILL_RANGE_LABELS.get(rk, rk),
                 since_iso=since_dt.isoformat(timespec="seconds"),
                 progress=progress,
+                allow_cards_push=False,
             )
         else:
-            cards_sync = sync_posts_to_signal_cards(enriched, progress=progress)
+            cards_sync = sync_posts_to_signal_cards(
+                enriched,
+                progress=progress,
+                allow_cards_push=True,
+            )
+        if realtime_ingest and enriched:
+            from signals.push import push_binance_square_cards
+            from signals.store import get_config as signals_runtime_cfg
+
+            if bool(signals_runtime_cfg().get("push_enabled", True)):
+                push_result = push_binance_square_cards(enriched, progress=progress)
+                cards_sync["cards_push"] = push_result
 
     ok = not aborted
     return {

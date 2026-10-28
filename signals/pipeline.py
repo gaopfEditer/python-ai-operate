@@ -11,7 +11,7 @@ from signals.labels import is_trade_signal
 from signals.analyze import analyze_tweet_signal
 from signals.control import RunControl
 from signals.crawl import crawl_list_timeline, crawl_user_timeline, download_image
-from signals.push import push_cards_batch
+from signals.push import push_cards_batch, select_cards_for_cards_push
 from signals.store import (
     add_window,
     get_card_by_dedup,
@@ -78,7 +78,7 @@ def run_list_signal_pipeline(
     limit = max(1, min(limit, 120))
     skip_nt = False
     reparse_seen = False
-    do_push = False
+    do_push = bool(cfg.get("push_enabled", True))
 
     save_config(
         {
@@ -384,7 +384,18 @@ def run_list_signal_pipeline(
                 "message": f"已终止（推送前）：解析 {parsed}",
             }
         _log(progress, f"推送增量卡片到 Cards API（{len(cards)}）…")
-        push_result = push_cards_batch(cards, force=False, progress=progress)
+        trade_cards = [
+            c
+            for c in cards
+            if is_trade_signal(c.get("signal") if isinstance(c.get("signal"), dict) else {})
+        ]
+        push_targets, gate_rejected = select_cards_for_cards_push(trade_cards)
+        if gate_rejected:
+            _log(
+                progress,
+                f"推送门禁跳过 {len(gate_rejected)} 条（非当日/非实时/非交易）",
+            )
+        push_result = push_cards_batch(push_targets, force=False, progress=progress)
     elif not do_push:
         push_result["reason"] = "push_disabled"
 
@@ -872,7 +883,7 @@ def run_user_signal_pipeline(
         }
         upsert_card(card)
         cards.append(card)
-        if signal.get("has_trade_signal"):
+        if signal.get("has_trade_signal") or is_trade_signal(signal):
             trade_cards.append(card)
         parsed += 1
         has_trade = bool(signal.get("has_trade_signal"))
@@ -898,12 +909,19 @@ def run_user_signal_pipeline(
         _log(progress, f"摘要 · {summary}")
 
     push_result: Dict[str, Any] = {"pushed": 0, "skipped": 0, "failed": 0, "items": []}
-    push_targets = trade_cards if skip_nt else cards
+    trade_only = [
+        c
+        for c in cards
+        if is_trade_signal(c.get("signal") if isinstance(c.get("signal"), dict) else {})
+    ]
+    push_targets, gate_rejected = select_cards_for_cards_push(trade_only)
 
     if not aborted and do_push and push_targets:
         if _wait_if_paused(control, progress) == "stop":
             aborted = True
         else:
+            if gate_rejected:
+                _log(progress, f"推送门禁跳过 {len(gate_rejected)} 条")
             _log(progress, f"推送交易卡片到 Cards API（{len(push_targets)}）…")
             push_result = push_cards_batch(push_targets, force=False, progress=progress)
     elif not do_push:
