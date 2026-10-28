@@ -108,6 +108,16 @@ function _bnCollectLiveReplayFromCard(el) {
 PROFILE_POST_EXTRACT_JS = (
     _MEDIA_HELPERS_JS
     + r"""
+function _bnSanitizeTimeLabel(raw) {
+  const t = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  const re = /(刚刚|昨天|\d+\s*分钟(?:前)?|\d+\s*小时(?:前)?|\d+\s*天(?:前)?|\d{4}\s*年?\s*\d{1,2}\s*月\s*\d{1,2}\s*日?|\d{1,2}\s*月\s*\d{1,2}\s*日|\d+\s*(?:minutes?|hours?|days?)\s*ago)/i;
+  const m = t.match(re);
+  if (m) return m[0].trim();
+  if (/点赞|评论|转发|收藏|阅读|views?/i.test(t)) return '';
+  if (t.length <= 24 && !/\d{3,}/.test(t)) return t;
+  return '';
+}
 function _bnReadCreateTimeFromNickContainer(root) {
   if (!root || !root.querySelector) return { publishedIso: '', timeLabel: '' };
   const nick = root.querySelector('[class*="avatar-nick-container"]');
@@ -119,9 +129,9 @@ function _bnReadCreateTimeFromNickContainer(root) {
   const te = ct.querySelector('time[datetime]');
   if (te) {
     publishedIso = te.getAttribute('datetime') || '';
-    timeLabel = (te.innerText || '').trim();
+    timeLabel = _bnSanitizeTimeLabel(te.innerText || te.textContent || '');
   }
-  if (!timeLabel) timeLabel = (ct.innerText || ct.textContent || '').trim();
+  if (!timeLabel) timeLabel = _bnSanitizeTimeLabel(ct.innerText || ct.textContent || '');
   return { publishedIso, timeLabel };
 }
 function _bnPostTimeFromCard(a) {
@@ -148,7 +158,7 @@ function _bnPostTimeFromCard(a) {
     const te = card.querySelector('time[datetime]');
     if (te) {
       publishedIso = te.getAttribute('datetime') || '';
-      timeLabel = (te.innerText || '').trim();
+      timeLabel = _bnSanitizeTimeLabel(te.innerText || te.textContent || '');
     }
   }
   if (card && /置顶|pinned|🔝/i.test((card.innerText || '').slice(0, 900))) isPinned = true;

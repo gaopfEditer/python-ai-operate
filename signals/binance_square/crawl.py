@@ -16,6 +16,7 @@ from signals.binance_square.store import (
     known_square_content_ids,
     load_config,
     load_state,
+    merge_square_post_times_from_prior,
     merge_square_posts,
     partition_square_posts_by_known,
     post_content_id,
@@ -48,6 +49,21 @@ def _slug_from_profile(url: str) -> str:
     return (m.group(1) if m else "").strip()
 
 
+def _chunk_has_known_non_pinned(
+    chunk: List[Dict[str, Any]], known_ids: set[str]
+) -> Optional[str]:
+    """按时间流（页面上从上到下）遇到首个已记录且非置顶帖时返回 contentId。"""
+    for row in chunk:
+        if not isinstance(row, dict):
+            continue
+        if row.get("is_pinned"):
+            continue
+        cid = post_content_id(row)
+        if cid and cid in known_ids:
+            return cid
+    return None
+
+
 def _scroll_profile_and_extract(
     driver,
     *,
@@ -57,15 +73,36 @@ def _scroll_profile_and_extract(
     min_rounds: int = 12,
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
+    known_content_ids: Optional[set[str]] = None,
+    stop_on_known: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     虚拟列表会在滚走后卸载 DOM；边滚边抽、按 contentId 合并，避免「中间漏帖」。
+    实时增量（stop_on_known）时，时间流中出现已记录的非置顶帖即停止下滚。
     """
     merged: List[Dict[str, Any]] = []
+    known_ids = known_content_ids or set()
     last_unique = -1
     stable = 0
     for rnd in range(max_rounds):
         if should_abort and should_abort():
+            break
+        try:
+            js_cap = max(max_items * 3, 120)
+            chunk = driver.execute_script(PROFILE_POST_EXTRACT_JS, js_cap, author_slug) or []
+        except Exception:
+            chunk = []
+        chunk = [c for c in (chunk or []) if isinstance(c, dict)]
+        if chunk:
+            merged = merge_square_posts([*merged, *chunk])
+        hit_known = ""
+        if stop_on_known and known_ids and chunk:
+            hit_known = _chunk_has_known_non_pinned(chunk, known_ids) or ""
+        n = len(merged)
+        if hit_known:
+            _log(progress, f"  遇到已记录帖 contentId={hit_known}，停止下滚（非置顶）")
+            break
+        if rnd + 1 >= max_rounds:
             break
         for _ in range(5):
             if should_abort and should_abort():
@@ -74,14 +111,6 @@ def _scroll_profile_and_extract(
                 "window.scrollBy(0, Math.max(320, Math.floor(window.innerHeight * 0.82)));"
             )
             time.sleep(0.55)
-        try:
-            js_cap = max(max_items * 3, 120)
-            chunk = driver.execute_script(PROFILE_POST_EXTRACT_JS, js_cap, author_slug) or []
-        except Exception:
-            chunk = []
-        if chunk:
-            merged = merge_square_posts([*merged, *(c for c in chunk if isinstance(c, dict))])
-        n = len(merged)
         if rnd + 1 < min_rounds:
             last_unique = n
             continue
@@ -107,6 +136,8 @@ def _scroll_params_for_time_spec(time_spec: Dict[str, Any]) -> Dict[str, int]:
             "max_rounds": min(90, 24 + span * 4),
             "min_rounds": min(28, 12 + span // 2),
         }
+    if time_spec.get("mode") == "hours":
+        return {"max_rounds": 28, "min_rounds": 1}
     return {"max_rounds": 48, "min_rounds": 16}
 
 
@@ -179,6 +210,8 @@ def run_binance_square_fetch(
             return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
 
         scroll_kw = _scroll_params_for_time_spec(time_spec)
+        realtime_scroll = time_spec.get("mode") == "hours"
+        known_for_scroll = known_square_content_ids() if realtime_scroll else set()
         try:
             abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
             for i, prof in enumerate(profiles, 1):
@@ -206,6 +239,8 @@ def run_binance_square_fetch(
                         author_slug=slug,
                         progress=progress,
                         should_abort=abort_fn,
+                        known_content_ids=known_for_scroll,
+                        stop_on_known=realtime_scroll,
                         **scroll_kw,
                     )
                 except Exception as e:
@@ -262,6 +297,7 @@ def run_binance_square_fetch(
     st = load_state()
     prior = st.get("last_posts") if isinstance(st.get("last_posts"), list) else []
     if to_process:
+        to_process = merge_square_post_times_from_prior(prior, to_process)
         _log(progress, f"AI/规则解析 {len(to_process)} 条新贴文信号…")
         enriched = enrich_posts_with_signals(to_process, prior_posts=prior, progress=progress)
     else:
@@ -275,14 +311,17 @@ def run_binance_square_fetch(
     )
 
     st = load_state()
-    combined_posts = merge_square_posts([*prior, *enriched])[:200]
+    combined_posts = merge_square_post_times_from_prior(
+        prior, merge_square_posts([*prior, *enriched])
+    )[:200]
     st["last_posts_raw"] = merge_square_posts(all_posts)[:300]
     st["last_posts"] = combined_posts
     st["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     save_state(st)
 
     cards_sync: Dict[str, Any] = {}
-    if enriched:
+    # 周期增量（hours）只更新 state，卡片由「产出卡片」+ 币种门槛入库
+    if enriched and time_spec.get("mode") != "hours":
         from signals.backfill_range import resolve_backfill_since
         from signals.binance_square.cards_sync import sync_posts_to_signal_cards
 

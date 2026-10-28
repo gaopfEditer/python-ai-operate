@@ -3433,6 +3433,13 @@ def handle_api(
         from signals.watcher import status as watch_status
         from signals.store import resolve_signals_debugger_url
 
+        try:
+            from signals.background_watchers import ensure_signal_background_watchers
+
+            ensure_signal_background_watchers()
+        except Exception:
+            pass
+
         st = load_state()
         cfg = get_config()
         return _json_bytes(
@@ -3497,6 +3504,12 @@ def handle_api(
         )
 
     if path == "/api/signals/kol-realtime" and method == "GET":
+        try:
+            from signals.background_watchers import ensure_signal_background_watchers
+
+            ensure_signal_background_watchers()
+        except Exception:
+            pass
         from signals.kol_realtime_watcher import status as kol_rt_status
 
         return _json_bytes({"success": True, "kol_realtime": kol_rt_status()})
@@ -3511,6 +3524,27 @@ def handle_api(
         enabled = bool(body.get("enabled", body.get("kol_realtime_enabled", False)))
         st = set_kol_realtime(enabled, new_session=bool(body.get("new_session")))
         return _json_bytes({"success": True, "kol_realtime": st or kol_rt_status()})
+
+    if path == "/api/signals/realtime/emit-cards" and method == "POST":
+        src = str((body or {}).get("source") or "").strip().lower()
+        if src in ("binance", "binance_square", "square"):
+            from signals.realtime_emit import emit_binance_square_cards
+
+            hours = (body or {}).get("cutoff_hours")
+            prof = (body or {}).get("profile_ids")
+            result = emit_binance_square_cards(
+                profile_ids=prof if isinstance(prof, list) else None,
+                cutoff_hours=float(hours) if hours is not None else None,
+            )
+            return _json_bytes(result)
+        if src in ("kol", "kol_realtime", "blogger"):
+            from signals.realtime_emit import emit_kol_realtime_cards
+
+            result = emit_kol_realtime_cards(
+                session_id=str((body or {}).get("session_id") or (body or {}).get("realtime_session_id") or ""),
+            )
+            return _json_bytes(result)
+        return _json_bytes({"success": False, "error": "source 须为 kol_realtime 或 binance_square"}, 400)
 
     if path == "/api/signals/kol-realtime/run" and method == "POST":
         job_id = uuid.uuid4().hex[:12]
@@ -4248,6 +4282,12 @@ def handle_api(
         return _json_bytes({"success": True, "config": saved, "cycle": bs_cycle_status()})
 
     if path == "/api/signals/binance-square/cycle" and method == "GET":
+        try:
+            from signals.background_watchers import ensure_signal_background_watchers
+
+            ensure_signal_background_watchers()
+        except Exception:
+            pass
         from signals.binance_square.cycle_watcher import status as bs_cycle_status
 
         return _json_bytes({"success": True, "cycle": bs_cycle_status()})

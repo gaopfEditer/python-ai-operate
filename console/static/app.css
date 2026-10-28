@@ -3032,6 +3032,31 @@ label.publish-media-add {
   margin: 6px 0 0;
   font-size: 0.76rem;
 }
+.sig-rt-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.sig-rt-panel-head .sig-sub {
+  margin: 0;
+}
+.sig-bs-realtime-wrap {
+  padding: 12px 14px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.15);
+  margin-bottom: 12px;
+}
+.sig-bs-realtime-grid {
+  gap: 10px 14px;
+}
+.sig-rt-action-bar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .sig-kol-realtime-grid {
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px 14px;

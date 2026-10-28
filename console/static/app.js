@@ -68,6 +68,7 @@ const state = {
   labConfigProfiles: [],
   sigMode: "list",
   sigCardsView: "history",
+  sigUserFeedView: "history",
   sigBsFeedView: "history",
   sigConfig: {},
   kolRealtimeSessionId: "",
@@ -80,6 +81,7 @@ const APP_MAIN_TAB_LS = "appMainTab";
 const APP_SIG_MODE_LS = "appSigMode";
 const SIG_KOL_RT_LS = "sigKolRealtimePrefs";
 const SIG_CARDS_VIEW_LS = "sigCardsView";
+const SIG_USER_FEED_LS = "sigUserFeedView";
 const SIG_BS_FEED_LS = "sigBsFeedView";
 const SIG_BS_PROFILE_LS = "sigBsProfileSelection";
 const LAB_SESSION_KEY = "pai_lab_session";
@@ -6772,13 +6774,15 @@ function bind() {
     if (el.type === "number") el.addEventListener("blur", () => persistSigKolRtForm({ immediate: true }));
   }
   $("#sigKolRtBloggerList")?.addEventListener("change", () => persistSigKolRtForm());
-  $("#sigListFeedTabs")?.addEventListener("click", (e) => {
-    const btn = e.target.closest(".sig-cards-view-tab[data-sig-cards-view]");
+  $("#sigUserFeedTabs")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".sig-cards-view-tab[data-sig-user-feed]");
     if (!btn) return;
-    const v = btn.getAttribute("data-sig-cards-view");
+    const v = btn.getAttribute("data-sig-user-feed");
     if (v !== "realtime" && v !== "history") return;
-    switchSigListFeedView(v);
+    switchSigUserFeedView(v);
   });
+  $("#btnSigKolRtEmitCards")?.addEventListener("click", () => runSigEmitRealtimeCards("kol_realtime"));
+  $("#btnSigBsEmitCards")?.addEventListener("click", () => runSigEmitRealtimeCards("binance_square"));
   $("#sigBsFeedTabs")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".sig-cards-view-tab[data-sig-bs-feed]");
     if (!btn) return;
@@ -7487,8 +7491,8 @@ function applySigModeUi(mode) {
     if (el) el.hidden = m === "value";
   }
   const feedWrap = $("#sigFeedViewTabsWrap");
-  if (feedWrap) feedWrap.hidden = m !== "list" && m !== "binance";
-  updateSigCardsViewTabs();
+  if (feedWrap) feedWrap.hidden = m !== "user" && m !== "binance";
+  updateSigUserFeedView();
   updateSigBsFeedView();
   updateSigCardsFiltersBarVisibility();
   ensureSigCardsFilterDefault();
@@ -7559,7 +7563,7 @@ function sigCardsMinTimeIso() {
     const h = Math.max(1, Number($("#sigBsCycleCutoffHours")?.value || 8) || 8);
     return new Date(Date.now() - h * 3600 * 1000).toISOString();
   }
-  if (state.sigMode === "list" && state.sigCardsView === "realtime") {
+  if (state.sigMode === "user" && state.sigUserFeedView === "realtime") {
     const h = Math.max(1, Number($("#sigKolRtCutoffHours")?.value || 24) || 24);
     return new Date(Date.now() - h * 3600 * 1000).toISOString();
   }
@@ -8282,7 +8286,7 @@ function updateSigRtActiveBanner() {
   if (btnListCycle) btnListCycle.hidden = !_sigBgListCycleOn;
   if (btnKol) btnKol.hidden = !_sigBgKolRtOn;
   if (btnBs) btnBs.hidden = !_sigBgBsCycleOn;
-  const onKolPanel = state.sigMode === "list" && state.sigCardsView === "realtime";
+  const onKolPanel = state.sigMode === "user" && state.sigUserFeedView === "realtime";
   const onBsPanel = state.sigMode === "binance" && state.sigBsFeedView === "realtime";
   const needGo =
     (_sigBgKolRtOn && !onKolPanel) || (_sigBgBsCycleOn && !onBsPanel && !_sigBgKolRtOn) ||
@@ -8291,9 +8295,9 @@ function updateSigRtActiveBanner() {
 }
 
 async function gotoSigRtControlPanel() {
-  if (_sigBgKolRtOn && !(state.sigMode === "list" && state.sigCardsView === "realtime")) {
-    await switchSigMode("list");
-    switchSigListFeedView("realtime");
+  if (_sigBgKolRtOn && !(state.sigMode === "user" && state.sigUserFeedView === "realtime")) {
+    await switchSigMode("user");
+    switchSigUserFeedView("realtime");
     return;
   }
   if (_sigBgBsCycleOn && !(state.sigMode === "binance" && state.sigBsFeedView === "realtime")) {
@@ -9591,8 +9595,8 @@ function applySigKolRtForm(cfg, bloggers, rt) {
     rt?.session_id || cfg?.kol_realtime_session_id || local.kol_realtime_session_id || ""
   );
   _sigBgKolRtOn = !!(rt?.enabled ?? cfg?.kol_realtime_enabled);
-  restoreSigListFeedViewFromStorage(local);
-  updateSigCardsViewTabs();
+  restoreSigUserFeedViewFromStorage(local);
+  updateSigUserFeedView();
   updateSigKolRtUi(rt || {}, cfg || {});
 }
 
@@ -9659,15 +9663,18 @@ function updateSigCardsFiltersBarVisibility() {
   const badge = $("#sigCardsFilterModeBadge");
   if (!bar) return;
   const listMode = state.sigMode === "list";
+  const userMode = state.sigMode === "user";
   const bsMode = state.sigMode === "binance";
-  const show = listMode || bsMode;
+  const show = listMode || userMode || bsMode;
   bar.hidden = !show;
-  if (kolBlock) kolBlock.hidden = !listMode;
+  if (kolBlock) kolBlock.hidden = !listMode && !userMode;
   if (bsBlock) bsBlock.hidden = !bsMode;
   if (badge) {
     if (listMode) {
-      const v = state.sigCardsView === "realtime" ? "实时" : "历史";
-      badge.textContent = `列表信号 · ${v}`;
+      badge.textContent = "列表信号";
+    } else if (userMode) {
+      const v = state.sigUserFeedView === "realtime" ? "实时" : "历史回溯";
+      badge.textContent = `博主回溯 · ${v}`;
     } else if (bsMode) {
       const v = state.sigBsFeedView === "realtime" ? "实时" : "历史回溯";
       badge.textContent = `币安广场 · ${v}`;
@@ -9685,32 +9692,30 @@ function updateSigCardsFiltersBarVisibility() {
   }
 }
 
-function switchSigListFeedView(view) {
+function switchSigUserFeedView(view) {
   const v = view === "realtime" ? "realtime" : "history";
-  state.sigCardsView = v;
-  localStorage.setItem(SIG_CARDS_VIEW_LS, v);
-  writeSigKolRtLocal({ sig_cards_view: v });
-  updateSigCardsViewTabs();
+  state.sigUserFeedView = v;
+  localStorage.setItem(SIG_USER_FEED_LS, v);
+  writeSigKolRtLocal({ sig_user_feed_view: v });
+  updateSigUserFeedView();
   loadSignalCards();
 }
 
-function updateSigCardsViewTabs() {
-  const isList = state.sigMode === "list";
-  const view = state.sigCardsView === "realtime" ? "realtime" : "history";
-  state.sigCardsView = view;
-  const feedTabs = $("#sigListFeedTabs");
-  if (feedTabs) feedTabs.hidden = !isList;
-  feedTabs?.querySelectorAll(".sig-cards-view-tab[data-sig-cards-view]").forEach((btn) => {
-    const v = btn.getAttribute("data-sig-cards-view");
+function updateSigUserFeedView() {
+  const isUser = state.sigMode === "user";
+  const view = state.sigUserFeedView === "realtime" ? "realtime" : "history";
+  state.sigUserFeedView = view;
+  const feedTabs = $("#sigUserFeedTabs");
+  if (feedTabs) feedTabs.hidden = !isUser;
+  feedTabs?.querySelectorAll(".sig-cards-view-tab[data-sig-user-feed]").forEach((btn) => {
+    const v = btn.getAttribute("data-sig-user-feed");
     btn.classList.toggle("on", v === view);
     btn.setAttribute("aria-selected", v === view ? "true" : "false");
   });
-  const rtPanel = $("#sigListRealtimePanel");
-  const histPanel = $("#sigListHistoryPanel");
-  const listBox = $("#sigModeList");
-  if (rtPanel) rtPanel.hidden = !isList || view !== "realtime";
-  if (histPanel) histPanel.hidden = !isList || view !== "history";
-  if (listBox) listBox.hidden = !isList;
+  const rtPanel = $("#sigUserRealtimePanel");
+  const histPanel = $("#sigUserHistoryPanel");
+  if (rtPanel) rtPanel.hidden = !isUser || view !== "realtime";
+  if (histPanel) histPanel.hidden = !isUser || view !== "history";
   updateSigCardsFiltersBarVisibility();
   updateSigRtActiveBanner();
 }
@@ -9724,12 +9729,16 @@ function restoreSigBsFeedViewFromStorage() {
   }
 }
 
-function restoreSigListFeedViewFromStorage(localPrefs) {
+function restoreSigUserFeedViewFromStorage(localPrefs) {
   try {
     const local = localPrefs && typeof localPrefs === "object" ? localPrefs : readSigKolRtLocal();
-    const view =
-      local.sig_cards_view || localStorage.getItem(SIG_CARDS_VIEW_LS) || state.sigCardsView;
-    if (view === "realtime" || view === "history") state.sigCardsView = view;
+    let view =
+      local.sig_user_feed_view ||
+      local.sig_cards_view ||
+      localStorage.getItem(SIG_USER_FEED_LS) ||
+      localStorage.getItem(SIG_CARDS_VIEW_LS) ||
+      state.sigUserFeedView;
+    if (view === "realtime" || view === "history") state.sigUserFeedView = view;
   } catch (_) {
     /* ignore */
   }
@@ -9769,8 +9778,63 @@ function updateSigKolRtUi(rt, cfg) {
       st.className = "status ok";
     }
   }
-  updateSigCardsViewTabs();
+  updateSigUserFeedView();
   updateSigRtActiveBanner();
+  const emitBtn = $("#btnSigKolRtEmitCards");
+  const pending = Number(rt?.pending_count ?? 0);
+  if (emitBtn) {
+    emitBtn.title = pending
+      ? `待产出缓存 ${pending} 条 · 仅含币种会入库`
+      : "仅含币种的内容会入库为卡片";
+  }
+}
+
+async function runSigEmitRealtimeCards(source) {
+  const btn =
+    source === "binance_square" ? $("#btnSigBsEmitCards") : $("#btnSigKolRtEmitCards");
+  if (btn) btn.disabled = true;
+  try {
+    const body = { source };
+    if (source === "kol_realtime") {
+      body.session_id = String(state.kolRealtimeSessionId || "").trim();
+    }
+    if (source === "binance_square") {
+      body.cutoff_hours = Math.max(
+        1,
+        Number($("#sigBsCycleCutoffHours")?.value || 8) || 8
+      );
+    }
+    const data = await api("/api/signals/realtime/emit-cards", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (!data.success) {
+      toast(data.error || data.message || "产出失败", "error");
+      return;
+    }
+    const rejected = Array.isArray(data.rejected) ? data.rejected.length : 0;
+    const created = Number(data.created ?? data.synced ?? 0);
+    toast(
+      data.message || `产出 ${created} 张卡片` + (rejected ? `，拒绝无币种 ${rejected}` : ""),
+      created ? "ok" : rejected ? "info" : "info"
+    );
+    if (rejected && data.rejected?.length) {
+      const sample = data.rejected
+        .slice(0, 3)
+        .map((r) => r.message || r.reason)
+        .join("；");
+      console.info("[emit-cards] rejected sample:", sample);
+    }
+    await loadSignalCards();
+    if (source === "kol_realtime") {
+      const kr = await api("/api/signals/kol-realtime");
+      updateSigKolRtUi(kr.kol_realtime || {}, {});
+    }
+  } catch (e) {
+    toast(String(e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 let _sigKolRtPollTimer = null;
@@ -9819,7 +9883,7 @@ async function pollSigKolRtInBackground() {
     const last = String(rt.last_run_at || "");
     if (last && last !== _sigKolRtLastRunAt) {
       _sigKolRtLastRunAt = last;
-      if (state.sigMode === "list" && state.sigCardsView === "realtime") {
+      if (state.sigMode === "user" && state.sigUserFeedView === "realtime") {
         await loadSignalCards().catch(() => {});
       }
     }
@@ -9847,7 +9911,8 @@ async function startSigKolRealtime() {
   writeSigKolRtLocal({ kol_realtime_session_id: state.kolRealtimeSessionId });
   updateSigKolRtUi(data.kol_realtime || {}, {});
   ensureSigKolRtPoller(true);
-  switchSigListFeedView("realtime");
+  await switchSigMode("user");
+  switchSigUserFeedView("realtime");
   toast("KOL 实时抓取已开启（后台持续运行）", "ok");
 }
 
@@ -9903,7 +9968,7 @@ async function runSigKolRtOnce() {
       setStatus($("#sigKolRtStatus"), job.message || job.status || "运行中…");
       if (["done", "error", "cancelled"].includes(job.status)) {
         setStatus($("#sigKolRtStatus"), job.result?.message || job.message || "完成", "ok");
-        if (state.sigCardsView === "realtime") await loadSignalCards();
+        if (state.sigUserFeedView === "realtime") await loadSignalCards();
         break;
       }
     }
@@ -10808,7 +10873,7 @@ async function loadSignalCards() {
   const onlyTrade = !!$("#sigFilterTrade")?.checked;
   const filter = effectiveSigCardsFilter(collectSigCardsFilter());
   const valueMode = state.sigMode === "value";
-  if (state.sigMode === "list" && state.sigCardsView === "realtime") {
+  if (state.sigMode === "user" && state.sigUserFeedView === "realtime") {
     const fromIso = sigCardsMinTimeIso();
     let url = `/api/signals/cards?limit=500&merge=1&source_mode=kol_realtime&from=${encodeURIComponent(fromIso)}`;
     if (onlyTrade) url += "&trade=1";
@@ -10823,7 +10888,7 @@ async function loadSignalCards() {
       if (!_sigCardsCache.length) {
         const box = $("#sigCards");
         if (box) {
-          box.innerHTML = `<p class="muted">本次实时会话暂无卡片（会话 ${escapeHtml(sid || "—")}）。等待下一轮抓取或点「立即抓取（增量）」。</p>`;
+          box.innerHTML = `<p class="muted">暂无已产出卡片（会话 ${escapeHtml(sid || "—")}）。先开启实时抓取，再点上方「产出卡片」（须含币种 ticker）。</p>`;
         }
       }
     } catch (e) {

@@ -110,6 +110,7 @@ def sync_posts_to_signal_cards(
     range_label: str = "",
     since_iso: str = "",
     progress: ProgressCb = None,
+    require_coin: bool = False,
 ) -> Dict[str, Any]:
     from signals.store import add_window, upsert_card
 
@@ -119,13 +120,22 @@ def sync_posts_to_signal_cards(
 
     from signals.card_db import db_get_card_by_tweet_id
 
+    from signals.coin_detect import has_listed_coin
+
     synced = 0
     skipped_existing = 0
+    rejected_no_coin = 0
     oldest: Optional[datetime] = None
     newest: Optional[datetime] = None
     now = datetime.now(timezone.utc).astimezone()
 
     for p in rows:
+        if require_coin:
+            text = str(p.get("raw") or p.get("title") or "")
+            sig = p.get("signal") if isinstance(p.get("signal"), dict) else {}
+            if not has_listed_coin(text, sig):
+                rejected_no_coin += 1
+                continue
         card = square_post_to_card(p)
         if not card.get("tweet_id") and not card.get("url"):
             continue
@@ -203,6 +213,7 @@ def sync_posts_to_signal_cards(
         "synced": synced,
         "skipped": max(0, len(rows) - synced),
         "skipped_existing": skipped_existing,
+        "rejected_no_coin": rejected_no_coin,
     }
 
 
