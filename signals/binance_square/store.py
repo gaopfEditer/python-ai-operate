@@ -229,18 +229,19 @@ def remember_content_post_snapshot(post: Dict[str, Any]) -> None:
     snaps: Dict[str, Dict[str, str]] = {}
     if isinstance(st.get("content_post_snapshots"), dict):
         snaps = {str(k): dict(v) for k, v in st["content_post_snapshots"].items() if isinstance(v, dict)}
-    if cid in snaps:
-        return
-    iso = str(post.get("published_iso") or "").strip()
-    tl = str(post.get("time_label") or "").strip()
+    prior = dict(snaps.get(cid) or {})
+    iso = str(post.get("published_iso") or prior.get("published_iso") or "").strip()
+    tl = str(post.get("time_label") or prior.get("time_label") or "").strip()
     dt = _parse_post_time_fields(post)
     worthy = bool(_parse_iso_time(iso))
     if not worthy and tl:
         snip = _extract_create_time_snippet(tl)
         worthy = bool(snip and not _looks_like_relative_time_label(snip))
     if not worthy and dt is None:
+        if prior:
+            return
         return
-    snap: Dict[str, str] = {}
+    snap: Dict[str, str] = dict(prior)
     if iso:
         snap["published_iso"] = iso
     if tl:
@@ -248,6 +249,8 @@ def remember_content_post_snapshot(post: Dict[str, Any]) -> None:
     if dt is not None:
         snap["post_at"] = dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     if not snap:
+        return
+    if prior == snap:
         return
     snaps[cid] = snap
     if len(snaps) > 8000:
@@ -557,23 +560,16 @@ def save_state(state: Dict[str, Any]) -> None:
 def _parse_post_time_fields(post: Dict[str, Any], *, now: Optional[datetime] = None) -> Optional[datetime]:
     now = now or datetime.now(timezone.utc)
     dt_iso = _parse_iso_time(str(post.get("published_iso") or ""))
+    if dt_iso is None:
+        dt_iso = _parse_iso_time(str(post.get("created_at") or ""))
+    if dt_iso is not None:
+        return dt_iso
     label = str(post.get("time_label") or post.get("time") or "").strip()
     snippet = _extract_create_time_snippet(label)
     dt_label = _parse_time_label(snippet, now=now) if snippet else None
     if dt_label is None and _looks_like_time_label(label):
         dt_label = _parse_time_label(label, now=now)
-
-    if dt_label is not None and snippet and _looks_like_relative_time_label(snippet):
-        if dt_iso is not None and abs((dt_iso - dt_label).total_seconds()) > 21600:
-            return dt_iso
-        return dt_label
-    if dt_iso is not None and dt_label is not None:
-        if abs((dt_iso - dt_label).total_seconds()) <= 172800:
-            return dt_iso
-        if dt_iso > now + timedelta(hours=2):
-            return dt_label
-        return dt_iso
-    return dt_iso or dt_label
+    return dt_label
 
 
 def parse_post_time(post: Dict[str, Any]) -> Optional[datetime]:

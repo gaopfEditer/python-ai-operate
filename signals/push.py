@@ -4,12 +4,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+# Cards API source_type 上限（见 auto-script docs/cards-api.md）
+CARDS_SOURCE_TYPE_MAX_LEN = 32
+
+REALTIME_CARDS_PUSH_MODES = frozenset({"list_realtime", "kol_realtime", "binance_square"})
+BACKFILL_CARDS_PUSH_MODES = frozenset({"user_backfill", "binance_backfill"})
 
 import yaml
 
@@ -20,7 +29,6 @@ from signals.labels import (
     normalize_direction,
     provider_cn,
 )
-from signals.cards_id import cards_api_external_id
 from signals.store import (
     is_pushed,
     mark_pushed,
@@ -43,17 +51,120 @@ def signal_ready_for_cards(sig: Dict[str, Any]) -> bool:
     return is_trade_signal(sig)
 
 
-def card_allows_cards_push(card: Dict[str, Any]) -> bool:
-    """仅实时链路产生的卡片可 POST Cards API（历史回溯不入队）。"""
-    mode = str(card.get("source_mode") or "").strip()
-    modes = card.get("source_modes") if isinstance(card.get("source_modes"), list) else []
-    if mode == "kol_realtime" or "kol_realtime" in modes:
-        return True
-    if mode == "list_realtime" and card.get("realtime_push"):
-        return True
-    if mode == "binance_square" and card.get("realtime_push"):
-        return True
+def card_source_mode(card: Dict[str, Any]) -> str:
+    return str(card.get("source_mode") or "").strip().lower()
+
+
+def card_is_today(card: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
+    """发帖/展示时间落在本地日历「当日」（与 console 展示时区一致）。"""
+    ref = now or datetime.now(timezone.utc).astimezone()
+    today = ref.date()
+    for key in ("created_at", "display_time", "time_label", "parsed_at"):
+        raw = str(card.get(key) or "").strip()
+        if not raw:
+            continue
+        dt = parse_dt(raw)
+        if dt is None and key == "time_label" and len(raw) >= 10:
+            try:
+                dt = datetime.fromisoformat(raw[:10] + "T00:00:00").replace(tzinfo=ref.tzinfo)
+            except Exception:
+                dt = None
+        if dt is not None:
+            return dt.astimezone(ref.tzinfo).date() == today
     return False
+
+
+def card_allows_cards_push(
+    card: Dict[str, Any],
+    *,
+    cfg: Optional[Dict[str, Any]] = None,
+    ignore_today: bool = False,
+) -> Tuple[bool, str]:
+    """
+    实时链路 + 当日 + 完整交易信号 才允许 POST /api/v1/cards。
+    历史回溯、非当日帖、缺币种/方向 → 跳过（不写入 pushed 幂等表）。
+    """
+    _ = cfg
+    sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
+    if not signal_ready_for_cards(sig):
+        return False, "missing_coin_or_direction"
+
+    mode = card_source_mode(card)
+    if mode in BACKFILL_CARDS_PUSH_MODES:
+        return False, "backfill_source"
+
+    if mode == "binance_square":
+        if card.get("cards_push_allowed") is not True:
+            return False, "binance_not_realtime_ingest"
+
+    if mode not in REALTIME_CARDS_PUSH_MODES:
+        return False, f"unsupported_source_mode:{mode or 'empty'}"
+
+    if not ignore_today and not card_is_today(card):
+        return False, "not_today"
+
+    return True, "ok"
+
+
+def select_cards_for_cards_push(
+    cards: List[Dict[str, Any]],
+    *,
+    cfg: Optional[Dict[str, Any]] = None,
+    ignore_today: bool = False,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """返回 (可推送, 被门禁拒绝)。"""
+    ok_rows: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        allowed, reason = card_allows_cards_push(card, cfg=cfg, ignore_today=ignore_today)
+        if allowed:
+            ok_rows.append(card)
+        else:
+            rejected.append(
+                {
+                    "tweet_id": card.get("tweet_id"),
+                    "author": card.get("author"),
+                    "reason": reason,
+                }
+            )
+    return ok_rows, rejected
+
+
+def _clamp_source_type(value: str) -> str:
+    s = str(value or "").strip()
+    if len(s) <= CARDS_SOURCE_TYPE_MAX_LEN:
+        return s
+    return s[:CARDS_SOURCE_TYPE_MAX_LEN]
+
+
+def cards_api_source_for_card(
+    card: Dict[str, Any],
+    *,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> str:
+    """按卡片来源选择 Cards API `source`（便于 auto-script 按类型筛选）。"""
+    cfg = cfg or load_channels_config()
+    api = cfg.get("cards_api") if isinstance(cfg.get("cards_api"), dict) else {}
+    mode = card_source_mode(card)
+    if mode == "binance_square":
+        raw = str(api.get("source_binance") or api.get("source_square") or "binance_square").strip()
+    else:
+        raw = str(api.get("source_origin") or api.get("source") or "x").strip()
+    if raw.startswith(f"{CARDS_SOURCE_APP}:"):
+        raw = raw.split(":", 1)[-1].strip()
+    return _clamp_source_type(raw or "x")
+
+
+def cards_api_message_id(card: Dict[str, Any]) -> str:
+    tid = str(card.get("tweet_id") or "").strip()
+    if not tid:
+        return ""
+    mode = card_source_mode(card)
+    if mode == "binance_square":
+        return f"bs-{tid}"[:120]
+    return f"x-{tid}"[:120]
 
 
 def format_cards_source(origin: str = "", *, cfg: Optional[Dict[str, Any]] = None) -> str:
@@ -286,13 +397,8 @@ def resolve_channel(author: str, cfg: Optional[Dict[str, Any]] = None) -> Dict[s
 
 def _signal_at_iso(card: Dict[str, Any]) -> str:
     """Cards API signalAt：UTC ISO（与 cards-api.md 示例一致）。"""
-    from signals.tweet_log import infer_tweet_post_datetime
-
-    dt = infer_tweet_post_datetime(
-        created_raw=str(card.get("created_at") or ""),
-        time_label=str(card.get("time_label") or ""),
-        tweet_id=str(card.get("tweet_id") or ""),
-    )
+    raw = str(card.get("created_at") or "").strip()
+    dt = parse_dt(raw)
     if dt is None:
         dt = datetime.now(timezone.utc)
     elif dt.tzinfo is None:
@@ -325,6 +431,16 @@ def build_cards_payload(
     api = cfg.get("cards_api") if isinstance(cfg.get("cards_api"), dict) else {}
     ch = resolve_channel(str(card.get("author") or ""), cfg)
     sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
+    mode = card_source_mode(card)
+    if mode == "binance_square":
+        ch_meta = card.get("channel") if isinstance(card.get("channel"), dict) else {}
+        ch_name = str(ch_meta.get("channelName") or "").strip()
+        if ch_name:
+            ch = {**ch, "channelName": ch_name}
+        if not ch.get("channelId") or ch.get("channelId") == "api":
+            slug = normalize_handle(str(card.get("user_handle") or card.get("author") or ""))
+            ch["channelId"] = f"binance:{slug}" if slug else "binance:square"
+            ch["channelName"] = ch_name or slug or "Binance Square"
 
     coins = []
     for c in sig.get("coins") or []:
@@ -373,13 +489,12 @@ def build_cards_payload(
     if sig.get("stop_loss"):
         note_parts.append(f"止损={sig['stop_loss']}")
 
-    ext_id = cards_api_external_id(card)
     payload: Dict[str, Any] = {
-        "id": ext_id,
         "channelId": ch["channelId"],
         "channelName": ch["channelName"],
         "channelAvatar": ch["channelAvatar"],
-        "source": cards_api_source_platform(cfg=cfg),
+        "source": cards_api_source_for_card(card, cfg=cfg),
+        "sourceType": cards_api_source_for_card(card, cfg=cfg),
         "body": body,
         "images": _image_urls(card),
         "symbol": symbol,
@@ -399,8 +514,10 @@ def build_cards_payload(
     )
     payload["injectChannelMessage"] = inject
     tid = str(card.get("tweet_id") or "").strip()
+    mid = cards_api_message_id(card)
+    if mid:
+        payload["messageId"] = mid
     if tid:
-        payload["messageId"] = f"x-{tid}"
         payload["sourceRef"] = tid
     return payload
 
@@ -522,6 +639,19 @@ def post_card(
             if not ok:
                 out["error"] = _error_detail(status, None, body)
                 out["error_detail"] = _friendly_cards_api_error(status, None, body)
+                logger.warning(
+                    "Cards API POST 失败 · %s · symbol=%s · messageId=%s",
+                    out["error_detail"],
+                    payload.get("symbol"),
+                    payload.get("messageId"),
+                )
+            else:
+                logger.info(
+                    "Cards API POST 成功 · id=%s · symbol=%s · source=%s",
+                    (body.get("card") or {}).get("id") if isinstance(body.get("card"), dict) else None,
+                    payload.get("symbol"),
+                    payload.get("source"),
+                )
             return out
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="replace") if e.fp else ""
@@ -530,6 +660,12 @@ def post_card(
         except Exception:
             parsed = {"raw": err_body}
         detail = _friendly_cards_api_error(e.code, str(e), parsed)
+        logger.warning(
+            "Cards API HTTP 错误 · %s · url=%s · messageId=%s",
+            detail,
+            url,
+            payload.get("messageId"),
+        )
         return {
             "success": False,
             "status": e.code,
@@ -542,6 +678,7 @@ def post_card(
         }
     except Exception as e:
         detail = _error_detail(0, str(e), None)
+        logger.warning("Cards API 请求异常 · %s · url=%s", detail, url)
         return {
             "success": False,
             "status": 0,
@@ -558,9 +695,10 @@ def push_card_if_needed(
     *,
     force: bool = False,
     cfg: Optional[Dict[str, Any]] = None,
+    ignore_today: bool = False,
 ) -> Dict[str, Any]:
     """
-    增量推送：已推送过的 tweet_id 跳过；可按 only_trade_signals 过滤。
+    增量推送：已成功推送过的 tweet_id 跳过；可按 only_trade_signals 过滤。
     """
     cfg = cfg or load_channels_config()
     api = cfg.get("cards_api") if isinstance(cfg.get("cards_api"), dict) else {}
@@ -568,26 +706,26 @@ def push_card_if_needed(
         return {"success": True, "skipped": True, "reason": "push_disabled"}
 
     tid = str(card.get("tweet_id") or "").strip()
-    if not force and not card_allows_cards_push(card):
-        return {"success": True, "skipped": True, "reason": "not_realtime_scope", "tweet_id": tid}
-
     if tid and is_pushed(tid) and not force:
         return {"success": True, "skipped": True, "reason": "already_pushed", "tweet_id": tid}
 
-    ext_id = cards_api_external_id(card)
-    if is_pushed(ext_id) and not force:
-        return {"success": True, "skipped": True, "reason": "already_pushed", "tweet_id": tid}
+    if not force:
+        allowed, gate_reason = card_allows_cards_push(
+            card, cfg=cfg, ignore_today=ignore_today
+        )
+        if not allowed:
+            return {
+                "success": True,
+                "skipped": True,
+                "reason": gate_reason,
+                "tweet_id": tid,
+            }
 
     sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
     if api.get("only_trade_signals", True) and not is_trade_signal(sig):
-        if tid:
-            # 非交易也记已处理推送队列，避免反复尝试
-            mark_pushed([tid], status="skipped_non_trade")
         return {"success": True, "skipped": True, "reason": "non_trade", "tweet_id": tid}
 
     if not signal_ready_for_cards(sig):
-        if tid:
-            mark_pushed([tid], status="skipped_incomplete")
         return {
             "success": True,
             "skipped": True,
@@ -605,8 +743,8 @@ def push_card_if_needed(
             result["cards_api_id"] = int(remote_id)
         except (TypeError, ValueError):
             pass
-    if result.get("success"):
-        mark_pushed([x for x in (tid, ext_id) if x], status="ok")
+    if result.get("success") and tid:
+        mark_pushed([tid], status="ok")
         remote_id = result.get("cards_api_id")
         if remote_id:
             try:
@@ -615,6 +753,14 @@ def push_card_if_needed(
                 save_card_remote_id(tid, int(remote_id))
             except Exception:
                 pass
+    elif not result.get("success"):
+        err = result.get("error_detail") or result.get("error") or result.get("status")
+        logger.warning(
+            "卡片推送失败 · tweet_id=%s · author=%s · %s",
+            tid,
+            card.get("author"),
+            err,
+        )
     result["tweet_id"] = tid
     result["payload"] = payload
     result["channel"] = {
@@ -630,6 +776,7 @@ def push_cards_batch(
     *,
     force: bool = False,
     progress=None,
+    ignore_today: bool = False,
 ) -> Dict[str, Any]:
     cfg = load_channels_config()
     api = cfg.get("cards_api") if isinstance(cfg.get("cards_api"), dict) else {}
@@ -643,12 +790,28 @@ def push_cards_batch(
             "items": [],
         }
 
+    if not force and not ignore_today:
+        cards, gate_rejected = select_cards_for_cards_push(cards, cfg=cfg)
+        if gate_rejected and progress:
+            for row in gate_rejected[:8]:
+                try:
+                    progress(
+                        f"跳过推送（{row.get('reason')}) "
+                        f"@{row.get('author') or row.get('tweet_id')}"
+                    )
+                except Exception:
+                    pass
+    else:
+        gate_rejected = []
+
     pushed = 0
     skipped = 0
     failed = 0
     items: List[Dict[str, Any]] = []
     for card in cards:
-        r = push_card_if_needed(card, force=force, cfg=cfg)
+        r = push_card_if_needed(
+            card, force=force, cfg=cfg, ignore_today=ignore_today or force
+        )
         ch = r.get("channel") or {}
         items.append(
             {
@@ -708,10 +871,37 @@ def push_cards_batch(
     return {
         "success": failed == 0,
         "pushed": pushed,
-        "skipped": skipped,
+        "skipped": skipped + len(gate_rejected),
         "failed": failed,
+        "gate_rejected": gate_rejected,
         "items": items,
     }
+
+
+def push_binance_square_cards(
+    posts: List[Dict[str, Any]],
+    *,
+    progress=None,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Square 实时帖：转卡片并推送 Cards API（须含 cards_push_allowed）。"""
+    from signals.binance_square.cards_sync import square_post_to_card
+
+    cards: List[Dict[str, Any]] = []
+    for p in posts or []:
+        if not isinstance(p, dict):
+            continue
+        card = square_post_to_card(p)
+        card["cards_push_allowed"] = True
+        cards.append(card)
+    if not cards:
+        return {"success": True, "pushed": 0, "skipped": 0, "failed": 0, "items": []}
+    if progress:
+        try:
+            progress(f"Square 推送 Cards API（候选 {len(cards)}）…")
+        except Exception:
+            pass
+    return push_cards_batch(cards, force=force, progress=progress)
 
 
 def channels_summary() -> Dict[str, Any]:
@@ -750,8 +940,8 @@ def enrich_card_channel(card: Dict[str, Any], cfg: Optional[Dict[str, Any]] = No
     out["display_time"] = resolve_display_time(
         str(card.get("created_at") or ""),
         str(card.get("time_label") or ""),
-        tweet_id=str(card.get("tweet_id") or ""),
-        fallback_now=False,
+        str(card.get("parsed_at") or ""),
+        fallback_now=True,
     )
     return out
 
@@ -804,8 +994,7 @@ def build_test_payload(
     time_s = resolve_display_time(
         str(card.get("created_at") or ""),
         "",
-        tweet_id=str(card.get("tweet_id") or ""),
-        fallback_now=True,
+        str(card.get("parsed_at") or ""),
     )
     coins = ",".join(str(c) for c in (signal.get("coins") or [])[:6]) or "-"
     dir_s = direction_cn(str(signal.get("direction") or "unknown"))
