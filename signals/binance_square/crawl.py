@@ -465,6 +465,38 @@ def run_binance_square_fetch(
     if skipped_known:
         _log(progress, f"跳过 {skipped_known} 条（{skip_label}）")
 
+    if merged or to_process:
+        from signals.binance_square.time_detail import enrich_posts_publish_time_from_detail
+
+        time_targets: Dict[str, Dict[str, Any]] = {}
+        for p in to_process:
+            cid = post_content_id(p)
+            if cid:
+                time_targets[cid] = p
+        if time_spec.get("mode") == "hours":
+            for p in merged:
+                if not isinstance(p, dict):
+                    continue
+                cid = post_content_id(p)
+                if not cid or cid in time_targets:
+                    continue
+                if not str(p.get("published_iso") or "").strip() and not str(
+                    p.get("created_at") or ""
+                ).strip():
+                    time_targets[cid] = p
+        if time_targets:
+            fixed = enrich_posts_publish_time_from_detail(
+                list(time_targets.values()),
+                limit=min(16, max(4, len(time_targets))),
+                progress=progress,
+            )
+            fixed_by_cid = {post_content_id(p): p for p in fixed if post_content_id(p)}
+            to_process = [fixed_by_cid.get(post_content_id(p), p) for p in to_process]
+            merged = [
+                fixed_by_cid.get(post_content_id(p), p) if post_content_id(p) else p
+                for p in merged
+            ]
+
     if profiles and to_process:
         from signals.binance_square.media import enrich_posts_media_from_detail
         from public.platforms.cdp_common import connect_cdp
@@ -533,6 +565,8 @@ def run_binance_square_fetch(
     save_state(st)
 
     cards_sync: Dict[str, Any] = {}
+    push_result: Dict[str, Any] = {}
+    realtime_ingest = time_spec.get("mode") == "hours"
     if persisted:
         from signals.backfill_range import resolve_backfill_since
         from signals.binance_square.cards_sync import sync_posts_to_signal_cards
@@ -550,11 +584,24 @@ def run_binance_square_fetch(
                 range_label=range_label or BACKFILL_RANGE_LABELS.get(rk, rk),
                 since_iso=since_dt.isoformat(timespec="seconds"),
                 progress=progress,
+                allow_cards_push=False,
             )
         else:
-            cards_sync = sync_posts_to_signal_cards(for_cards, progress=progress)
+            cards_sync = sync_posts_to_signal_cards(
+                for_cards,
+                progress=progress,
+                allow_cards_push=True,
+            )
         synced_n = int(cards_sync.get("synced") or 0)
         _log(progress, f"Square 卡片入库 {synced_n} 条（SQLite）")
+        if realtime_ingest and enriched_map:
+            from signals.push import push_binance_square_cards
+            from signals.store import get_config as signals_runtime_cfg
+
+            push_posts = [enriched_map[cid] for cid in enriched_map]
+            if bool(signals_runtime_cfg().get("push_enabled", True)):
+                push_result = push_binance_square_cards(push_posts, progress=progress)
+                cards_sync["cards_push"] = push_result
 
     ok = not aborted
     return {
@@ -562,6 +609,7 @@ def run_binance_square_fetch(
         "aborted": aborted,
         "posts": combined_posts,
         "cards_sync": cards_sync,
+        "cards_push": push_result,
         "new_count": len(enriched),
         "skipped_known": skipped_known,
         "total": len(merged),

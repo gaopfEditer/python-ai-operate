@@ -11,7 +11,7 @@ from signals.labels import is_trade_signal
 from signals.analyze import analyze_tweet_signal
 from signals.control import RunControl
 from signals.crawl import crawl_list_timeline, crawl_user_timeline, download_image
-from signals.push import push_cards_batch
+from signals.push import push_cards_batch, select_cards_for_cards_push
 from signals.store import (
     add_window,
     get_card_by_dedup,
@@ -88,7 +88,7 @@ def run_list_signal_pipeline(
     limit = max(1, min(limit, 120))
     skip_nt = False
     reparse_seen = False
-    do_push = False
+    do_push = bool(cfg.get("push_enabled", True))
 
     save_config(
         {
@@ -412,7 +412,18 @@ def run_list_signal_pipeline(
                 "message": f"已终止（推送前）：解析 {parsed}",
             }
         _log(progress, f"推送增量卡片到 Cards API（{len(cards)}）…")
-        push_result = push_cards_batch(cards, force=False, progress=progress)
+        trade_cards = [
+            c
+            for c in cards
+            if is_trade_signal(c.get("signal") if isinstance(c.get("signal"), dict) else {})
+        ]
+        push_targets, gate_rejected = select_cards_for_cards_push(trade_cards)
+        if gate_rejected:
+            _log(
+                progress,
+                f"推送门禁跳过 {len(gate_rejected)} 条（非当日/非实时/非交易）",
+            )
+        push_result = push_cards_batch(push_targets, force=False, progress=progress)
     elif not do_push:
         push_result["reason"] = "push_disabled"
 

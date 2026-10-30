@@ -128,6 +128,7 @@ def square_post_to_card(post: Dict[str, Any]) -> Dict[str, Any]:
         "parsed_at": now,
         "source_mode": "binance_square",
         "source_modes": ["binance_square", "binance_backfill"],
+        "cards_push_allowed": False,
         "channel": {"channelName": name},
         "replay_url": str(post.get("replay_url") or "").strip(),
         "video_url": str(post.get("video_url") or "").strip(),
@@ -144,6 +145,7 @@ def sync_posts_to_signal_cards(
     range_label: str = "",
     since_iso: str = "",
     progress: ProgressCb = None,
+    allow_cards_push: bool = False,
 ) -> Dict[str, Any]:
     from signals.store import add_window, upsert_card
 
@@ -161,6 +163,8 @@ def sync_posts_to_signal_cards(
 
     for p in rows:
         card = square_post_to_card(p)
+        if allow_cards_push:
+            card["cards_push_allowed"] = True
         if not card.get("tweet_id") and not card.get("url"):
             continue
         tid = str(card.get("tweet_id") or "").strip()

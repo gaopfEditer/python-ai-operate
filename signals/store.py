@@ -653,8 +653,9 @@ def mark_pushed(tweet_ids: List[str], *, status: str = "ok") -> None:
         if not t:
             continue
         if t not in pset:
-            pushed.append(t)
-            pset.add(t)
+            if status == "ok":
+                pushed.append(t)
+                pset.add(t)
         log.insert(0, {"tweet_id": t, "status": status, "at": now})
     state["pushed_tweet_ids"] = pushed[-8000:]
     state["push_log"] = log[:200]
