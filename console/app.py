@@ -3542,7 +3542,7 @@ def handle_api(
                 handles = body.get("handles") or cfg.get("kol_realtime_handles") or []
                 result = run_kol_realtime_batch(
                     handles=handles if isinstance(handles, list) else [],
-                    cutoff_hours=int(body.get("cutoff_hours") or cfg.get("kol_realtime_cutoff_hours") or 24),
+                    cutoff_hours=int(body.get("cutoff_hours") or cfg.get("kol_realtime_cutoff_hours") or 8),
                     max_tweets=int(body.get("max_tweets") or cfg.get("kol_realtime_max_tweets") or 40),
                     session_id=str(body.get("session_id") or cfg.get("kol_realtime_session_id") or ""),
                     push_enabled=bool(
@@ -3759,7 +3759,7 @@ def handle_api(
 
                 scfg = load_sig_state().get("config") or {}
                 try:
-                    kh = float(scfg.get("kol_realtime_cutoff_hours") or 24)
+                    kh = float(scfg.get("kol_realtime_cutoff_hours") or 8)
                 except (TypeError, ValueError):
                     kh = 24.0
                 kh = max(1.0, min(168.0, kh))
@@ -4236,6 +4236,10 @@ def handle_api(
         ):
             if key in body:
                 cfg[key] = body[key]
+        if "cycle_profile_ids" in body:
+            from signals.binance_square.store import normalize_profile_id_list
+
+            cfg["cycle_profile_ids"] = normalize_profile_id_list(body.get("cycle_profile_ids"))
         if "profiles" in body and isinstance(body.get("profiles"), list):
             cfg["profiles"] = body["profiles"]
         saved = save_config(cfg)
@@ -4255,8 +4259,23 @@ def handle_api(
     if path == "/api/signals/binance-square/cycle" and method == "POST":
         from signals.binance_square.cycle_watcher import set_cycle as set_bs_cycle
         from signals.binance_square.cycle_watcher import status as bs_cycle_status
+        from signals.binance_square.store import load_config, normalize_profile_id_list, save_config
 
+        if "cycle_profile_ids" in body or "profile_ids" in body:
+            cfg = load_config()
+            raw = body.get("cycle_profile_ids") if "cycle_profile_ids" in body else body.get("profile_ids")
+            cfg["cycle_profile_ids"] = normalize_profile_id_list(raw)
+            save_config(cfg)
         enabled = bool(body.get("enabled", body.get("cycle_enabled", False)))
+        if enabled:
+            cfg = load_config()
+            if not normalize_profile_id_list(cfg.get("cycle_profile_ids")):
+                return _json_bytes(
+                    {
+                        "success": False,
+                        "error": "请至少勾选一个 Square 博主后再开启周期抓取",
+                    }
+                )
         st = set_bs_cycle(enabled)
         return _json_bytes({"success": True, "cycle": st or bs_cycle_status()})
 
@@ -4266,6 +4285,53 @@ def handle_api(
         result = ensure_binance_cards_materialized()
         return _json_bytes({"success": True, **result})
 
+    if path == "/api/signals/binance-square/realtime-cards" and method == "GET":
+        from signals.binance_square.cards_sync import list_binance_realtime_cards
+        from signals.binance_square.store import load_config
+
+        cfg = load_config()
+        hours_raw = (query.get("cutoff_hours") or query.get("cutoff") or [None])[0]
+        try:
+            hours = float(
+                hours_raw
+                if hours_raw not in (None, "")
+                else cfg.get("cycle_cutoff_hours") or cfg.get("cutoff_hours") or 8
+            )
+        except (TypeError, ValueError):
+            hours = 8.0
+        hours = max(1.0, min(168.0, hours))
+        only_trade = str((query.get("trade") or [""])[0]).lower() in ("1", "true", "yes")
+        try:
+            limit = int((query.get("limit") or ["500"])[0])
+        except Exception:
+            limit = 500
+        profile_ids: list[str] = []
+        handles_q = query.get("handles") or query.get("profile_ids") or []
+        if isinstance(handles_q, str):
+            handles_q = [handles_q]
+        for part in handles_q:
+            for h in str(part or "").replace(";", ",").split(","):
+                h = str(h or "").strip().lstrip("@")
+                if h and h.lower() not in profile_ids:
+                    profile_ids.append(h)
+        handle_one = (query.get("handle") or query.get("profile_id") or [""])[0]
+        if str(handle_one or "").strip() and str(handle_one).strip().lstrip("@").lower() not in profile_ids:
+            profile_ids.append(str(handle_one).strip().lstrip("@"))
+        items = list_binance_realtime_cards(
+            cutoff_hours=hours,
+            profile_ids=profile_ids or None,
+            only_trade=only_trade,
+            limit=limit,
+        )
+        return _json_bytes(
+            {
+                "success": True,
+                "items": items,
+                "cutoff_hours": hours,
+                "count": len(items),
+            }
+        )
+
     if path == "/api/signals/binance-square/posts" and method == "GET":
         from signals.binance_square.store import apply_binance_time_filter, load_config, load_state, save_state
 
@@ -4273,10 +4339,18 @@ def handle_api(
 
         ensure_binance_cards_materialized()
         st = load_state()
-        raw_pool = st.get("last_posts_raw") or st.get("last_posts") or []
-        if not isinstance(raw_pool, list):
-            raw_pool = []
-        full = list(raw_pool)
+        enriched = st.get("last_posts")
+        raw_pool = st.get("last_posts_raw") or []
+        hours_raw_early = (query.get("cutoff_hours") or query.get("cutoff") or [None])[0]
+        use_enriched_first = hours_raw_early not in (None, "")
+        if use_enriched_first and isinstance(enriched, list) and enriched:
+            full = list(enriched)
+        else:
+            full = list(raw_pool) if isinstance(raw_pool, list) else []
+        if not full and isinstance(enriched, list):
+            full = list(enriched)
+        if not isinstance(full, list):
+            full = []
         if any(isinstance(p, dict) and not p.get("signal") for p in full):
             from signals.binance_square.enrich import fill_missing_signals_heuristic
 
@@ -4308,6 +4382,12 @@ def handle_api(
                 "cutoff_hours": ch if ch is not None else cfg.get("cutoff_hours"),
             }
         )
+
+    if path == "/api/signals/binance-square/reset-realtime" and method == "POST":
+        from signals.binance_square.cache import reset_binance_square_realtime
+
+        result = reset_binance_square_realtime()
+        return _json_bytes({"success": True, **result})
 
     if path == "/api/signals/binance-square/clear-cache" and method == "POST":
         from signals.binance_square.cache import clear_binance_square_cache
@@ -4362,6 +4442,20 @@ def handle_api(
                     profile_ids = [
                         x.strip() for x in profile_ids.replace(",", " ").split() if x.strip()
                     ]
+                if isinstance(profile_ids, list) and profile_ids:
+                    from signals.binance_square.store import (
+                        load_config as load_bs_cfg,
+                        normalize_profile_id_list,
+                        save_config as save_bs_cfg,
+                    )
+
+                    bs_cfg = load_bs_cfg()
+                    bs_cfg["cycle_profile_ids"] = normalize_profile_id_list(profile_ids)
+                    save_bs_cfg(bs_cfg)
+                inc = body.get("incremental")
+                if inc is None and body.get("cutoff_hours") is not None:
+                    if not str(body.get("backfill_range") or body.get("range") or "").strip():
+                        inc = True
                 result = run_binance_square_fetch(
                     profile_ids=profile_ids if isinstance(profile_ids, list) else None,
                     debugger_url=str(body.get("debugger_url") or "").strip() or None,
@@ -4371,6 +4465,7 @@ def handle_api(
                     try_bapi=body.get("try_bapi_first"),
                     progress=_progress_bs,
                     control=ctl,
+                    incremental=inc,
                 )
                 aborted = bool(result.get("aborted"))
                 ok = bool(result.get("success"))
@@ -5192,13 +5287,13 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
     except Exception as e:
         safe_print(f" KOL 实时抓取初始化跳过: {e}")
     _free_port(port, log=safe_print)
-    server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"
     safe_print("=" * 60)
     safe_print(" TrendRadar Console")
     safe_print("=" * 60)
     safe_print(f" 地址: {url}")
-    safe_print(" 功能: 列表信号(分时CDP) / 语料库 / Prompt 创作 / CDP 发布")
+    safe_print(" 功能: 列表信号(分时CDP) / 语料库 / Prompt 创作 / CDP 发布 / 实时监听")
+    safe_print(" 实时监听: 侧栏「实时监听」或 http://{0}:{1}/whisprrt/".format(host, port))
     try:
         from utils.crawl_cdp import resolve_crawl_debugger_url
 
@@ -5230,14 +5325,19 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         except Exception:
             pass
     try:
-        server.serve_forever()
+        import uvicorn
+
+        from console.asgi_server import create_console_asgi_app
+        from console.uvicorn_log_filter import attach_console_access_log_filter
+
+        attach_console_access_log_filter()
+        asgi_app = create_console_asgi_app()
+        uvicorn.run(asgi_app, host=host, port=port, log_level="info")
     except KeyboardInterrupt:
         safe_print("")
         safe_print("=" * 60)
         safe_print(" 已停止控制台服务")
         safe_print("=" * 60)
-    finally:
-        server.server_close()
 
 
 def main() -> None:

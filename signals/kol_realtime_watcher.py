@@ -52,7 +52,7 @@ def status() -> Dict[str, Any]:
             "session_id": str(cfg.get("kol_realtime_session_id") or ""),
             "session_started_at": str(cfg.get("kol_realtime_session_started_at") or ""),
             "interval_min": int(cfg.get("kol_realtime_interval_min") or 15),
-            "cutoff_hours": int(cfg.get("kol_realtime_cutoff_hours") or 24),
+            "cutoff_hours": _cutoff_hours_for_run(cfg),
             "max_tweets": int(cfg.get("kol_realtime_max_tweets") or 40),
             "handles": list(cfg.get("kol_realtime_handles") or []),
             "push_enabled": bool(cfg.get("kol_realtime_push_enabled")),
@@ -60,11 +60,32 @@ def status() -> Dict[str, Any]:
             "running": _RUNNING_JOB,
         }
     )
+    if not _RUNNING_JOB:
+        snap["active_job_id"] = ""
     return snap
 
 
 def new_session_id() -> str:
     return f"kol_rt_{uuid.uuid4().hex[:10]}"
+
+
+def _cutoff_hours_for_run(cfg: Optional[Dict[str, Any]] = None) -> int:
+    """首轮拉满首窗（默认 8h），之后用较小增量窗（默认 2h，不超过配置时间窗）。"""
+    cfg = cfg or get_config()
+    cap = max(1, min(int(cfg.get("kol_realtime_cutoff_hours") or 8), 168))
+    first = max(
+        1,
+        min(
+            int(cfg.get("kol_realtime_first_hours") or cfg.get("first_crawl_hours") or 8),
+            48,
+        ),
+    )
+    inc = max(1, min(int(cfg.get("kol_realtime_incremental_hours") or 2), 24))
+    inc = min(inc, cap)
+    last = str(cfg.get("kol_realtime_last_crawl_at") or "").strip()
+    if not last:
+        return first
+    return inc
 
 
 def _run_once() -> Dict[str, Any]:
@@ -86,9 +107,11 @@ def _run_once() -> Dict[str, Any]:
     ctl = register(job_id, RunControl(job_id))
     _set_status(active_job_id=job_id)
     try:
+        cutoff = _cutoff_hours_for_run(cfg)
+        print(f"[kol-realtime] 时间窗≤{cutoff}h", flush=True)
         result = run_kol_realtime_batch(
             handles=handles,
-            cutoff_hours=int(cfg.get("kol_realtime_cutoff_hours") or 24),
+            cutoff_hours=cutoff,
             max_tweets=int(cfg.get("kol_realtime_max_tweets") or 40),
             session_id=str(cfg.get("kol_realtime_session_id") or ""),
             push_enabled=bool(cfg.get("kol_realtime_push_enabled")),
@@ -96,6 +119,8 @@ def _run_once() -> Dict[str, Any]:
             control=ctl,
         )
         now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        if result.get("success"):
+            save_config({"kol_realtime_last_crawl_at": now})
         _set_status(
             last_run_at=now,
             last_status="ok" if result.get("success") else "error",
@@ -188,6 +213,7 @@ def set_kol_realtime(enabled: bool, *, new_session: bool = False) -> Dict[str, A
         now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         patch["kol_realtime_session_id"] = sid
         patch["kol_realtime_session_started_at"] = now
+        patch["kol_realtime_last_crawl_at"] = ""
     if not enabled:
         from signals.control import get as get_ctl
 

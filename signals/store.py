@@ -139,7 +139,10 @@ def _empty_state() -> Dict[str, Any]:
             "user_force_push": False,
             "kol_realtime_enabled": False,
             "kol_realtime_interval_min": 15,
-            "kol_realtime_cutoff_hours": 24,
+            "kol_realtime_cutoff_hours": 8,
+            "kol_realtime_first_hours": 8,
+            "kol_realtime_incremental_hours": 2,
+            "kol_realtime_last_crawl_at": "",
             "kol_realtime_max_tweets": 40,
             "kol_realtime_handles": [],
             "kol_realtime_push_enabled": False,
@@ -287,6 +290,8 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
     for key in (
         "kol_realtime_interval_min",
         "kol_realtime_cutoff_hours",
+        "kol_realtime_first_hours",
+        "kol_realtime_incremental_hours",
         "kol_realtime_max_tweets",
     ):
         if key in patch and patch[key] is not None:
@@ -294,6 +299,8 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
                 cfg[key] = int(patch[key])
             except Exception:
                 pass
+    if "kol_realtime_last_crawl_at" in patch:
+        cfg["kol_realtime_last_crawl_at"] = str(patch.get("kol_realtime_last_crawl_at") or "")
     if "kol_realtime_push_enabled" in patch:
         cfg["kol_realtime_push_enabled"] = bool(patch["kol_realtime_push_enabled"])
     if "kol_realtime_handles" in patch and isinstance(patch.get("kol_realtime_handles"), list):
@@ -430,9 +437,16 @@ def parse_dt(raw: str) -> Optional[datetime]:
 
 
 def _card_sort_ts(card: Dict[str, Any]) -> datetime:
-    """卡片排序用时间戳：优先发帖时间，其次解析时间。"""
-    for key in ("created_at", "parsed_at", "display_time"):
+    """卡片排序用发帖时间（不用 parsed_at 抓取时间）。"""
+    for key in ("created_at", "display_time"):
         dt = parse_dt(str(card.get(key) or ""))
+        if dt is not None:
+            return dt
+    tid = str(card.get("tweet_id") or "").strip()
+    if tid:
+        from signals.tweet_log import tweet_id_to_post_datetime
+
+        dt = tweet_id_to_post_datetime(tid)
         if dt is not None:
             return dt
     return datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -588,6 +602,28 @@ def clear_user_cache(handle: str) -> Dict[str, Any]:
         "removed_cards": len(removed_tids),
         "tweet_ids": removed_tids,
     }
+
+
+def is_tweet_fully_stored(
+    tweet_id: str,
+    *,
+    author: str = "",
+    created_at: str = "",
+    user_handle: str = "",
+) -> bool:
+    """已见过且本地有完整 signal 缓存（用于抓取时停止深滚）。"""
+    tid = str(tweet_id or "").strip()
+    if not tid:
+        return False
+    row = get_card_by_dedup(
+        tweet_id=tid,
+        author=author,
+        created_at=created_at,
+        user_handle=user_handle,
+    )
+    if row and isinstance(row.get("signal"), dict):
+        return True
+    return is_seen(tid)
 
 
 def is_seen(tweet_id: str) -> bool:

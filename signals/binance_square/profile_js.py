@@ -108,6 +108,97 @@ function _bnCollectLiveReplayFromCard(el) {
 PROFILE_POST_EXTRACT_JS = (
     _MEDIA_HELPERS_JS
     + r"""
+function _bnNormTimeLabel(raw) {
+  const t = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  if (/^(刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)(?:前)?|\d{1,2}\s*月\s*\d{1,2}\s*日|\d{4}-\d{2}-\d{2})/i.test(t)) return t;
+  const rel = t.match(/(刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)(?:前)?)/);
+  if (rel) return rel[1].trim();
+  const m = t.match(/(\d{1,2}\s*月\s*\d{1,2}\s*日)/);
+  if (m) return m[1].trim();
+  const iso = t.match(/(\d{4}-\d{2}-\d{2})/);
+  return iso ? iso[1] : '';
+}
+function _bnCardContentBox(root) {
+  if (!root) return null;
+  const pick = (box) => {
+    if (!box || !box.querySelector) return null;
+    if (box.querySelector('[class*="create-time"], .create-time, time[datetime]')) return box;
+    return null;
+  };
+  if (root.matches && root.matches('.card-content-box, [class*="card-content-box"]')) {
+    return pick(root) || root;
+  }
+  if (root.querySelector) {
+    const hits = root.querySelectorAll('.card-content-box, [class*="card-content-box"]');
+    for (const hit of hits) {
+      const ok = pick(hit);
+      if (ok) return ok;
+    }
+    const flex = root.querySelector('[class*="flex-1"][class*="min-w-0"]');
+    const flexOk = pick(flex);
+    if (flexOk) return flexOk;
+  }
+  let n = root;
+  for (let i = 0; i < 24 && n; i++) {
+    const cls = String(n.className || '');
+    if (/card-content-box/i.test(cls)) {
+      const ok = pick(n);
+      if (ok) return ok;
+    }
+    n = n.parentElement;
+  }
+  return null;
+}
+function _bnFirstCreateTimeInCard(card) {
+  if (!card || !card.querySelectorAll) return { publishedIso: '', timeLabel: '' };
+  const nodes = [...card.querySelectorAll('[class*="create-time"], .create-time')];
+  nodes.sort((a, b) => _bnAnchorTop(a) - _bnAnchorTop(b));
+  for (const ct of nodes) {
+    const got = _bnReadCreateTimeEl(ct);
+    if (got.timeLabel || got.publishedIso) return got;
+  }
+  const times = [...card.querySelectorAll('time[datetime]')];
+  times.sort((a, b) => _bnAnchorTop(a) - _bnAnchorTop(b));
+  for (const te of times) {
+    const got = _bnReadCreateTimeEl(te);
+    if (got.timeLabel || got.publishedIso) return got;
+  }
+  return { publishedIso: '', timeLabel: '' };
+}
+function _bnReadCreateTimeEl(ct) {
+  if (!ct) return { publishedIso: '', timeLabel: '' };
+  const te = ct.matches && ct.matches('time[datetime]') ? ct : ct.querySelector('time[datetime]');
+  let publishedIso = '';
+  let timeLabel = '';
+  if (te) {
+    publishedIso = te.getAttribute('datetime') || '';
+    timeLabel = _bnNormTimeLabel(te.innerText || te.textContent || '');
+  }
+  if (!timeLabel) timeLabel = _bnNormTimeLabel(ct.innerText || ct.textContent || '');
+  return { publishedIso, timeLabel };
+}
+/** 列表卡片未点进详情：以 card-content-box 内 create-time 为准 */
+function _bnReadCreateTimeFromContentBox(root) {
+  const box = _bnCardContentBox(root);
+  if (!box || !box.querySelector) return { publishedIso: '', timeLabel: '' };
+  const ct = box.querySelector('[class*="create-time"], .create-time');
+  if (ct) return _bnReadCreateTimeEl(ct);
+  const te = box.querySelector('time[datetime]');
+  if (te) return _bnReadCreateTimeEl(te);
+  return { publishedIso: '', timeLabel: '' };
+}
+function _bnFindCreateTimeInCard(card) {
+  const primary = _bnReadCreateTimeFromContentBox(card);
+  if (primary.timeLabel || primary.publishedIso) return primary;
+  if (!card || !card.querySelector) return { publishedIso: '', timeLabel: '' };
+  const nodes = card.querySelectorAll('[class*="create-time"], .create-time, time[datetime]');
+  for (const ct of nodes) {
+    const got = _bnReadCreateTimeEl(ct);
+    if (got.timeLabel || got.publishedIso) return got;
+  }
+  return { publishedIso: '', timeLabel: '' };
+}
 function _bnReadCreateTimeFromNickContainer(root) {
   if (!root || !root.querySelector) return { publishedIso: '', timeLabel: '' };
   const nick = root.querySelector('[class*="avatar-nick-container"]');
@@ -119,9 +210,9 @@ function _bnReadCreateTimeFromNickContainer(root) {
   const te = ct.querySelector('time[datetime]');
   if (te) {
     publishedIso = te.getAttribute('datetime') || '';
-    timeLabel = (te.innerText || '').trim();
+    timeLabel = _bnNormTimeLabel(te.innerText || '');
   }
-  if (!timeLabel) timeLabel = (ct.innerText || ct.textContent || '').trim();
+  if (!timeLabel) timeLabel = _bnNormTimeLabel(ct.innerText || ct.textContent || '');
   return { publishedIso, timeLabel };
 }
 function _bnPostTimeFromCard(a) {
@@ -129,27 +220,32 @@ function _bnPostTimeFromCard(a) {
   let timeLabel = '';
   let isPinned = false;
   const card = _bnCardFromAnchor(a);
-  let el = a;
-  for (let depth = 0; depth < 24 && el; depth++) {
-    const got = _bnReadCreateTimeFromNickContainer(el);
-    if (got.timeLabel || got.publishedIso) {
-      publishedIso = got.publishedIso;
-      timeLabel = got.timeLabel;
-      break;
-    }
-    el = el.parentElement;
-  }
-  if (!timeLabel && !publishedIso && card) {
-    const got = _bnReadCreateTimeFromNickContainer(card);
+  if (card) {
+    const got = _bnReadCreateTimeFromContentBox(card);
     publishedIso = got.publishedIso;
     timeLabel = got.timeLabel;
-  }
-  if (!timeLabel && !publishedIso && card) {
-    const te = card.querySelector('time[datetime]');
-    if (te) {
-      publishedIso = te.getAttribute('datetime') || '';
-      timeLabel = (te.innerText || '').trim();
+    if (!timeLabel && !publishedIso) {
+      const top = _bnFirstCreateTimeInCard(card);
+      publishedIso = top.publishedIso;
+      timeLabel = top.timeLabel;
     }
+  }
+  if (!timeLabel && !publishedIso) {
+    let el = a;
+    for (let depth = 0; depth < 24 && el; depth++) {
+      const got = _bnReadCreateTimeFromNickContainer(el);
+      if (got.timeLabel || got.publishedIso) {
+        publishedIso = got.publishedIso;
+        timeLabel = got.timeLabel;
+        break;
+      }
+      el = el.parentElement;
+    }
+  }
+  if ((!timeLabel || !publishedIso) && card) {
+    const got = _bnFindCreateTimeInCard(card);
+    if (!publishedIso) publishedIso = got.publishedIso;
+    if (!timeLabel) timeLabel = got.timeLabel;
   }
   if (card && /置顶|pinned|🔝/i.test((card.innerText || '').slice(0, 900))) isPinned = true;
   return { published_iso: publishedIso, time_label: timeLabel, is_pinned: isPinned };
@@ -212,8 +308,23 @@ function _bnUpsertPost(byKey, item, top) {
     o.raw = item.raw;
     o.title = item.title || o.title;
   }
-  if (!o.time_label && item.time_label) o.time_label = item.time_label;
-  if (!o.published_iso && item.published_iso) o.published_iso = item.published_iso;
+  function _bnTimeRank(it) {
+    const iso = String((it && it.published_iso) || '').trim();
+    const tl = String((it && it.time_label) || '').trim();
+    let s = 0;
+    if (iso) s += 8;
+    if (/^\d{10,13}$/.test(iso) || iso.includes('-')) s += 12;
+    if (tl) s += 2;
+    if (/刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)|\d{1,2}\s*月\s*\d{1,2}\s*日/.test(tl)) s += 4;
+    return s;
+  }
+  if (_bnTimeRank(item) > _bnTimeRank(o)) {
+    if (item.time_label) o.time_label = item.time_label;
+    if (item.published_iso) o.published_iso = item.published_iso;
+  } else {
+    if (!o.time_label && item.time_label) o.time_label = item.time_label;
+    if (!o.published_iso && item.published_iso) o.published_iso = item.published_iso;
+  }
   if (!o.video_url && item.video_url) o.video_url = item.video_url;
   if (!o.replay_url && item.replay_url) o.replay_url = item.replay_url;
   if (!o.live_content_id && item.live_content_id) o.live_content_id = item.live_content_id;

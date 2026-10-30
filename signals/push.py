@@ -20,6 +20,7 @@ from signals.labels import (
     normalize_direction,
     provider_cn,
 )
+from signals.cards_id import cards_api_external_id
 from signals.store import (
     is_pushed,
     mark_pushed,
@@ -40,6 +41,19 @@ DEFAULT_CARDS_API_KEY = "Gpf123456"
 def signal_ready_for_cards(sig: Dict[str, Any]) -> bool:
     """Cards API 仅推送：有币种 + 明确做多/做空。"""
     return is_trade_signal(sig)
+
+
+def card_allows_cards_push(card: Dict[str, Any]) -> bool:
+    """仅实时链路产生的卡片可 POST Cards API（历史回溯不入队）。"""
+    mode = str(card.get("source_mode") or "").strip()
+    modes = card.get("source_modes") if isinstance(card.get("source_modes"), list) else []
+    if mode == "kol_realtime" or "kol_realtime" in modes:
+        return True
+    if mode == "list_realtime" and card.get("realtime_push"):
+        return True
+    if mode == "binance_square" and card.get("realtime_push"):
+        return True
+    return False
 
 
 def format_cards_source(origin: str = "", *, cfg: Optional[Dict[str, Any]] = None) -> str:
@@ -272,8 +286,13 @@ def resolve_channel(author: str, cfg: Optional[Dict[str, Any]] = None) -> Dict[s
 
 def _signal_at_iso(card: Dict[str, Any]) -> str:
     """Cards API signalAt：UTC ISO（与 cards-api.md 示例一致）。"""
-    raw = str(card.get("created_at") or "").strip()
-    dt = parse_dt(raw)
+    from signals.tweet_log import infer_tweet_post_datetime
+
+    dt = infer_tweet_post_datetime(
+        created_raw=str(card.get("created_at") or ""),
+        time_label=str(card.get("time_label") or ""),
+        tweet_id=str(card.get("tweet_id") or ""),
+    )
     if dt is None:
         dt = datetime.now(timezone.utc)
     elif dt.tzinfo is None:
@@ -332,7 +351,7 @@ def build_cards_payload(
     time_s = resolve_display_time(
         str(card.get("created_at") or ""),
         str(card.get("time_label") or ""),
-        str(card.get("parsed_at") or ""),
+        tweet_id=str(card.get("tweet_id") or ""),
     )
 
     note_parts = [f"发帖时间={time_s}（北京时间）"]
@@ -354,7 +373,9 @@ def build_cards_payload(
     if sig.get("stop_loss"):
         note_parts.append(f"止损={sig['stop_loss']}")
 
+    ext_id = cards_api_external_id(card)
     payload: Dict[str, Any] = {
+        "id": ext_id,
         "channelId": ch["channelId"],
         "channelName": ch["channelName"],
         "channelAvatar": ch["channelAvatar"],
@@ -547,7 +568,14 @@ def push_card_if_needed(
         return {"success": True, "skipped": True, "reason": "push_disabled"}
 
     tid = str(card.get("tweet_id") or "").strip()
+    if not force and not card_allows_cards_push(card):
+        return {"success": True, "skipped": True, "reason": "not_realtime_scope", "tweet_id": tid}
+
     if tid and is_pushed(tid) and not force:
+        return {"success": True, "skipped": True, "reason": "already_pushed", "tweet_id": tid}
+
+    ext_id = cards_api_external_id(card)
+    if is_pushed(ext_id) and not force:
         return {"success": True, "skipped": True, "reason": "already_pushed", "tweet_id": tid}
 
     sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
@@ -577,8 +605,8 @@ def push_card_if_needed(
             result["cards_api_id"] = int(remote_id)
         except (TypeError, ValueError):
             pass
-    if result.get("success") and tid:
-        mark_pushed([tid], status="ok")
+    if result.get("success"):
+        mark_pushed([x for x in (tid, ext_id) if x], status="ok")
         remote_id = result.get("cards_api_id")
         if remote_id:
             try:
@@ -722,8 +750,8 @@ def enrich_card_channel(card: Dict[str, Any], cfg: Optional[Dict[str, Any]] = No
     out["display_time"] = resolve_display_time(
         str(card.get("created_at") or ""),
         str(card.get("time_label") or ""),
-        str(card.get("parsed_at") or ""),
-        fallback_now=True,
+        tweet_id=str(card.get("tweet_id") or ""),
+        fallback_now=False,
     )
     return out
 
@@ -776,7 +804,8 @@ def build_test_payload(
     time_s = resolve_display_time(
         str(card.get("created_at") or ""),
         "",
-        str(card.get("parsed_at") or ""),
+        tweet_id=str(card.get("tweet_id") or ""),
+        fallback_now=True,
     )
     coins = ",".join(str(c) for c in (signal.get("coins") or [])[:6]) or "-"
     dir_s = direction_cn(str(signal.get("direction") or "unknown"))

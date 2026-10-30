@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261019b" />
+  <link rel="stylesheet" href="/app.css?v=20261024g" />
 </head>
 <body>
   <div class="shell">
@@ -15,12 +15,12 @@
       <div>
         <p class="eyebrow">TRENDRADAR</p>
         <h1 class="brand">Console</h1>
-        <p class="brand-sub">任务统计 · 列表信号 · 资讯预警 · 内容模板 · 推文卡片 · 灵感碰撞 · CDP 发布</p>
+        <p class="brand-sub">任务统计 · 信号 · 资讯预警 · 内容模板 · 推文卡片 · 灵感碰撞 · CDP 发布</p>
         <div class="signal" aria-hidden="true"></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="功能分区">
         <button class="tab" type="button" role="tab" data-tab="tasks" aria-selected="false">任务统计 <span class="tab-count" id="countTasks">0</span></button>
-        <button class="tab active" type="button" role="tab" data-tab="signals" aria-selected="true">列表信号 <span class="tab-count" id="countSignals">0</span><span id="sigCycleDot" class="tab-live" hidden title="周期抓取未开启"></span></button>
+        <button class="tab active" type="button" role="tab" data-tab="signals" aria-selected="true">信号 <span class="tab-count" id="countSignals">0</span><span id="sigCycleDot" class="tab-live" hidden title="周期抓取未开启"></span></button>
         <button class="tab" type="button" role="tab" data-tab="realtime" aria-selected="false">资讯预警 <span class="tab-count" id="countRealtime">0</span></button>
         <button class="tab" type="button" role="tab" data-tab="taxonomy" aria-selected="false">内容模板</button>
         <button class="tab" type="button" role="tab" data-tab="tweetcards" aria-selected="false">推文卡片 <span class="tab-count" id="countTweetCards">0</span></button>
@@ -28,6 +28,7 @@
         <button class="tab" type="button" role="tab" data-tab="create" aria-selected="false">Prompt 创作</button>
         <button class="tab" type="button" role="tab" data-tab="publish" aria-selected="false">CDP 发布</button>
         <button class="tab" type="button" role="tab" data-tab="realtimesend" aria-selected="false">实时发送</button>
+        <button class="tab" type="button" role="tab" data-tab="livelisten" aria-selected="false">实时监听</button>
       </nav>
       <div class="rail-foot">
         <span id="healthDot" class="dot" aria-hidden="true"></span>
@@ -674,17 +675,18 @@
       <section id="panel-signals" class="panel active" role="tabpanel">
         <div class="panel-head sig-panel-head">
           <div class="sig-panel-head-main">
-            <h2>X 列表信号</h2>
-            <p>配置推特 List → 按<strong>北京时间</strong>分时频率 CDP 抓取 → AI 识别币种/方向/止盈止损。高峰 3–5 分钟，凌晨可休眠。</p>
+            <h2>信号抓取</h2>
+            <p>推特实时：配置 List → 按<strong>北京时间</strong>分时 CDP 抓取；推特历史：按博主与时间窗抓取。AI 识别币种/方向/止盈止损。</p>
           </div>
           <div class="sig-panel-head-actions">
+            <button id="btnSigCardsOverview" class="btn ghost xs" type="button" title="币安广场 + 推特历史信号总览">总览</button>
             <span class="sig-cdp-badge muted" id="sigCdpBadge" title="当前 CDP 地址">CDP …</span>
             <button id="btnSigCdpConfig" class="btn ghost xs" type="button" title="配置 Chrome CDP 调试地址">⚙ CDP</button>
           </div>
         </div>
         <div class="sig-mode-tabs" role="tablist">
-          <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">列表信号 <span id="sigCycleTabMark" class="sig-cycle-mark" hidden>周期</span><span id="sigKolRtTabMark" class="sig-cycle-mark" hidden>实时</span></button>
-          <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">博主回溯</button>
+          <button type="button" class="sig-mode-tab on" data-sig-mode="list" role="tab" aria-selected="true">推特实时 <span id="sigCycleTabMark" class="sig-cycle-mark" hidden>周期</span><span id="sigKolRtTabMark" class="sig-cycle-mark" hidden>实时</span></button>
+          <button type="button" class="sig-mode-tab" data-sig-mode="user" role="tab" aria-selected="false">推特历史</button>
           <button type="button" class="sig-mode-tab" data-sig-mode="binance" role="tab" aria-selected="false">币安广场 <span id="sigBsCycleTabMark" class="sig-cycle-mark" hidden>周期</span></button>
           <button type="button" class="sig-mode-tab" data-sig-mode="value" role="tab" aria-selected="false">价值回归</button>
         </div>
@@ -697,14 +699,14 @@
             <button type="button" class="btn ghost xs" id="btnSigRtBannerStopBs" hidden>关闭 Square 周期</button>
           </span>
         </div>
-        <div id="sigFeedViewTabsWrap" class="sig-feed-view-tabs-wrap">
-          <nav id="sigListFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="列表信号数据视图" hidden>
-            <button type="button" class="sig-cards-view-tab" data-sig-cards-view="realtime" role="tab">实时</button>
-            <button type="button" class="sig-cards-view-tab on" data-sig-cards-view="history" role="tab">历史回溯</button>
+        <div id="sigFeedViewTabsWrap" class="sig-feed-view-tabs-wrap" hidden>
+          <nav id="sigListFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="推特实时数据视图" hidden>
+            <button type="button" class="sig-cards-view-tab" data-sig-cards-view="realtime" role="tab" aria-selected="false" tabindex="-1">KOL 实时</button>
+            <button type="button" class="sig-cards-view-tab on" data-sig-cards-view="history" role="tab" aria-selected="true" tabindex="0">List 历史</button>
           </nav>
-          <nav id="sigBsFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="币安广场抓取方式" hidden>
-            <button type="button" class="sig-cards-view-tab" data-sig-bs-feed="realtime" role="tab">实时</button>
-            <button type="button" class="sig-cards-view-tab on" data-sig-bs-feed="history" role="tab">历史回溯</button>
+          <nav id="sigBsFeedTabs" class="sig-list-feed-tabs sig-cards-view-tabs" role="tablist" aria-label="币安广场数据视图" hidden>
+            <button type="button" class="sig-cards-view-tab" data-sig-bs-feed="realtime" role="tab" aria-selected="false" tabindex="-1">Square 实时</button>
+            <button type="button" class="sig-cards-view-tab on" data-sig-bs-feed="history" role="tab" aria-selected="true" tabindex="0">Square 历史</button>
           </nav>
         </div>
         <div id="sigModeList">
@@ -754,7 +756,7 @@
               <button id="btnSigHideTest" class="btn ghost btn-sm" type="button">隐藏</button>
             </div>
             <p class="muted" style="margin:0 0 8px;font-size:.78rem">
-              选映射博主 + 粘贴推文正文即可。币种/方向/止盈止损由 AI 从正文解析（与真实列表信号一致），用于验证是否推到正确频道；不会写入已推送库。
+              选映射博主 + 粘贴推文正文即可。币种/方向/止盈止损由 AI 从正文解析（与真实推特实时一致），用于验证是否推到正确频道；不会写入已推送库。
             </p>
             <div class="form-grid sig-test-grid">
               <label class="field">
@@ -825,7 +827,7 @@
               </label>
               <label class="field">
                 <span>本次时间窗（小时）</span>
-                <input id="sigKolRtCutoffHours" type="number" min="1" max="168" value="24" />
+                <input id="sigKolRtCutoffHours" type="number" min="1" max="168" value="8" />
               </label>
               <label class="field">
                 <span>每 KOL 最多条</span>
@@ -906,29 +908,21 @@
         </div>
 
         <div id="sigModeBinance" hidden>
-          <div class="sig-config form-grid">
-            <p class="muted full" style="margin:0;font-size:.78rem">
-              配置见 <code>config/binance_square_signals.yaml</code>。<strong>历史回溯</strong>按回溯范围深滚入库；
-              <strong>实时</strong>按增量时间窗周期抓取（后台持续）。Chrome 需 CDP 9223 并已登录币安。
-            </p>
-            <p class="muted full" style="margin:0;font-size:.78rem">
-              Square 博主勾选与卡片筛选见下方「卡片筛选」（与抓取共用同一列表，数据来自 <code>binance_square_signals.yaml</code>）。
-            </p>
-            <label class="field">
-              <span>每博主最多条</span>
-              <input id="sigBsMaxPosts" type="number" min="5" max="80" value="40" />
-            </label>
-            <label class="field check">
-              <input id="sigBsTryBapi" type="checkbox" />
-              <span>先尝试 bapi 热榜（失败再走主页 CDP）</span>
-            </label>
-            <label class="field check full">
-              <input id="sigBsReplayWhisper" type="checkbox" />
-              <span>抓取完成后仅自动转写近 2 天内的直播回放（WhisprRT → <code>WhisprRT/output</code>）</span>
-            </label>
-          </div>
-
           <div id="sigBsHistoryPanel" class="sig-list-feed-panel">
+            <p class="muted sig-bs-feed-intro">
+              <strong>历史回溯</strong>：按回溯范围深滚入库。配置见 <code>config/binance_square_signals.yaml</code>。
+              Chrome 需 CDP 并已登录币安。
+            </p>
+            <div class="field full sig-bs-profile-pick">
+              <div class="sig-blogger-head">
+                <span>Square 博主（本 Tab）</span>
+                <span class="sig-blogger-actions">
+                  <button type="button" class="btn-link" id="btnSigBsHistSelectAll">全选</button>
+                  <button type="button" class="btn-link" id="btnSigBsHistSelectNone">清空</button>
+                </span>
+              </div>
+              <div id="sigBsHistProfileList" class="sig-blogger-list sig-bs-profile-list" role="group" aria-label="币安 Square 博主（历史）"></div>
+            </div>
             <div class="sig-config form-grid">
               <label class="field">
                 <span>回溯范围</span>
@@ -943,7 +937,18 @@
                   <option value="this_quarter">本季度</option>
                 </select>
               </label>
-              <label class="field" aria-hidden="true"></label>
+              <label class="field">
+                <span>每博主最多条</span>
+                <input id="sigBsMaxPosts" type="number" min="5" max="80" value="40" />
+              </label>
+              <label class="field check">
+                <input id="sigBsTryBapi" type="checkbox" />
+                <span>先尝试 bapi 热榜（失败再走主页 CDP）</span>
+              </label>
+              <label class="field check full">
+                <input id="sigBsReplayWhisper" type="checkbox" />
+                <span>抓取完成后自动转写近 2 天内直播回放（WhisprRT）</span>
+              </label>
               <div class="field full sig-action-bar">
                 <button id="btnSigBsSaveCfg" class="btn ghost" type="button">保存配置</button>
                 <button id="btnSigBsRun" class="btn primary" type="button">一键抓取并解析（回溯）</button>
@@ -955,10 +960,43 @@
             </div>
             <p id="sigBsStatus" class="status"></p>
             <pre id="sigBsRunLog" class="sig-run-log" hidden></pre>
+            <section class="sig-meta-block sig-bs-windows-block">
+              <div class="sig-meta-row">
+                <h3 class="sig-sub">已爬时间段（Square）</h3>
+                <label class="field check sig-windows-toggle">
+                  <input id="sigBsShowAllWindows" type="checkbox" />
+                  <span>查看全部</span>
+                </label>
+              </div>
+              <div id="sigBsWindows" class="sig-windows muted">暂无记录</div>
+            </section>
           </div>
 
           <div id="sigBsRealtimePanel" class="sig-list-feed-panel" hidden>
+            <p class="muted sig-bs-feed-intro">
+              <strong>实时</strong>：按增量时间窗周期抓取（后台持续）。下方卡片仅显示近 <span id="sigBsRtWindowHint">8</span> 小时内入库信号；
+              与「历史回溯」分开配置、分库加载。
+            </p>
+            <div class="field full sig-bs-profile-pick">
+              <div class="sig-blogger-head">
+                <span>Square 博主（本 Tab）</span>
+                <span class="sig-blogger-actions">
+                  <button type="button" class="btn-link" id="btnSigBsRtSelectAll">全选</button>
+                  <button type="button" class="btn-link" id="btnSigBsRtSelectNone">清空</button>
+                </span>
+              </div>
+              <div id="sigBsRtProfileList" class="sig-blogger-list sig-bs-profile-list" role="group" aria-label="币安 Square 博主（实时）"></div>
+              <p class="muted sig-filter-kol-hint">仅抓取已勾选博主（周期与「立即抓取」均以此为准）</p>
+            </div>
             <div class="sig-config form-grid sig-kol-realtime-grid">
+              <label class="field">
+                <span>每博主最多条（增量单次）</span>
+                <input id="sigBsRtMaxPosts" type="number" min="5" max="80" value="40" />
+              </label>
+              <label class="field check" style="align-self:end">
+                <input id="sigBsRtTryBapi" type="checkbox" />
+                <span>先尝试 bapi 热榜</span>
+              </label>
               <label class="field check full">
                 <input id="sigBsCycleEnabled" type="checkbox" />
                 <span>开启周期抓取（5–15 分钟随机间隔，后台持续）</span>
@@ -974,7 +1012,8 @@
               <p id="sigBsCycleHint" class="status full" style="grid-column:1/-1;margin:0">周期抓取未开启</p>
               <div class="field full sig-action-bar" style="grid-column:1/-1">
                 <button id="btnSigBsCycleToggle" class="btn ghost" type="button">开启周期抓取</button>
-                <button id="btnSigBsRunNow" class="btn primary" type="button">立即抓取（增量）</button>
+                <button id="btnSigBsRunNow" class="btn primary" type="button">立即抓取（近 8h）</button>
+                <button id="btnSigBsResetRealtime" class="btn ghost" type="button">重置实时并重抓</button>
                 <button id="btnSigBsRtPause" class="btn ghost" type="button" disabled>暂停</button>
                 <button id="btnSigBsRtResume" class="btn ghost" type="button" disabled hidden>继续</button>
                 <button id="btnSigBsRtStop" class="btn danger" type="button" disabled>终止</button>
@@ -987,8 +1026,8 @@
         <div id="sigModeValue" hidden>
           <div class="sig-config form-grid">
             <label class="field full">
-              <span>列表（与列表信号共用）</span>
-              <input id="sigValueListUrl" type="text" readonly placeholder="同步自列表信号配置" />
+              <span>列表（与推特实时共用）</span>
+              <input id="sigValueListUrl" type="text" readonly placeholder="同步自推特实时 List 配置" />
             </label>
             <label class="field">
               <span>截至时间（小时）</span>
@@ -1074,17 +1113,7 @@
             <p class="muted sig-filter-kol-hint">未勾选 = 全部 KOL</p>
           </div>
 
-          <div id="sigCardsFilterBsBlock" class="sig-cards-filter-section" hidden>
-            <div class="sig-blogger-head sig-cards-filter-blogger-head">
-              <span class="sig-cards-filter-label">Square 博主（共用）</span>
-              <span class="sig-blogger-actions">
-                <button type="button" class="btn-link" id="btnSigBsSelectAll">全选</button>
-                <button type="button" class="btn-link" id="btnSigBsSelectNone">清空</button>
-              </span>
-            </div>
-            <div id="sigBsProfileList" class="sig-blogger-list sig-cards-filter-chips" role="group" aria-label="币安 Square 博主"></div>
-            <p class="muted sig-filter-kol-hint">与上方抓取共用同一列表（yaml profiles）</p>
-          </div>
+          <div id="sigCardsFilterBsBlock" class="sig-cards-filter-section" hidden aria-hidden="true"></div>
 
           <div id="sigCardsFilterTimeRow" class="sig-cards-filter-time">
             <label class="field sig-filter-field">
@@ -1116,6 +1145,48 @@
 
         <nav id="sigCardsPager" class="sig-cards-pager" hidden aria-label="信号卡片分页"></nav>
         <div id="sigCards" class="sig-cards"></div>
+
+        <dialog id="sigCardsOverviewDialog" class="el-dialog sig-cards-overview-dialog">
+          <form method="dialog" class="sig-cards-overview-form">
+            <header class="el-dialog__header">
+              <span class="el-dialog__title">信号总览</span>
+              <button type="submit" value="close" class="el-dialog__headerbtn" aria-label="关闭">
+                <span class="el-dialog__close-icon">&times;</span>
+              </button>
+            </header>
+            <div class="el-dialog__body">
+              <div class="sig-overview-filters">
+                <label class="field sig-filter-field">
+                  <span>时间</span>
+                  <select id="sigOverviewHours">
+                    <option value="12">12 小时内</option>
+                    <option value="24" selected>24 小时内</option>
+                    <option value="48">48 小时内</option>
+                  </select>
+                </label>
+                <label class="field sig-filter-field">
+                  <span>平台</span>
+                  <select id="sigOverviewPlatform">
+                    <option value="all" selected>全部</option>
+                    <option value="binance_square">币安广场</option>
+                    <option value="kol_realtime">推特实时</option>
+                    <option value="user_backfill">推特历史</option>
+                  </select>
+                </label>
+                <label class="field check sig-overview-trade-only">
+                  <input id="sigOverviewTradeOnly" type="checkbox" />
+                  <span>仅交易信号</span>
+                </label>
+                <button type="button" class="btn primary btn-sm" id="btnSigOverviewRefresh">刷新</button>
+              </div>
+              <p id="sigCardsOverviewHint" class="muted sig-overview-hint"></p>
+              <div id="sigCardsOverview" class="sig-cards-overview"></div>
+            </div>
+            <footer class="el-dialog__footer">
+              <button type="submit" value="close" class="btn ghost">关闭</button>
+            </footer>
+          </form>
+        </dialog>
 
         <dialog id="sigBacktestResultDialog" class="el-dialog sig-backtest-result-dialog">
           <form method="dialog" class="sig-backtest-result-form">
@@ -1169,6 +1240,11 @@
           </form>
         </dialog>
 
+        <dialog id="sigImgPreviewDialog" class="sig-img-preview-dialog" aria-label="图片预览">
+          <button type="button" class="sig-img-preview-close" aria-label="关闭">×</button>
+          <img id="sigImgPreviewImg" alt="" />
+        </dialog>
+
         <dialog id="sigCardEditDialog" class="corpus-dialog sig-card-edit-dialog">
           <form method="dialog" id="sigCardEditForm" class="form-grid">
             <h3 style="grid-column:1/-1;margin:0">编辑卡片正文</h3>
@@ -1196,7 +1272,7 @@
           <form method="dialog" id="sigCdpConfigForm" class="form-grid">
             <h3 style="grid-column:1/-1;margin:0">CDP 调试地址</h3>
             <p class="muted" style="grid-column:1/-1;margin:0;font-size:.82rem">
-              列表信号 / 博主回溯共用。Chrome 需先以 <code>--remote-debugging-port=9223</code> 启动并已登录 X。
+              推特实时 / 推特历史共用。Chrome 需先以 <code>--remote-debugging-port=9223</code> 启动并已登录 X。
             </p>
             <label class="field full">
               <span>host:port</span>
@@ -1394,12 +1470,29 @@
 
       </section>
 
+      <section id="panel-livelisten" class="panel livelisten-panel" role="tabpanel" hidden>
+        <header class="livelisten-head">
+          <div>
+            <h2>实时监听</h2>
+            <p class="muted">系统音频 → Whisper 实时转写 · 关键词告警（WhisprRT）</p>
+          </div>
+          <a class="btn ghost btn-sm" href="/whisprrt/" target="_blank" rel="noopener">新窗口打开</a>
+        </header>
+        <iframe
+          id="livelistenFrame"
+          class="livelisten-frame"
+          title="WhisprRT 实时转写"
+          src="/whisprrt/"
+          loading="lazy"
+        ></iframe>
+      </section>
+
     </main>
   </div>
   <script src="/taxonomy.js?v=20260922a"></script>
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261019b"></script>
+  <script src="/app.js?v=20261024j"></script>
 </body>
 </html>

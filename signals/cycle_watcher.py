@@ -93,12 +93,15 @@ def _run_once() -> Dict[str, Any]:
             list_id=lid,
             cutoff_hours=cutoff,
             max_tweets=int(cfg.get("max_tweets") or 40),
-            ignore_windows=False,
+            # 周期任务按 cutoff 小时窗拉取，不按「已爬时间窗」抬高 floor（否则列表顶帖全成过旧、0 条）
+            ignore_windows=True,
             progress=lambda m: print(f"[signals-cycle] {m}", flush=True),
             control=ctl,
         )
         now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        save_config({"last_crawl_at": now})
+        parsed_n = int(result.get("parsed") or result.get("parsed_count") or 0)
+        if parsed_n > 0 or int(result.get("crawled") or 0) > 0:
+            save_config({"last_crawl_at": now})
         _set_status(
             last_run_at=now,
             last_status="ok" if result.get("success") else "error",

@@ -25,6 +25,8 @@ def _empty_state() -> Dict[str, Any]:
     return {
         "seen_hrefs": [],
         "seen_content_ids": [],
+        "seen_content_registry": {},
+        "content_post_snapshots": {},
         "last_posts": [],
         "last_run_at": "",
         "updated_at": "",
@@ -46,6 +48,7 @@ def default_config() -> Dict[str, Any]:
         "first_crawl_hours": 8,
         "cycle_cutoff_hours": 8,
         "last_crawl_at": "",
+        "cycle_profile_ids": [],
         "profiles": [],
     }
 
@@ -67,12 +70,40 @@ def load_config() -> Dict[str, Any]:
         profs = raw.get("profiles")
         if isinstance(profs, list):
             cfg["profiles"] = profs
+        cyc = raw.get("cycle_profile_ids")
+        if isinstance(cyc, list):
+            cfg["cycle_profile_ids"] = [
+                str(x).strip().lower() for x in cyc if str(x).strip()
+            ]
     return cfg
+
+
+def normalize_profile_id_list(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = re.split(r"[\s,]+", raw.strip())
+        return [p.strip().lower() for p in parts if p.strip()]
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    for x in raw:
+        pid = str(x or "").strip().lower().lstrip("@")
+        if pid:
+            out.append(pid)
+    return out
+
+
+def cycle_profile_ids(cfg: Optional[Dict[str, Any]] = None) -> List[str]:
+    """周期/后台抓取仅使用控制台勾选的博主 id。"""
+    cfg = cfg or load_config()
+    return normalize_profile_id_list(cfg.get("cycle_profile_ids"))
 
 
 def save_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     payload = default_config()
     payload.update(cfg or {})
+    payload["cycle_profile_ids"] = normalize_profile_id_list(payload.get("cycle_profile_ids"))
     profiles = payload.get("profiles") or []
     norm_profiles: List[Dict[str, Any]] = []
     for p in profiles:
@@ -122,6 +153,10 @@ def load_state() -> Dict[str, Any]:
         base["seen_hrefs"] = []
     if not isinstance(base.get("seen_content_ids"), list):
         base["seen_content_ids"] = []
+    if not isinstance(base.get("content_post_snapshots"), dict):
+        base["content_post_snapshots"] = {}
+    if not isinstance(base.get("seen_content_registry"), dict):
+        base["seen_content_registry"] = {}
     if not isinstance(base.get("last_posts"), list):
         base["last_posts"] = []
     return base
@@ -137,26 +172,125 @@ def _content_ids_from_hrefs(hrefs: List[Any]) -> set[str]:
 
 
 def known_square_content_ids() -> set[str]:
-    """已抓取过的 Square 文章 contentId（state + SQLite 卡片）。"""
-    known: set[str] = set()
+    """已登记过的 Square contentId（兼容旧逻辑，含 registry 全量 key）。"""
     st = load_state()
+    known: set[str] = set()
+    reg = st.get("seen_content_registry")
+    if isinstance(reg, dict):
+        for cid in reg.keys():
+            c = str(cid or "").strip()
+            if c.isdigit():
+                known.add(c)
     for raw in st.get("seen_content_ids") or []:
         cid = str(raw or "").strip()
         if cid.isdigit():
             known.add(cid)
     known |= _content_ids_from_hrefs(st.get("seen_hrefs") or [])
-    try:
-        from signals.card_db import db_known_binance_content_ids
-
-        known |= db_known_binance_content_ids()
-    except Exception:
-        pass
     return known
+
+
+def square_content_ids_skip_recent(hours: float = 24.0) -> set[str]:
+    """近 N 小时内已抓取过的 contentId（增量跳过 AI/详情，超时后可再处理）。"""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1.0, float(hours or 24)))
+    out: set[str] = set()
+    st = load_state()
+    reg = st.get("seen_content_registry")
+    if isinstance(reg, dict):
+        for cid, raw in reg.items():
+            cid_s = str(cid or "").strip()
+            if not cid_s.isdigit():
+                continue
+            dt = _parse_iso_time(str(raw or ""))
+            if dt is not None and dt >= cutoff:
+                out.add(cid_s)
+    return out
+
+
+def get_content_post_snapshot(content_id: str) -> Optional[Dict[str, str]]:
+    cid = str(content_id or "").strip()
+    if not cid.isdigit():
+        return None
+    st = load_state()
+    snaps = st.get("content_post_snapshots")
+    if not isinstance(snaps, dict):
+        return None
+    row = snaps.get(cid)
+    if not isinstance(row, dict):
+        return None
+    return {k: str(v) for k, v in row.items() if v}
+
+
+def remember_content_post_snapshot(post: Dict[str, Any]) -> None:
+    """首次见到 contentId 时固化发帖时间字段，避免列表重刷用「56分钟」等假相对时间覆盖。"""
+    cid = post_content_id(post)
+    if not cid:
+        return
+    st = load_state()
+    snaps: Dict[str, Dict[str, str]] = {}
+    if isinstance(st.get("content_post_snapshots"), dict):
+        snaps = {str(k): dict(v) for k, v in st["content_post_snapshots"].items() if isinstance(v, dict)}
+    if cid in snaps:
+        return
+    iso = str(post.get("published_iso") or "").strip()
+    tl = str(post.get("time_label") or "").strip()
+    dt = _parse_post_time_fields(post)
+    worthy = bool(_parse_iso_time(iso))
+    if not worthy and tl:
+        snip = _extract_create_time_snippet(tl)
+        worthy = bool(snip and not _looks_like_relative_time_label(snip))
+    if not worthy and dt is None:
+        return
+    snap: Dict[str, str] = {}
+    if iso:
+        snap["published_iso"] = iso
+    if tl:
+        snap["time_label"] = tl
+    if dt is not None:
+        snap["post_at"] = dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    if not snap:
+        return
+    snaps[cid] = snap
+    if len(snaps) > 8000:
+        snaps = dict(list(snaps.items())[-8000:])
+    st["content_post_snapshots"] = snaps
+    save_state(st)
+
+
+def square_posts_index_by_content_id(posts: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    for p in posts or []:
+        if not isinstance(p, dict):
+            continue
+        cid = post_content_id(p)
+        if cid:
+            out[cid] = p
+    return out
+
+
+def apply_canonical_square_post(
+    fresh: Dict[str, Any],
+    *,
+    prior: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """已收录帖：沿用 prior 的时间与 signal，仅用 fresh 补媒体/正文。"""
+    out = dict(fresh)
+    if not prior:
+        return out
+    for key in ("time_label", "published_iso", "signal"):
+        if prior.get(key):
+            out[key] = prior[key]
+    if isinstance(prior.get("signal"), dict) and prior["signal"]:
+        out["signal"] = dict(prior["signal"])
+    return out
 
 
 def register_square_content_ids(ids: List[Any], *, posts: Optional[List[Dict[str, Any]]] = None) -> None:
     st = load_state()
-    seen: set[str] = set()
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    reg: Dict[str, str] = {}
+    if isinstance(st.get("seen_content_registry"), dict):
+        reg = {str(k): str(v) for k, v in st["seen_content_registry"].items() if str(k).strip()}
+    seen: set[str] = set(reg.keys())
     for raw in st.get("seen_content_ids") or []:
         cid = str(raw or "").strip()
         if cid.isdigit():
@@ -165,13 +299,18 @@ def register_square_content_ids(ids: List[Any], *, posts: Optional[List[Dict[str
         cid = str(raw or "").strip()
         if cid.isdigit():
             seen.add(cid)
+            if cid not in reg:
+                reg[cid] = now_iso
     if posts:
         for p in posts:
             if not isinstance(p, dict):
                 continue
+            remember_content_post_snapshot(p)
             cid = post_content_id(p)
             if cid:
                 seen.add(cid)
+                if cid not in reg:
+                    reg[cid] = now_iso
             href = str(p.get("href") or "").strip()
             if href:
                 hrefs = list(st.get("seen_hrefs") or [])
@@ -179,6 +318,10 @@ def register_square_content_ids(ids: List[Any], *, posts: Optional[List[Dict[str
                     hrefs.append(href)
                 st["seen_hrefs"] = hrefs[-5000:]
     st["seen_content_ids"] = sorted(seen)[-8000:]
+    if len(reg) > 8000:
+        items = sorted(reg.items(), key=lambda x: x[1], reverse=True)[:8000]
+        reg = dict(items)
+    st["seen_content_registry"] = reg
     st["updated_at"] = _now_iso()
     save_state(st)
 
@@ -222,6 +365,40 @@ def canonical_square_post_href(post: Dict[str, Any], *, locale: str = "zh-CN") -
     return str(post.get("href") or "").strip().split("#")[0]
 
 
+def _square_post_time_rank(post: Dict[str, Any]) -> int:
+    """列表 create-time 越完整分数越高，深滚合并时覆盖劣质时间。"""
+    iso = str(post.get("published_iso") or "").strip()
+    tl = str(post.get("time_label") or post.get("time") or "").strip()
+    score = 0
+    if iso:
+        score += 8
+        if _parse_iso_time(iso) is not None:
+            score += 12
+    if tl:
+        score += 2
+        if _extract_create_time_snippet(tl):
+            score += 4
+    return score
+
+
+def _merge_square_post_time_fields(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
+    dst_iso = _parse_iso_time(str(dst.get("published_iso") or ""))
+    src_iso = _parse_iso_time(str(src.get("published_iso") or ""))
+    src_snip = _extract_create_time_snippet(str(src.get("time_label") or ""))
+    if dst_iso and not src_iso and src_snip and _looks_like_relative_time_label(src_snip):
+        return
+    if _square_post_time_rank(src) > _square_post_time_rank(dst):
+        if src.get("time_label"):
+            dst["time_label"] = src["time_label"]
+        if src.get("published_iso"):
+            dst["published_iso"] = src["published_iso"]
+        return
+    if not dst.get("published_iso") and src.get("published_iso"):
+        dst["published_iso"] = src["published_iso"]
+    if not dst.get("time_label") and src.get("time_label"):
+        dst["time_label"] = src["time_label"]
+
+
 def merge_square_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """按 square/post/{contentId} 去重，合并媒体与正文。"""
     by: Dict[str, Dict[str, Any]] = {}
@@ -243,7 +420,8 @@ def merge_square_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if len(str(p.get("raw") or "")) > len(str(o.get("raw") or "")):
             o["raw"] = p.get("raw")
             o["title"] = p.get("title") or o.get("title")
-        for field in ("time_label", "published_iso", "profile_name", "profile_id"):
+        _merge_square_post_time_fields(o, p)
+        for field in ("profile_name", "profile_id"):
             if not o.get(field) and p.get(field):
                 o[field] = p[field]
         imgs = list(
@@ -267,14 +445,72 @@ def _parse_iso_time(iso: str) -> Optional[datetime]:
     raw = (iso or "").strip()
     if not raw:
         return None
+    if re.fullmatch(r"\d{10,13}", raw):
+        try:
+            n = int(raw)
+            sec = n / 1000.0 if len(raw) >= 13 else float(n)
+            return datetime.fromtimestamp(sec, tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            return None
     try:
         s = raw.replace("Z", "+00:00")
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            # 币安 time[datetime] 多为北京时间无时区字段，勿当 UTC
+            tz_cn = timezone(timedelta(hours=8))
+            dt = dt.replace(tzinfo=tz_cn)
         return dt.astimezone(timezone.utc)
     except Exception:
         return None
+
+
+_TIME_LABEL_HEAD_RE = re.compile(
+    r"^(刚刚|昨天|今天|"
+    r"\d+\s*(?:秒|分钟|小时|天)(?:前)?|"
+    r"\d{1,2}\s*月\s*\d{1,2}\s*日|"
+    r"\d{4}\s*年?\s*\d{1,2}\s*月\s*\d{1,2}\s*日|"
+    r"\d+\s*(?:minutes?|hours?|days?)\s*ago|"
+    r"\d{4}-\d{2}-\d{2})",
+    re.I,
+)
+
+
+def _looks_like_time_label(text: str) -> bool:
+    t = str(text or "").strip()
+    if not t or len(t) > 56:
+        return False
+    return bool(_TIME_LABEL_HEAD_RE.match(t))
+
+
+def _looks_like_relative_time_label(text: str) -> bool:
+    t = str(text or "").strip()
+    if not t:
+        return False
+    return bool(
+        re.match(
+            r"^(刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)(?:前)?|"
+            r"\d+\s*(?:minutes?|hours?|days?)\s*ago)",
+            t,
+            re.I,
+        )
+    )
+
+
+def _extract_create_time_snippet(text: str) -> str:
+    """从 create-time 单元格文案中提取「12小时」「3天前」等，忽略作者名等前缀。"""
+    t = str(text or "").strip()
+    if not t:
+        return ""
+    if _looks_like_time_label(t):
+        return t
+    m = re.search(r"(刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)(?:前)?)", t)
+    if m:
+        return m.group(1).strip()
+    m2 = re.search(r"(\d{1,2}\s*月\s*\d{1,2}\s*日)", t)
+    if m2:
+        return m2.group(1).strip()
+    m3 = re.search(r"(\d{4}-\d{2}-\d{2})", t)
+    return m3.group(1).strip() if m3 else ""
 
 
 def _parse_time_label(label: str, *, now: Optional[datetime] = None) -> Optional[datetime]:
@@ -284,6 +520,9 @@ def _parse_time_label(label: str, *, now: Optional[datetime] = None) -> Optional
     now = now or datetime.now(timezone.utc)
     if "刚刚" in text:
         return now
+    m = re.search(r"(\d+)\s*秒", text)
+    if m:
+        return now - timedelta(seconds=int(m.group(1)))
     m = re.search(r"(\d+)\s*分钟", text)
     if m:
         return now - timedelta(minutes=int(m.group(1)))
@@ -315,28 +554,43 @@ def save_state(state: Dict[str, Any]) -> None:
         )
 
 
-def parse_post_time(post: Dict[str, Any]) -> Optional[datetime]:
-    now = datetime.now(timezone.utc)
-    label = str(post.get("time_label") or post.get("time") or "").strip()
-    dt_label = _parse_time_label(label, now=now) if label else None
-    if dt_label is None:
-        head = str(post.get("raw") or post.get("title") or "")[:96]
-        m = re.search(
-            r"\d+\s*(?:分钟|小时|天)(?:前)?|刚刚|昨天|"
-            r"\d+\s*(?:minutes?|hours?|days?)\s*ago",
-            head,
-            re.I,
-        )
-        if m:
-            dt_label = _parse_time_label(m.group(0), now=now)
+def _parse_post_time_fields(post: Dict[str, Any], *, now: Optional[datetime] = None) -> Optional[datetime]:
+    now = now or datetime.now(timezone.utc)
     dt_iso = _parse_iso_time(str(post.get("published_iso") or ""))
-    if dt_label and dt_iso:
-        if dt_iso < now - timedelta(days=45) and dt_label >= now - timedelta(days=21):
-            return dt_label
-        if dt_label < now - timedelta(days=45) and dt_iso >= now - timedelta(days=21):
+    label = str(post.get("time_label") or post.get("time") or "").strip()
+    snippet = _extract_create_time_snippet(label)
+    dt_label = _parse_time_label(snippet, now=now) if snippet else None
+    if dt_label is None and _looks_like_time_label(label):
+        dt_label = _parse_time_label(label, now=now)
+
+    if dt_label is not None and snippet and _looks_like_relative_time_label(snippet):
+        if dt_iso is not None and abs((dt_iso - dt_label).total_seconds()) > 21600:
             return dt_iso
-        return max(dt_label, dt_iso)
-    return dt_label or dt_iso
+        return dt_label
+    if dt_iso is not None and dt_label is not None:
+        if abs((dt_iso - dt_label).total_seconds()) <= 172800:
+            return dt_iso
+        if dt_iso > now + timedelta(hours=2):
+            return dt_label
+        return dt_iso
+    return dt_iso or dt_label
+
+
+def parse_post_time(post: Dict[str, Any]) -> Optional[datetime]:
+    p = dict(post) if isinstance(post, dict) else {}
+    cid = post_content_id(p)
+    if cid:
+        snap = get_content_post_snapshot(cid)
+        if snap:
+            if snap.get("published_iso"):
+                p["published_iso"] = snap["published_iso"]
+            if snap.get("time_label"):
+                p["time_label"] = snap["time_label"]
+            if snap.get("post_at"):
+                dt = _parse_iso_time(snap["post_at"])
+                if dt is not None:
+                    return dt
+    return _parse_post_time_fields(p)
 
 
 def _parse_cn_month_day(label: str, *, now: datetime) -> Optional[datetime]:
@@ -363,7 +617,8 @@ def _parse_cn_month_day(label: str, *, now: datetime) -> Optional[datetime]:
     return dt
 
 
-def filter_by_backfill_range(posts: List[Dict[str, Any]], range_key: str) -> List[Dict[str, Any]]:
+def backfill_soft_cutoff_utc(range_key: str) -> datetime:
+    """与 filter_by_backfill_range 使用同一 soft 边界（含 grace），供深滚停滚判断。"""
     from signals.backfill_range import normalize_backfill_range, resolve_backfill_since
 
     key = normalize_backfill_range(range_key)
@@ -371,7 +626,18 @@ def filter_by_backfill_range(posts: List[Dict[str, Any]], range_key: str) -> Lis
     cutoff = since.astimezone(timezone.utc)
     span_days = max(1, int((datetime.now(timezone.utc) - cutoff).total_seconds() // 86400) + 1)
     grace = timedelta(days=min(3, max(1, span_days // 5)))
-    soft_cutoff = cutoff - grace
+    return cutoff - grace
+
+
+def backfill_soft_cutoff_from_time_spec(time_spec: Dict[str, Any]) -> Optional[datetime]:
+    if time_spec.get("mode") != "range":
+        return None
+    rk = str(time_spec.get("backfill_range") or "last_7d")
+    return backfill_soft_cutoff_utc(rk)
+
+
+def filter_by_backfill_range(posts: List[Dict[str, Any]], range_key: str) -> List[Dict[str, Any]]:
+    soft_cutoff = backfill_soft_cutoff_utc(range_key)
     out: List[Dict[str, Any]] = []
     for p in posts:
         dt = parse_post_time(p)
@@ -394,6 +660,13 @@ def resolve_binance_time_filter(
 ) -> Dict[str, Any]:
     """返回 filter_by_backfill_range 或 filter_by_cutoff 所需参数。"""
     c = cfg or load_config()
+    if cutoff_hours is not None:
+        try:
+            hours = float(cutoff_hours)
+            if hours > 0:
+                return {"mode": "hours", "cutoff_hours": hours}
+        except (TypeError, ValueError):
+            pass
     rk = str(backfill_range if backfill_range is not None else c.get("backfill_range") or "").strip()
     if rk:
         from signals.backfill_range import normalize_backfill_range
@@ -428,6 +701,21 @@ def apply_binance_time_filter(
     return filter_by_cutoff(posts, float(spec.get("cutoff_hours") or 24))
 
 
+def _post_has_relative_time_hint(post: Dict[str, Any]) -> bool:
+    label = str(post.get("time_label") or post.get("time") or "").strip()
+    head = str(post.get("raw") or post.get("title") or "")[:120]
+    for text in (label, head):
+        if not text:
+            continue
+        if "刚刚" in text:
+            return True
+        if re.search(r"\d+\s*(?:秒|分钟|小时|天)(?:前)?", text):
+            return True
+        if re.search(r"\d+\s*(?:minutes?|hours?|days?)\s*ago", text, re.I):
+            return True
+    return False
+
+
 def filter_by_cutoff(posts: List[Dict[str, Any]], hours: float) -> List[Dict[str, Any]]:
     if hours <= 0:
         return list(posts)
@@ -441,6 +729,14 @@ def filter_by_cutoff(posts: List[Dict[str, Any]], hours: float) -> List[Dict[str
                 continue
             out.append(p)
             continue
-        if dt is None or dt >= cutoff:
+        if dt is not None:
+            if dt >= cutoff:
+                out.append(p)
+            continue
+        if _post_has_relative_time_hint(p):
+            out.append(p)
+            continue
+        # 时间未解析但确有帖文 id：仍纳入实时窗，避免「抓到了却进不了卡片」
+        if post_content_id(p):
             out.append(p)
     return out

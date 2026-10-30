@@ -66,20 +66,176 @@ def fmt_post_time(created_raw: str = "", time_label: str = "", created: Optional
     return (created_raw or "")[:32] or "未知"
 
 
+_TWITTER_EN_REL = re.compile(
+    r"^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|"
+    r"h|hr|hrs|hour|hours|d|day|days)\b",
+    re.I,
+)
+_TWITTER_EN_AGO = re.compile(
+    r"(\d+)\s*(second|seconds|minute|minutes|hour|hours|day|days)\s+ago",
+    re.I,
+)
+_TWITTER_EN_MD = re.compile(
+    r"^([A-Za-z]{3,9})\s+(\d{1,2})(?:\s*,\s*(\d{4}))?\b",
+)
+
+
+def tweet_id_to_post_datetime(tweet_id: str) -> Optional[datetime]:
+    """X 推文 ID（Snowflake）→ UTC 发帖时间，DOM 无 time 时兜底。"""
+    tid = str(tweet_id or "").strip()
+    if not tid.isdigit():
+        return None
+    try:
+        n = int(tid)
+        ms = (n >> 22) + 1288834974657
+        return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def parse_twitter_time_label(label: str, *, now: Optional[datetime] = None) -> Optional[datetime]:
+    """解析 X 列表 time 文案（2h / Oct 24 / 3小时前 等），相对时间以 now 为锚。"""
+    text = str(label or "").strip()
+    if not text:
+        return None
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    dt = parse_dt(text)
+    if dt is not None:
+        return dt
+
+    if "刚刚" in text:
+        return now
+    m = re.search(r"(\d+)\s*秒", text)
+    if m:
+        return now - timedelta(seconds=int(m.group(1)))
+    m = re.search(r"(\d+)\s*分钟", text)
+    if m:
+        return now - timedelta(minutes=int(m.group(1)))
+    m = re.search(r"(\d+)\s*小时", text)
+    if m:
+        return now - timedelta(hours=int(m.group(1)))
+    m = re.search(r"(\d+)\s*天", text)
+    if m:
+        return now - timedelta(days=int(m.group(1)))
+
+    m = _TWITTER_EN_REL.match(text)
+    if m:
+        n = int(m.group(1))
+        u = m.group(2).lower()
+        if u.startswith("s"):
+            return now - timedelta(seconds=n)
+        if u.startswith("m"):
+            return now - timedelta(minutes=n)
+        if u.startswith("h"):
+            return now - timedelta(hours=n)
+        return now - timedelta(days=n)
+
+    m = _TWITTER_EN_AGO.search(text)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2).lower()
+        if unit.startswith("second"):
+            return now - timedelta(seconds=n)
+        if unit.startswith("minute"):
+            return now - timedelta(minutes=n)
+        if unit.startswith("hour"):
+            return now - timedelta(hours=n)
+        return now - timedelta(days=n)
+
+    m = _TWITTER_EN_MD.match(text)
+    if m:
+        mon_s, day_s, year_s = m.group(1), m.group(2), m.group(3)
+        try:
+            from calendar import month_abbr
+
+            months = {abbr.lower(): i for i, abbr in enumerate(month_abbr) if abbr}
+            mo = months.get(mon_s[:3].lower())
+            if not mo:
+                return None
+            y = int(year_s) if year_s else now.astimezone(BEIJING_TZ).year
+            d = int(day_s)
+            dt_local = datetime(y, mo, d, tzinfo=BEIJING_TZ)
+            return dt_local.astimezone(timezone.utc)
+        except (ValueError, TypeError):
+            return None
+
+    m2 = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日", text)
+    if m2:
+        y = now.astimezone(BEIJING_TZ).year
+        mo, d = int(m2.group(1)), int(m2.group(2))
+        try:
+            dt_local = datetime(y, mo, d, tzinfo=BEIJING_TZ)
+            return dt_local.astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def infer_tweet_post_datetime(
+    *,
+    created_raw: str = "",
+    time_label: str = "",
+    tweet_id: str = "",
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    """发帖时间：time[datetime] > 列表文案 > tweet_id，绝不用 parsed_at。"""
+    dt = parse_dt(str(created_raw or "").strip())
+    if dt is not None:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    dt = parse_twitter_time_label(str(time_label or ""), now=now)
+    if dt is not None:
+        return dt
+    return tweet_id_to_post_datetime(tweet_id)
+
+
+def tweet_created_at_iso(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def normalize_tweet_item_times(it: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """抓取结果补全 created_at（供历史/实时共用）。"""
+    out = dict(it)
+    tid = str(out.get("tweet_id") or "").strip()
+    raw = str(out.get("created_at") or "").strip()
+    label = str(out.get("time_label") or "").strip()
+    if parse_dt(raw):
+        return out
+    dt = infer_tweet_post_datetime(created_raw=raw, time_label=label, tweet_id=tid, now=now)
+    if dt is not None:
+        out["created_at"] = tweet_created_at_iso(dt)
+    return out
+
+
 def resolve_display_time(
     created_raw: str = "",
     time_label: str = "",
-    parsed_at: str = "",
     *,
-    fallback_now: bool = True,
+    tweet_id: str = "",
+    fallback_now: bool = False,
 ) -> str:
-    """解析用于展示/推送的时间，保证尽量有值。"""
-    t = fmt_post_time(created_raw, time_label)
-    if t == "未知" and parsed_at:
-        t = fmt_post_time(parsed_at, "")
-    if t == "未知" and fallback_now:
+    """展示/推送用发帖时间（禁止 parsed_at / 抓取时间冒充发帖时间）。"""
+    dt = infer_tweet_post_datetime(
+        created_raw=created_raw,
+        time_label=time_label,
+        tweet_id=tweet_id,
+    )
+    if dt is not None:
+        return fmt_beijing(dt)
+    if time_label:
+        return str(time_label).strip()
+    raw = str(created_raw or "").strip()
+    if raw:
+        return raw[:32]
+    if fallback_now:
         return fmt_beijing(datetime.now(timezone.utc))
-    return t
+    return "未知"
 
 
 _TIME_PREFIX_RE = re.compile(r"^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s*")

@@ -26,7 +26,17 @@ from signals.store import (
     save_config,
     upsert_card,
 )
-from signals.tweet_log import clip_text, fmt_item_summary_line, fmt_post_time, fmt_signal_line, fmt_tweet_line, resolve_display_time
+from signals.tweet_log import (
+    clip_text,
+    fmt_item_summary_line,
+    fmt_post_time,
+    fmt_signal_line,
+    fmt_tweet_line,
+    infer_tweet_post_datetime,
+    normalize_tweet_item_times,
+    resolve_display_time,
+    tweet_created_at_iso,
+)
 
 ProgressCb = Optional[Callable[[str], None]]
 
@@ -113,17 +123,28 @@ def run_list_signal_pipeline(
     if _wait_if_paused(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "message": "用户终止"}
 
+    from signals.store import is_tweet_fully_stored
+
+    def _list_stop_tid(tid: str) -> bool:
+        if reparse_seen:
+            return False
+        return is_tweet_fully_stored(tid)
+
     crawled = crawl_list_timeline(
         lid,
         since=floor,
         max_tweets=limit,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        stop_if_known=_list_stop_tid,
+        stop_known_streak=2,
     )
     if not crawled.get("success"):
         return crawled
 
-    raw_items: List[Dict[str, Any]] = list(crawled.get("items") or [])
+    raw_items: List[Dict[str, Any]] = [
+        normalize_tweet_item_times(it, now=now) for it in list(crawled.get("items") or [])
+    ]
     fresh: List[Dict[str, Any]] = []
     filtered_old = 0
     filtered_seen = 0
@@ -136,8 +157,8 @@ def run_list_signal_pipeline(
             continue
         if tid and is_seen(tid) and not reparse_seen:
             filtered_seen += 1
-            _log(progress, f"[过滤] 已处理过 · {fmt_tweet_line(it)}")
-            continue
+            _log(progress, f"[截止] 已收录 · {fmt_tweet_line(it)}，不再向更早拉取")
+            break
         fresh.append(it)
 
     page_seen = int(crawled.get("page_seen") or 0)
@@ -176,11 +197,20 @@ def run_list_signal_pipeline(
         tid = str(it.get("tweet_id") or "")
         text = str(it.get("text") or "").strip()
         author = str(it.get("author") or "")
+        it = normalize_tweet_item_times(it, now=now)
         created_raw = str(it.get("created_at") or "")
         time_label = str(it.get("time_label") or "")
-        created = parse_dt(created_raw)
+        post_dt = infer_tweet_post_datetime(
+            created_raw=created_raw, time_label=time_label, tweet_id=tid, now=now
+        )
+        if post_dt is not None:
+            created_raw = tweet_created_at_iso(post_dt)
+            created = _aware(post_dt)
+        else:
+            created = parse_dt(created_raw)
+            if created:
+                created = _aware(created)
         if created:
-            created = _aware(created)
             if newest is None or created > newest:
                 newest = created
             if oldest is None or created < oldest:
@@ -189,7 +219,7 @@ def run_list_signal_pipeline(
         preview = clip_text(text, 200) or ("（无文字，含图）" if it.get("images") else "（空）")
         time_s = fmt_post_time(created_raw, time_label, created)
         if time_s == "未知":
-            time_s = resolve_display_time(created_raw, time_label, now.isoformat(timespec="seconds"))
+            time_s = resolve_display_time(created_raw, time_label, tweet_id=tid)
 
         _log(progress, f"---------- 解析 [{i}/{len(fresh)}] ----------")
         _log(progress, f"发帖人: {author or '(未知)'}")
@@ -298,9 +328,7 @@ def run_list_signal_pipeline(
             _log(progress, "结果: 无交易信号，已跳过入库")
             continue
 
-        if not created_raw:
-            created_raw = now.isoformat(timespec="seconds")
-        if not time_label:
+        if not time_label and time_s and time_s != "未知":
             time_label = time_s
 
         card = {
@@ -543,7 +571,7 @@ def run_user_signal_pipeline(
     now = datetime.now(timezone.utc).astimezone()
 
     if kol_realtime:
-        hours = max(1, min(int(kol_cutoff_hours or cfg.get("kol_realtime_cutoff_hours") or 24), 168))
+        hours = max(1, min(int(kol_cutoff_hours or cfg.get("kol_realtime_cutoff_hours") or 8), 168))
         since = now - timedelta(hours=hours)
         range_label = f"KOL 实时 {hours}h"
         range_key = "kol_realtime"
@@ -596,6 +624,18 @@ def run_user_signal_pipeline(
     if _wait_if_paused(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "message": "用户终止"}
 
+    from signals.store import is_tweet_fully_stored
+
+    def _user_stop_tid(tid: str) -> bool:
+        if reparse_seen:
+            return False
+        return is_tweet_fully_stored(
+            tid,
+            author=str(handle),
+            user_handle=handle,
+        )
+
+    known_streak = 3 if kol_realtime else 1
     crawled = crawl_user_timeline(
         handle,
         since=since,
@@ -603,11 +643,15 @@ def run_user_signal_pipeline(
         max_scroll=max_scroll,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        stop_if_known=_user_stop_tid,
+        stop_known_streak=known_streak,
     )
     if not crawled.get("success"):
         return crawled
 
-    raw_items: List[Dict[str, Any]] = list(crawled.get("items") or [])
+    raw_items: List[Dict[str, Any]] = [
+        normalize_tweet_item_times(it, now=now) for it in list(crawled.get("items") or [])
+    ]
     fresh: List[Dict[str, Any]] = []
     filtered_old = 0
     filtered_seen = 0
@@ -626,8 +670,11 @@ def run_user_signal_pipeline(
             )
             if cached and isinstance(cached.get("signal"), dict):
                 filtered_seen += 1
-                _log(progress, f"[跳过] 已抓取 · {fmt_tweet_line(it)}")
-                continue
+                if kol_realtime:
+                    _log(progress, f"[跳过] 已收录 · {fmt_tweet_line(it)}")
+                    continue
+                _log(progress, f"[截止] 已收录 · {fmt_tweet_line(it)}，不再向更早拉取")
+                break
             fresh.append(it)
             _log(progress, f"[补解析] 无缓存记录 · {fmt_tweet_line(it)}")
             continue
@@ -660,11 +707,20 @@ def run_user_signal_pipeline(
         author = str(it.get("author") or f"@{handle}")
         if not author.startswith("@"):
             author = f"@{parse_user_handle(author) or handle}"
+        it = normalize_tweet_item_times(it, now=now)
         created_raw = str(it.get("created_at") or "")
         time_label = str(it.get("time_label") or "")
-        created = parse_dt(created_raw)
+        post_dt = infer_tweet_post_datetime(
+            created_raw=created_raw, time_label=time_label, tweet_id=tid, now=now
+        )
+        if post_dt is not None:
+            created_raw = tweet_created_at_iso(post_dt)
+            created = _aware(post_dt)
+        else:
+            created = parse_dt(created_raw)
+            if created:
+                created = _aware(created)
         if created:
-            created = _aware(created)
             if newest is None or created > newest:
                 newest = created
             if oldest is None or created < oldest:
@@ -673,7 +729,7 @@ def run_user_signal_pipeline(
         preview = clip_text(text, 200) or ("（无文字，含图）" if it.get("images") else "（空）")
         time_s = fmt_post_time(created_raw, time_label, created)
         if time_s == "未知":
-            time_s = resolve_display_time(created_raw, time_label, now.isoformat(timespec="seconds"))
+            time_s = resolve_display_time(created_raw, time_label, tweet_id=tid)
 
         _log(progress, f"---------- 解析 [{i}/{len(fresh)}] ----------")
         _log(progress, f"发帖人: {author}")
@@ -785,7 +841,7 @@ def run_user_signal_pipeline(
                     "url": str(it.get("url") or ""),
                     "author": author,
                     "text": text,
-                    "created_at": created_raw or now.isoformat(timespec="seconds"),
+                    "created_at": created_raw,
                     "time_label": time_label or time_s,
                     "display_time": time_s,
                     "images": images_meta,
@@ -849,10 +905,10 @@ def run_user_signal_pipeline(
             _log(progress, f"摘要 · {summary}")
             continue
 
-        if not created_raw:
-            created_raw = now.isoformat(timespec="seconds")
-        if not time_label:
+        if not time_label and time_s and time_s != "未知":
             time_label = time_s
+
+        from signals.cards_id import cards_api_external_id
 
         card = {
             "id": f"sig_{uuid4().hex[:10]}",
@@ -868,8 +924,10 @@ def run_user_signal_pipeline(
             "images": images_meta,
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
+            "realtime_push": bool(kol_realtime),
             **src_meta,
         }
+        card["cards_external_id"] = cards_api_external_id(card)
         upsert_card(card)
         cards.append(card)
         if signal.get("has_trade_signal"):
