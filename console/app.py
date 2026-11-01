@@ -4225,6 +4225,8 @@ def handle_api(
             "cutoff_hours",
             "max_posts_per_profile",
             "try_bapi_first",
+            "profile_fetch_mode",
+            "backfill_allow_cdp",
             "replay_whisper_auto",
             "replay_whisper_max_days",
             "cycle_enabled",

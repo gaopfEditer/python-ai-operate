@@ -131,6 +131,13 @@ function syncSigBsRealtimeFormFromConfig(cfg) {
   if ($("#sigBsTryBapi") && cfg?.try_bapi_first != null) {
     $("#sigBsTryBapi").checked = !!cfg.try_bapi_first;
   }
+  if ($("#sigBsProfileFetchBapi")) {
+    const mode = String(cfg?.profile_fetch_mode || "bapi").toLowerCase();
+    $("#sigBsProfileFetchBapi").checked = mode !== "cdp";
+  }
+  if ($("#sigBsBackfillAllowCdp") && cfg?.backfill_allow_cdp != null) {
+    $("#sigBsBackfillAllowCdp").checked = !!cfg.backfill_allow_cdp;
+  }
   if ($("#sigBsRtTryBapi") && cfg?.try_bapi_first != null) {
     $("#sigBsRtTryBapi").checked = !!cfg.try_bapi_first;
   }
@@ -8223,6 +8230,15 @@ function binanceWhisperMediaUrl(card) {
   return String(card?.replay_url || card?.video_url || "").trim();
 }
 
+/** WhisprRT 应用 square/post/{contentId} 调 bapi；replay?id= 常导致 data=null */
+function binanceWhisperTranscribeUrl(card) {
+  const tid = String(card?.tweet_id || "").trim();
+  if (tid && /^\d+$/.test(tid)) {
+    return `https://www.binance.com/zh-CN/square/post/${tid}`;
+  }
+  return binanceWhisperMediaUrl(card);
+}
+
 function binanceWhisperDefaultName(card) {
   const slug = String(card?.user_handle || parseSigUserHandle(card?.author || "") || "square")
     .toLowerCase()
@@ -8259,7 +8275,7 @@ async function openSigWhisperDialog(tweetId) {
     toast("未找到卡片", "error");
     return;
   }
-  const url = binanceWhisperMediaUrl(card);
+  const url = binanceWhisperTranscribeUrl(card);
   if (!url) {
     toast("该帖无直播回放 / 视频 URL", "error");
     return;
@@ -8305,7 +8321,7 @@ async function pollWhisperJobsNotify(jobs, { intervalMs = 2500 } = {}) {
           : "");
       const msg = ok
         ? `转写完成：${label}${path ? ` · ${path}` : ""}`
-        : `转写失败：${label} · ${job.message || "未知错误"}`;
+        : `转写失败：${label} · ${job.message || job.result?.stdout_tail?.slice(-200) || "未知错误"}`;
       toast(msg, ok ? "ok" : "error");
       break;
     }
@@ -8623,6 +8639,8 @@ async function saveSigBinanceConfig() {
       backfill_range: getSigBsBackfillRange(cfg),
       max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
       try_bapi_first: !!$("#sigBsTryBapi")?.checked,
+      profile_fetch_mode: $("#sigBsProfileFetchBapi")?.checked ? "bapi" : "cdp",
+      backfill_allow_cdp: !!$("#sigBsBackfillAllowCdp")?.checked,
       replay_whisper_auto: !!$("#sigBsReplayWhisper")?.checked,
       profiles,
     }),
@@ -9076,6 +9094,9 @@ async function saveSigBsRealtimeSettings() {
     cycle_cutoff_hours: Math.max(1, Math.min(48, Number($("#sigBsCycleCutoffHours")?.value || 8) || 8)),
     first_crawl_hours: Math.max(1, Math.min(48, Number($("#sigBsFirstCrawlHours")?.value || 8) || 8)),
     cycle_profile_ids: selectedSigBsProfileIds(),
+    try_bapi_first: readSigBsRtTryBapi(),
+    profile_fetch_mode: $("#sigBsProfileFetchBapi")?.checked !== false ? "bapi" : "cdp",
+    backfill_allow_cdp: !!$("#sigBsBackfillAllowCdp")?.checked,
   };
   setStatus($("#sigBsRealtimeStatus"), "保存中…");
   const data = await api("/api/signals/binance-square/config", {
@@ -10222,6 +10243,7 @@ function collectSigKolRtForm() {
       Math.min(120, Number($("#sigKolRtMaxTweets")?.value || 40) || 40)
     ),
     kol_realtime_push_enabled: !!$("#sigKolRtPush")?.checked,
+    x_fetch_soft_reload: !!$("#sigKolRtSoftReload")?.checked,
     kol_realtime_handles: getSelectedSigKolRtIds(),
   };
 }
@@ -10244,6 +10266,9 @@ function applySigKolRtForm(cfg, bloggers, rt) {
   }
   if ($("#sigKolRtPush")) {
     $("#sigKolRtPush").checked = !!pick("kol_realtime_push_enabled", false);
+  }
+  if ($("#sigKolRtSoftReload")) {
+    $("#sigKolRtSoftReload").checked = !!pick("x_fetch_soft_reload", false);
   }
   const bloggerItems = Array.isArray(bloggers)
     ? bloggers
@@ -11333,14 +11358,9 @@ function parseSigPostTimeLabel(text, refDate = new Date()) {
 
 function sigCardParsedInstant(c) {
   const createdRaw = String(c?.created_at || "").trim();
-  if (createdRaw && /T\d{2}:\d{2}/.test(createdRaw)) {
-    let t = createdRaw.includes("T") ? createdRaw : createdRaw.replace(" ", "T");
-    if (!/[zZ+]/.test(t.slice(10))) {
-      t = t.endsWith("Z") ? t : `${t}Z`;
-    }
-    const dIso = new Date(t);
-    if (!Number.isNaN(dIso.getTime())) return dIso;
-  }
+  const dispRaw = String(c?.display_time || "").trim();
+  const fromCreated = parseSigInstantFromString(createdRaw);
+  if (fromCreated) return fromCreated;
 
   if (isTwitterSigCard(c)) {
     const tlTw = String(c?.time_label || "").trim();
@@ -11364,7 +11384,11 @@ function sigCardParsedInstant(c) {
     : looksLikeSigTimeLabel(tl)
       ? parseSigPostTimeLabel(tl)
       : null;
+  const fromDisp = parseSigInstantFromString(dispRaw);
   if (dtLabel && snippet && looksLikeSigRelativeTimeLabel(snippet)) {
+    if (dtIso && Math.abs(dtIso.getTime() - dtLabel.getTime()) > 21_600_000) return dtIso;
+    if (dtIso) return dtIso;
+    if (fromDisp) return fromDisp;
     return dtLabel;
   }
   if (dtIso && dtLabel) {
@@ -11374,10 +11398,9 @@ function sigCardParsedInstant(c) {
     return dtIso;
   }
   if (dtIso) return dtIso;
+  if (fromDisp) return fromDisp;
   if (dtLabel) return dtLabel;
-  const disp = String(c?.display_time || "").trim();
-  const created = String(c?.created_at || "").trim();
-  return parseSigInstantFromString(disp) || parseSigInstantFromString(created);
+  return parseSigInstantFromString(createdRaw);
 }
 
 function sigCardTimeMs(c) {

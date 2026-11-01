@@ -837,6 +837,10 @@
                 <input id="sigKolRtPush" type="checkbox" />
                 <span>推送到 Telegram（Cards API）</span>
               </label>
+              <label class="field check" style="align-self:end">
+                <input id="sigKolRtSoftReload" type="checkbox" />
+                <span>推特 CDP 软复用（同 URL 不 reload）</span>
+              </label>
             </div>
             <div class="field full">
               <div class="sig-blogger-head">
@@ -943,7 +947,15 @@
               </label>
               <label class="field check">
                 <input id="sigBsTryBapi" type="checkbox" />
-                <span>先尝试 bapi 热榜（失败再走主页 CDP）</span>
+                <span>额外拉取 bapi 广场热榜（可选）</span>
+              </label>
+              <label class="field check">
+                <input id="sigBsProfileFetchBapi" type="checkbox" checked />
+                <span>博主帖 HTTP(bapi)+Cookie（不滚 profile 页）</span>
+              </label>
+              <label class="field check">
+                <input id="sigBsBackfillAllowCdp" type="checkbox" />
+                <span>历史回溯 bapi 不足时允许 CDP 滚主页</span>
               </label>
               <label class="field check full">
                 <input id="sigBsReplayWhisper" type="checkbox" />
@@ -995,7 +1007,7 @@
               </label>
               <label class="field check" style="align-self:end">
                 <input id="sigBsRtTryBapi" type="checkbox" />
-                <span>先尝试 bapi 热榜</span>
+                <span>额外 bapi 热榜（可选）</span>
               </label>
               <label class="field check full">
                 <input id="sigBsCycleEnabled" type="checkbox" />
@@ -1493,6 +1505,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261024j"></script>
+  <script src="/app.js?v=20261101b"></script>
 </body>
 </html>

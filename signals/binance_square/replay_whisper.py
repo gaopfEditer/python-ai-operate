@@ -16,6 +16,13 @@ DEFAULT_REPLAY_WHISPER_MAX_DAYS = 2
 
 
 def replay_media_url(post: Dict[str, Any]) -> str:
+    """
+    WhisprRT 拉流应使用 square/post/{contentId}。
+    replay?id= 多为 live_content_id，内容 detail 接口会返回 data=null。
+    """
+    cid = post_content_id(post)
+    if cid:
+        return f"https://www.binance.com/zh-CN/square/post/{cid}"
     return str(post.get("replay_url") or post.get("video_url") or "").strip()
 
 

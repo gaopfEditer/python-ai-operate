@@ -149,6 +149,8 @@ def _empty_state() -> Dict[str, Any]:
             "kol_realtime_session_id": "",
             "kol_realtime_session_started_at": "",
             "debugger_url": "127.0.0.1:9223",
+            "signals_cdp_target_id": "",
+            "x_fetch_soft_reload": False,
         },
         "windows": [],
         "seen_tweet_ids": [],
@@ -317,6 +319,10 @@ def save_config(patch: Dict[str, Any]) -> Dict[str, Any]:
         raw = normalize_debugger_url(str(patch.get("debugger_url") or ""))
         if raw:
             cfg["debugger_url"] = raw
+    if "signals_cdp_target_id" in patch:
+        cfg["signals_cdp_target_id"] = str(patch.get("signals_cdp_target_id") or "").strip()
+    if "x_fetch_soft_reload" in patch:
+        cfg["x_fetch_soft_reload"] = bool(patch["x_fetch_soft_reload"])
     state["config"] = cfg
     save_state(state)
     return cfg
@@ -436,6 +442,19 @@ def parse_dt(raw: str) -> Optional[datetime]:
         return None
 
 
+def _is_binance_square_card(card: Dict[str, Any]) -> bool:
+    lid = str(card.get("list_id") or "")
+    if lid.startswith("binance:"):
+        return True
+    sm = str(card.get("source_mode") or "")
+    if sm == "binance_square":
+        return True
+    for raw in card.get("source_modes") or []:
+        if str(raw or "").startswith("binance"):
+            return True
+    return False
+
+
 def _card_sort_ts(card: Dict[str, Any]) -> datetime:
     """卡片排序用发帖时间（不用 parsed_at 抓取时间）。"""
     for key in ("created_at", "display_time"):
@@ -443,7 +462,7 @@ def _card_sort_ts(card: Dict[str, Any]) -> datetime:
         if dt is not None:
             return dt
     tid = str(card.get("tweet_id") or "").strip()
-    if tid:
+    if tid and not _is_binance_square_card(card):
         from signals.tweet_log import tweet_id_to_post_datetime
 
         dt = tweet_id_to_post_datetime(tid)

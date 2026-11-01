@@ -40,6 +40,8 @@ def default_config() -> Dict[str, Any]:
         "cutoff_hours": 24,
         "max_posts_per_profile": 40,
         "try_bapi_first": False,
+        "profile_fetch_mode": "bapi",
+        "backfill_allow_cdp": False,
         "replay_whisper_auto": False,
         "replay_whisper_max_days": 2,
         "cycle_enabled": False,

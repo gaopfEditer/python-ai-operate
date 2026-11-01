@@ -764,7 +764,10 @@ def _crawl_timeline_at_url(
     stall_limit: int = 18,
     stop_if_known: Optional[Callable[[str], bool]] = None,
     stop_known_streak: int = 2,
+    soft_reload: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    from signals.store import get_config
+
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     feed_js = _feed_js(handle, filter_author=filter_author)
     by_id: Dict[str, Dict[str, Any]] = {}
@@ -778,12 +781,28 @@ def _crawl_timeline_at_url(
     stopped_known = False
     need_known = max(1, int(stop_known_streak or 2))
 
-    _log(progress, f"打开 {label}：{url}")
-    page.silent_navigate(url)
-    wait_s = 5.0 if page_kind == "search" else 3.5
-    time.sleep(wait_s)
-    _prepare_timeline_page(page, kind=page_kind, prefer_live=prefer_live)
-    _reset_timeline_scroll_top(page, progress=progress, label=label)
+    if soft_reload is None:
+        soft_reload = get_config().get("x_fetch_soft_reload") is False
+
+    navigated = True
+    if soft_reload:
+        try:
+            cur = str(page.eval_js("return location.href || ''") or "").strip()
+        except Exception:
+            cur = ""
+        norm = lambda u: (u or "").split("#")[0].strip().rstrip("/")
+        if norm(cur) == norm(url):
+            navigated = False
+
+    if navigated:
+        _log(progress, f"打开 {label}：{url}")
+        page.silent_navigate(url)
+        wait_s = 5.0 if page_kind == "search" else 3.5
+        time.sleep(wait_s)
+        _prepare_timeline_page(page, kind=page_kind, prefer_live=prefer_live)
+        _reset_timeline_scroll_top(page, progress=progress, label=label)
+    else:
+        _log(progress, f"{label} 软复用当前页（不 reload / 不滚回顶）")
 
     for round_i in range(max_scroll):
         if should_abort and should_abort():
@@ -816,6 +835,9 @@ def _crawl_timeline_at_url(
                         )
             elif round_i == 0:
                 _log(progress, f"{label} 首屏无推文 DOM，继续滚动…")
+                if not navigated:
+                    _reset_timeline_scroll_top(page, progress=progress, label=label)
+                    navigated = True
 
         oldest_in_batch = None
         new_in_round = 0
@@ -1030,19 +1052,41 @@ def _session_alive(sess: Dict[str, Any]) -> bool:
         return False
 
 
+def _persist_signals_cdp_target_id(target_id: str) -> None:
+    tid = str(target_id or "").strip()
+    if not tid:
+        return
+    try:
+        from signals.store import save_config
+
+        save_config({"signals_cdp_target_id": tid})
+    except Exception:
+        pass
+
+
 def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[Any, Any]:
     """
-    复用 Chrome 最后一个页签抓取列表，避免周期任务每次 Target.createTarget 新开 tab。
+    复用 Signals 专用后台页签（持久 target_id），避免附着用户最后一 tab。
     """
     from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
+    from signals.store import get_config
 
     global _SESSION
+
+    cfg = get_config()
+    soft_skip_reload = cfg.get("x_fetch_soft_reload") is False
+    stored_tid = str(cfg.get("signals_cdp_target_id") or "").strip()
 
     with _SESSION_LOCK:
         if _SESSION and _session_alive(_SESSION):
             page = _SESSION["page"]
-            _log(progress, f"CDP 复用会话页签 → {list_url}")
+            last = str(_SESSION.get("last_url") or "")
+            if soft_skip_reload and last == list_url:
+                _log(progress, f"CDP 软复用（不 reload）→ {list_url}")
+                return _SESSION["client"], page
+            _log(progress, f"CDP 复用 Signals 专用页签 → {list_url}")
             page.silent_navigate(list_url)
+            _SESSION["last_url"] = list_url
             return _SESSION["client"], page
 
         _close_session()
@@ -1059,27 +1103,31 @@ def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[A
         created_new = False
         pages = _list_page_targets()
 
-        if pages:
-            tid = str(pages[-1].get("id") or "")
-            try:
-                page = BackgroundTarget.attach(client, tid)
-                _log(
-                    progress,
-                    f"CDP 附着最后一个页签（未新建 tab，当前共 {len(pages)} 个）",
-                )
-            except Exception:
-                page = None
+        if stored_tid:
+            for p in pages:
+                if str(p.get("id") or "") == stored_tid:
+                    try:
+                        page = BackgroundTarget.attach(client, stored_tid)
+                        _log(
+                            progress,
+                            f"CDP 附着 Signals 专用页签（{stored_tid[:8]}…）",
+                        )
+                    except Exception:
+                        page = None
+                    break
 
         if page is None:
             page = BackgroundTarget.create(client, _SIGNALS_TAB_BLANK)
             created_new = True
-            _log(progress, "CDP 无可用页签，建立后台专用标签（仅此一次）")
+            _persist_signals_cdp_target_id(page.target_id)
+            _log(progress, "CDP 新建 Signals 专用后台标签（仅此一次）")
 
         _SESSION = {
             "client": client,
             "page": page,
             "target_id": page.target_id,
             "created_new": created_new,
+            "last_url": list_url,
         }
         page.silent_navigate(list_url)
         return client, page
@@ -1199,6 +1247,10 @@ def crawl_list_timeline(
     host = _debugger_host()
     _orig = _patch_debugger_host(host)
 
+    from utils.signals_fetch_lock import signals_fetch_lock
+
+    _fetch_lock = signals_fetch_lock()
+    _fetch_lock.acquire()
     page = None
     try:
         try:
@@ -1347,6 +1399,10 @@ def crawl_list_timeline(
         _close_session()
         return {"success": False, "error": str(e), "items": []}
     finally:
+        try:
+            _fetch_lock.release()
+        except Exception:
+            pass
         if _orig is not None:
             try:
                 import allnews_mornitor.cdp_browser as cdp_mod
@@ -1404,6 +1460,10 @@ def crawl_user_timeline(
     host = _debugger_host()
     _orig = _patch_debugger_host(host)
 
+    from utils.signals_fetch_lock import signals_fetch_lock
+
+    _fetch_lock = signals_fetch_lock()
+    _fetch_lock.acquire()
     page = None
     try:
         try:
@@ -1564,6 +1624,10 @@ def crawl_user_timeline(
         _close_session()
         return {"success": False, "error": str(e), "items": []}
     finally:
+        try:
+            _fetch_lock.release()
+        except Exception:
+            pass
         if _orig is not None:
             try:
                 import allnews_mornitor.cdp_browser as cdp_mod

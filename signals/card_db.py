@@ -100,6 +100,19 @@ def _card_user_handle(card: Dict[str, Any]) -> str:
     return h.lower() if h else ""
 
 
+def _is_binance_square_card(card: Dict[str, Any]) -> bool:
+    lid = str(card.get("list_id") or "")
+    if lid.startswith("binance:"):
+        return True
+    sm = str(card.get("source_mode") or "")
+    if sm == "binance_square":
+        return True
+    for raw in card.get("source_modes") or []:
+        if str(raw or "").startswith("binance"):
+            return True
+    return False
+
+
 def _card_created_ts(card: Dict[str, Any]) -> int:
     raw_ts = card.get("_created_at_ts")
     if raw_ts is not None and raw_ts != "":
@@ -114,7 +127,7 @@ def _card_created_ts(card: Dict[str, Any]) -> int:
         if dt is not None:
             return int(dt.timestamp())
     tid = str(card.get("tweet_id") or "").strip()
-    if tid:
+    if tid and not _is_binance_square_card(card):
         try:
             from signals.tweet_log import tweet_id_to_post_datetime
 
@@ -143,7 +156,7 @@ def _merge_cards(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str
         and str(incoming.get("tweet_id") or "").strip() == str(existing.get("tweet_id") or "").strip()
     )
     time_keys = frozenset(
-        {"time_label", "published_iso", "display_time", "created_at", "parsed_at"}
+        {"time_label", "published_iso", "display_time", "created_at"}
     )
     for key in (
         "url",

@@ -299,10 +299,39 @@ def run_binance_square_fetch(
     if incremental is None:
         incremental = time_spec.get("mode") != "range"
     if time_spec.get("mode") == "range":
-        _log(progress, "历史回溯：主页深滚以覆盖回溯范围")
+        _log(progress, "历史回溯：优先 bapi 分页；深度不足时可配置 backfill_allow_cdp")
     elif incremental:
         hours = float(time_spec.get("cutoff_hours") or 8)
-        _log(progress, f"实时/周期：浅滚首屏附近（近 {hours:g}h 由时间过滤裁切，不深滚）")
+        _log(progress, f"实时/周期：bapi 浅分页（近 {hours:g}h 由时间过滤裁切）")
+
+    profile_fetch_mode = str(cfg.get("profile_fetch_mode") or "bapi").strip().lower()
+    if profile_fetch_mode not in ("bapi", "cdp"):
+        profile_fetch_mode = "bapi"
+    backfill_allow_cdp = bool(cfg.get("backfill_allow_cdp"))
+    _log(
+        progress,
+        f"Square profile_fetch_mode={profile_fetch_mode} · 热榜 bapi={use_bapi}",
+    )
+
+    skip_hours = float(cfg.get("content_skip_hours") or 24)
+    if time_spec.get("mode") == "range":
+        known_ids_for_fetch = known_square_content_ids()
+    else:
+        from signals.binance_square.store import square_content_ids_skip_recent
+
+        known_ids_for_fetch = square_content_ids_skip_recent(skip_hours)
+    try:
+        from signals.card_db import db_known_binance_content_ids
+
+        known_ids_for_fetch |= db_known_binance_content_ids()
+    except Exception:
+        pass
+
+    scroll_stop = (
+        backfill_soft_cutoff_from_time_spec(time_spec)
+        if time_spec.get("mode") == "range"
+        else None
+    )
 
     all_posts: List[Dict[str, Any]] = []
     routes: List[str] = []
@@ -312,103 +341,137 @@ def run_binance_square_fetch(
         trending = fetch_trending(limit=max_n)
         if trending:
             all_posts.extend(trending)
-            routes.append("bapi")
+            routes.append("bapi_trending")
         else:
-            _log(progress, "bapi 无数据，改走 CDP 主页…")
+            _log(progress, "bapi 热榜无数据（可忽略，仍以博主列表为准）")
 
-    if profiles:
+    def _fetch_one_profile_cdp(driver, prof: dict, i: int, total: int) -> List[Dict[str, Any]]:
         from public.platforms.cdp_common import (
             activate_selenium_tab,
-            connect_cdp,
-            invalidate_cdp_driver,
             navigate_or_activate,
             preserve_os_focus,
             wait_landed,
         )
 
-        if not dbg:
-            from signals.store import resolve_signals_debugger_url
-
-            dbg = resolve_signals_debugger_url()
-        _log(progress, f"连接 CDP {dbg}…")
+        url = str(prof.get("url") or "").strip()
+        slug = _slug_from_profile(url) or str(prof.get("id") or "")
+        name = str(prof.get("name") or slug)
+        if not url:
+            return []
+        _log(progress, f"======== [{i}/{total}] @{slug} · {name} · CDP 主页 ========")
         try:
-            driver = connect_cdp(dbg)
+            with preserve_os_focus():
+                navigate_or_activate(driver, url)
+                activate_selenium_tab(driver)
+            wait_landed(
+                driver,
+                hosts=("binance.com",),
+                paths=("/square/profile/",),
+                timeout=12.0,
+            )
         except Exception as e:
-            invalidate_cdp_driver(dbg)
-            return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
-
+            _log(progress, f"  打开失败: {e}")
+            return []
+        block = _binance_block_reason(driver)
+        if block:
+            _log(progress, f"  跳过：{block}")
+            profile_stats.append(
+                {"id": slug, "name": name, "fetched": 0, "url": url, "blocked": block}
+            )
+            return []
+        feed_n = _wait_profile_feed(driver, timeout_sec=12.0)
+        if feed_n <= 0:
+            _log(progress, f"  帖文未就绪（{_profile_feed_diag(driver)}），滚动抽取时会再刷新…")
         scroll_kw = _scroll_params_for_time_spec(time_spec, incremental=bool(incremental))
-        scroll_stop = (
-            backfill_soft_cutoff_from_time_spec(time_spec)
-            if time_spec.get("mode") == "range"
-            else None
-        )
+        abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
         try:
-            abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
-            for i, prof in enumerate(profiles, 1):
-                if _wait_control(control, progress) == "stop":
-                    aborted = True
-                    _log(progress, f"用户终止于博主 {i - 1}/{len(profiles)}")
-                    break
-                url = str(prof.get("url") or "").strip()
-                slug = _slug_from_profile(url) or str(prof.get("id") or "")
-                name = str(prof.get("name") or slug)
-                if not url:
-                    continue
-                _log(progress, f"======== [{i}/{len(profiles)}] @{slug} · {name} ========")
-                _log(progress, f"打开主页 …")
-                try:
-                    with preserve_os_focus():
-                        navigate_or_activate(driver, url)
-                        activate_selenium_tab(driver)
-                    wait_landed(
-                        driver,
-                        hosts=("binance.com",),
-                        paths=("/square/profile/",),
-                        timeout=12.0,
-                    )
-                except Exception as e:
-                    _log(progress, f"  打开失败: {e}")
-                    continue
-                block = _binance_block_reason(driver)
-                if block:
-                    _log(progress, f"  跳过：{block}")
-                    profile_stats.append(
-                        {"id": slug, "name": name, "fetched": 0, "url": url, "blocked": block}
-                    )
-                    continue
-                feed_n = _wait_profile_feed(driver, timeout_sec=12.0)
-                if feed_n <= 0:
-                    _log(progress, f"  帖文未就绪（{_profile_feed_diag(driver)}），滚动抽取时会再刷新…")
-                try:
-                    chunk = _scroll_profile_and_extract(
-                        driver,
+            chunk = _scroll_profile_and_extract(
+                driver,
+                max_items=max_n,
+                author_slug=slug,
+                progress=progress,
+                should_abort=abort_fn,
+                scroll_stop_before=scroll_stop,
+                **scroll_kw,
+            )
+        except Exception as e:
+            _log(progress, f"  解析失败: {e}")
+            chunk = []
+        for row in chunk:
+            if isinstance(row, dict):
+                row["profile_id"] = slug
+                row["profile_name"] = name
+                row["source"] = "profile_cdp"
+        if not chunk:
+            _log(progress, f"  抽到 0 条（去重后） · {_profile_feed_diag(driver)}")
+        else:
+            _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
+        profile_stats.append({"id": slug, "name": name, "fetched": len(chunk), "url": url})
+        return chunk
+
+    if profiles:
+        if profile_fetch_mode == "bapi":
+            from signals.binance_square.bapi_profile import fetch_profile_posts
+            from utils.signals_fetch_lock import signals_fetch_lock
+
+            with signals_fetch_lock():
+                for i, prof in enumerate(profiles, 1):
+                    if _wait_control(control, progress) == "stop":
+                        aborted = True
+                        break
+                    slug = str(prof.get("id") or _slug_from_profile(str(prof.get("url") or ""))).strip()
+                    name = str(prof.get("name") or slug)
+                    _log(progress, f"======== [{i}/{len(profiles)}] @{slug} · {name} · bapi ========")
+                    chunk, route = fetch_profile_posts(
+                        slug,
+                        profile_name=name,
                         max_items=max_n,
-                        author_slug=slug,
+                        known_ids=set(known_ids_for_fetch),
+                        stop_before=scroll_stop,
                         progress=progress,
-                        should_abort=abort_fn,
-                        scroll_stop_before=scroll_stop,
-                        **scroll_kw,
+                        allow_cdp_inpage=True,
                     )
-                except Exception as e:
-                    _log(progress, f"  解析失败: {e}")
-                    chunk = []
-                for row in chunk:
-                    if isinstance(row, dict):
-                        row["profile_id"] = slug
-                        row["profile_name"] = name
-                        row["source"] = "profile_cdp"
-                if not chunk:
-                    _log(progress, f"  抽到 0 条（去重后） · {_profile_feed_diag(driver)}")
-                else:
-                    _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
-                profile_stats.append(
-                    {"id": slug, "name": name, "fetched": len(chunk), "url": url}
-                )
-                all_posts.extend(chunk)
-            routes.append("profile_cdp")
-        finally:
-            pass
+                    routes.append(route)
+                    if not chunk and (
+                        time_spec.get("mode") != "range" or backfill_allow_cdp
+                    ):
+                        _log(progress, f"  bapi 无数据，降级 CDP 滚主页 @{slug}…")
+                        from public.platforms.cdp_common import connect_cdp, invalidate_cdp_driver
+
+                        if not dbg:
+                            from signals.store import resolve_signals_debugger_url
+
+                            dbg = resolve_signals_debugger_url()
+                        try:
+                            driver = connect_cdp(dbg)
+                            chunk = _fetch_one_profile_cdp(driver, prof, i, len(profiles))
+                            routes.append("profile_cdp_fallback")
+                        except Exception as e:
+                            invalidate_cdp_driver(dbg)
+                            _log(progress, f"  CDP 降级失败: {e}")
+                    all_posts.extend(chunk)
+        else:
+            from public.platforms.cdp_common import connect_cdp, invalidate_cdp_driver
+
+            if not dbg:
+                from signals.store import resolve_signals_debugger_url
+
+                dbg = resolve_signals_debugger_url()
+            _log(progress, f"连接 CDP {dbg}…")
+            try:
+                driver = connect_cdp(dbg)
+            except Exception as e:
+                invalidate_cdp_driver(dbg)
+                return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
+            try:
+                for i, prof in enumerate(profiles, 1):
+                    if _wait_control(control, progress) == "stop":
+                        aborted = True
+                        break
+                    all_posts.extend(_fetch_one_profile_cdp(driver, prof, i, len(profiles)))
+                routes.append("profile_cdp")
+            finally:
+                pass
 
     merged = merge_square_posts(all_posts)
     scraped_n = len(merged)
@@ -566,6 +629,7 @@ def run_binance_square_fetch(
         "skipped_known": skipped_known,
         "total": len(merged),
         "routes": routes,
+        "profile_fetch_mode": profile_fetch_mode,
         "profiles": [p.get("id") for p in profiles],
         "profile_stats": profile_stats,
         "backfill_range": time_spec.get("backfill_range") if time_spec.get("mode") == "range" else "",
