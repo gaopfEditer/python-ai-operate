@@ -57,6 +57,11 @@ def load_x_session() -> Optional[Dict[str, Any]]:
             ct0 = ct0 or str(data.get("ct0") or data.get("csrf") or "").strip()
             bearer = bearer or str(data.get("authorization") or "").strip()
             qids = _merge_query_ids(data.get("query_ids") or data.get("queryIds"))
+            file_cookie = str(data.get("cookie_header") or "").strip()
+        else:
+            file_cookie = ""
+    else:
+        file_cookie = ""
 
     if not auth or not ct0:
         return None
@@ -65,12 +70,18 @@ def load_x_session() -> Optional[Dict[str, Any]]:
     if not bearer:
         bearer = DEFAULT_BEARER
 
+    cookie_header = file_cookie if file_cookie else f"auth_token={auth}; ct0={ct0}"
+    if "auth_token=" not in cookie_header:
+        cookie_header = f"auth_token={auth}; " + cookie_header
+    if "ct0=" not in cookie_header:
+        cookie_header = cookie_header + f"; ct0={ct0}"
+
     return {
         "auth_token": auth,
         "ct0": ct0,
         "authorization": bearer,
         "query_ids": qids,
-        "cookie_header": f"auth_token={auth}; ct0={ct0}",
+        "cookie_header": cookie_header,
     }
 
 
