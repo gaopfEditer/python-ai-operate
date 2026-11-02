@@ -1,8 +1,9 @@
 # coding=utf-8
-"""CDP 抓取 X List 时间线推文（含时间、正文、图片）。"""
+"""X List / 博主时间线抓取：默认 Cookie+GraphQL API，CDP 滚动仅作显式回退。"""
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -14,6 +15,85 @@ from signals.store import media_root, parse_dt, parse_list_id
 from signals.tweet_log import fmt_tweet_line
 
 ProgressCb = Optional[Callable[[str], None]]
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _x_api_primary() -> bool:
+    """默认走 HTTP API；SIGNALS_X_USE_CDP=1 强制 CDP 滚动。"""
+    return not _env_flag("SIGNALS_X_USE_CDP", False)
+
+
+def _x_api_only() -> bool:
+    return _env_flag("SIGNALS_X_API_ONLY", False)
+
+
+def _try_x_api_list(
+    list_id: str,
+    *,
+    since: datetime,
+    max_tweets: int,
+    progress: ProgressCb,
+    should_abort: Optional[Callable[[], bool]],
+) -> Optional[Dict[str, Any]]:
+    from signals.x_api import fetch_list_timeline_api
+    from signals.x_session import load_from_cookie_file, session_ready
+
+    cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
+    if cookie_file:
+        load_from_cookie_file(cookie_file)
+    if not session_ready():
+        return None
+    res = fetch_list_timeline_api(
+        list_id,
+        since=since,
+        max_tweets=max_tweets,
+        progress=progress,
+        should_abort=should_abort,
+    )
+    if res.get("success"):
+        return res
+    if _x_api_only():
+        return res
+    _log(progress, f"X API 列表失败，回退 CDP：{res.get('error')}")
+    return None
+
+
+def _try_x_api_user(
+    handle: str,
+    *,
+    since: datetime,
+    max_tweets: int,
+    progress: ProgressCb,
+    should_abort: Optional[Callable[[], bool]],
+) -> Optional[Dict[str, Any]]:
+    from signals.x_api import fetch_user_timeline_api
+    from signals.x_session import load_from_cookie_file, session_ready
+
+    cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
+    if cookie_file:
+        load_from_cookie_file(cookie_file)
+    if not session_ready():
+        return None
+    res = fetch_user_timeline_api(
+        handle,
+        since=since,
+        max_tweets=max_tweets,
+        include_replies=False,
+        progress=progress,
+        should_abort=should_abort,
+    )
+    if res.get("success"):
+        return res
+    if _x_api_only():
+        return res
+    _log(progress, f"X API 博主失败，回退 CDP：{res.get('error')}")
+    return None
 
 # 专用静默标签标记（用于复用 / 清理，避免每次 createTarget 堆 tab）
 _SIGNALS_TAB_MARKER = "trendradar-signals"
@@ -1092,8 +1172,8 @@ def crawl_list_timeline(
     should_abort: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """
-    静默 CDP 打开列表页，滚动直到推文时间早于 since 或达到上限。
-    should_abort: 返回 True 时提前结束滚动。
+    打开 X 列表时间线：默认 GraphQL API（Cookie 会话），SIGNALS_X_USE_CDP=1 时回退 CDP 滚动。
+    should_abort: 返回 True 时提前结束。
     """
     from allnews_mornitor.cdp_browser import _http_json
 
@@ -1103,6 +1183,19 @@ def crawl_list_timeline(
     url = f"https://x.com/i/lists/{lid}"
     max_tweets = max(1, min(int(max_tweets or 40), 120))
     max_scroll = max(3, min(int(max_scroll or 18), 40))
+
+    if _x_api_primary():
+        api_res = _try_x_api_list(
+            lid,
+            since=since,
+            max_tweets=max_tweets,
+            progress=progress,
+            should_abort=should_abort,
+        )
+        if api_res and api_res.get("success"):
+            return api_res
+        if api_res and _x_api_only():
+            return api_res
 
     def _aborted() -> bool:
         try:
@@ -1271,6 +1364,20 @@ def crawl_user_timeline(
     max_tweets = max(1, min(int(max_tweets or 80), 300))
     # 单段深滚上限；整月靠切片叠加，不必单次滚上百轮
     max_scroll = max(18, min(int(max_scroll or 24), 60))
+
+    if _x_api_primary():
+        api_res = _try_x_api_user(
+            h,
+            since=since,
+            max_tweets=max_tweets,
+            progress=progress,
+            should_abort=should_abort,
+        )
+        if api_res and api_res.get("success"):
+            return api_res
+        if api_res and _x_api_only():
+            return api_res
+
     now = datetime.now(timezone.utc).astimezone()
     span_days = max(1, (now - (since if since.tzinfo else since.replace(tzinfo=timezone.utc))).days + 1)
     # >7 天按 4~5 天切片，避免 X 搜索深滚失效只拿到最近几条

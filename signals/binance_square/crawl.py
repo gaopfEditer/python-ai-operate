@@ -1,14 +1,17 @@
 # coding=utf-8
 from __future__ import annotations
 
+import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from signals.control import RunControl
 
-from signals.binance_square.bapi import fetch_trending
+from signals.binance_square.bapi import fetch_profile_posts, fetch_trending
+from signals.binance_square.time_detail import enrich_posts_time_from_detail
 from signals.binance_square.profile_js import PROFILE_POST_EXTRACT_JS
 from signals.binance_square.enrich import enrich_posts_with_signals
 from signals.binance_square.store import (
@@ -41,6 +44,71 @@ def _wait_control(control: Optional["RunControl"], progress: ProgressCb) -> str:
     if control.check() == "stop":
         return "stop"
     return "ok"
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _square_api_primary(cfg: Dict[str, Any]) -> bool:
+    if _env_flag("BINANCE_SQUARE_USE_CDP"):
+        return False
+    if _env_flag("BINANCE_SQUARE_USE_API", True):
+        return True
+    return bool(cfg.get("use_profile_api", True))
+
+
+def _fetch_profiles_via_api(
+    profiles: List[Dict[str, Any]],
+    *,
+    max_n: int,
+    time_spec: Dict[str, Any],
+    progress: ProgressCb,
+    control: Optional["RunControl"],
+) -> List[Dict[str, Any]]:
+    from signals.backfill_range import resolve_backfill_since
+
+    since_dt = None
+    if time_spec.get("mode") == "range":
+        rk = str(time_spec.get("backfill_range") or "last_7d")
+        since_dt, _ = resolve_backfill_since(rk)
+    else:
+        hours = float(time_spec.get("cutoff_hours") or 24)
+        since_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    posts: List[Dict[str, Any]] = []
+    for i, prof in enumerate(profiles, 1):
+        if _wait_control(control, progress) == "stop":
+            break
+        slug = str(prof.get("id") or "").strip()
+        name = str(prof.get("name") or slug)
+        if not slug:
+            continue
+        _log(progress, f"======== [{i}/{len(profiles)}] bapi @{slug} · {name} ========")
+        try:
+            chunk = fetch_profile_posts(
+                slug,
+                max_items=max_n,
+                since=since_dt,
+                profile_name=name,
+                progress=progress,
+            )
+        except Exception as e:
+            _log(progress, f"  bapi 失败: {e}")
+            chunk = []
+        for row in chunk:
+            if isinstance(row, dict):
+                row["profile_id"] = slug
+                row["profile_name"] = name
+                row["source"] = "bapi_profile"
+        _log(progress, f"  bapi 抽到 {len(chunk)} 条")
+        posts.extend(chunk)
+    if posts:
+        posts = enrich_posts_time_from_detail(posts, limit=max(8, max_n // 3), progress=progress)
+    return posts
 
 
 def _slug_from_profile(url: str) -> str:
@@ -165,65 +233,103 @@ def run_binance_square_fetch(
             _log(progress, "bapi 无数据，改走 CDP 主页…")
 
     if profiles:
-        from public.platforms.cdp_common import connect_cdp, invalidate_cdp_driver
-
-        if not dbg:
-            from signals.store import resolve_signals_debugger_url
-
-            dbg = resolve_signals_debugger_url()
-        _log(progress, f"连接 CDP {dbg}…")
-        try:
-            driver = connect_cdp(dbg)
-        except Exception as e:
-            invalidate_cdp_driver(dbg)
-            return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
-
-        scroll_kw = _scroll_params_for_time_spec(time_spec)
-        try:
-            abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
-            for i, prof in enumerate(profiles, 1):
-                if _wait_control(control, progress) == "stop":
-                    aborted = True
-                    _log(progress, f"用户终止于博主 {i - 1}/{len(profiles)}")
-                    break
-                url = str(prof.get("url") or "").strip()
-                slug = _slug_from_profile(url) or str(prof.get("id") or "")
-                name = str(prof.get("name") or slug)
-                if not url:
-                    continue
-                _log(progress, f"======== [{i}/{len(profiles)}] @{slug} · {name} ========")
-                _log(progress, f"打开主页 …")
-                try:
-                    driver.get(url)
-                except Exception as e:
-                    _log(progress, f"  打开失败: {e}")
-                    continue
-                time.sleep(2.2)
-                try:
-                    chunk = _scroll_profile_and_extract(
-                        driver,
-                        max_items=max_n,
-                        author_slug=slug,
-                        progress=progress,
-                        should_abort=abort_fn,
-                        **scroll_kw,
+        api_ok = False
+        if _square_api_primary(cfg):
+            _log(progress, "Square 博主：bapi 分页（默认）…")
+            api_posts = _fetch_profiles_via_api(
+                profiles,
+                max_n=max_n,
+                time_spec=time_spec,
+                progress=progress,
+                control=control,
+            )
+            if api_posts:
+                all_posts.extend(api_posts)
+                routes.append("bapi_profile")
+                for prof in profiles:
+                    slug = str(prof.get("id") or "").strip()
+                    profile_stats.append(
+                        {
+                            "id": slug,
+                            "name": str(prof.get("name") or slug),
+                            "fetched": sum(
+                                1
+                                for p in api_posts
+                                if str(p.get("profile_id") or "").lower() == slug.lower()
+                            ),
+                            "url": str(prof.get("url") or ""),
+                        }
                     )
-                except Exception as e:
-                    _log(progress, f"  解析失败: {e}")
-                    chunk = []
-                for row in chunk:
-                    if isinstance(row, dict):
-                        row["profile_id"] = slug
-                        row["profile_name"] = name
-                        row["source"] = "profile_cdp"
-                _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
-                profile_stats.append(
-                    {"id": slug, "name": name, "fetched": len(chunk), "url": url}
-                )
-                all_posts.extend(chunk)
-            routes.append("profile_cdp")
-        finally:
-            pass
+                api_ok = True
+            elif _env_flag("BINANCE_SQUARE_API_ONLY"):
+                return {
+                    "success": False,
+                    "error": "Square bapi 无数据（可配置 session 或 BINANCE_SQUARE_USE_CDP=1）",
+                    "posts": [],
+                }
+            else:
+                _log(progress, "bapi 博主无数据，回退 CDP 滚动…")
+
+        if not api_ok and not _env_flag("BINANCE_SQUARE_API_ONLY"):
+            from public.platforms.cdp_common import connect_cdp, invalidate_cdp_driver
+
+            if not dbg:
+                from signals.store import resolve_signals_debugger_url
+
+                dbg = resolve_signals_debugger_url()
+            _log(progress, f"连接 CDP {dbg}…")
+            try:
+                driver = connect_cdp(dbg)
+            except Exception as e:
+                invalidate_cdp_driver(dbg)
+                return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
+
+            scroll_kw = _scroll_params_for_time_spec(time_spec)
+            try:
+                abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
+                for i, prof in enumerate(profiles, 1):
+                    if _wait_control(control, progress) == "stop":
+                        aborted = True
+                        _log(progress, f"用户终止于博主 {i - 1}/{len(profiles)}")
+                        break
+                    url = str(prof.get("url") or "").strip()
+                    slug = _slug_from_profile(url) or str(prof.get("id") or "")
+                    name = str(prof.get("name") or slug)
+                    if not url:
+                        continue
+                    _log(progress, f"======== [{i}/{len(profiles)}] CDP @{slug} · {name} ========")
+                    _log(progress, f"打开主页 …")
+                    try:
+                        driver.get(url)
+                    except Exception as e:
+                        _log(progress, f"  打开失败: {e}")
+                        continue
+                    time.sleep(2.2)
+                    try:
+                        chunk = _scroll_profile_and_extract(
+                            driver,
+                            max_items=max_n,
+                            author_slug=slug,
+                            progress=progress,
+                            should_abort=abort_fn,
+                            **scroll_kw,
+                        )
+                    except Exception as e:
+                        _log(progress, f"  解析失败: {e}")
+                        chunk = []
+                    for row in chunk:
+                        if isinstance(row, dict):
+                            row["profile_id"] = slug
+                            row["profile_name"] = name
+                            row["source"] = "profile_cdp"
+                    _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
+                    profile_stats.append(
+                        {"id": slug, "name": name, "fetched": len(chunk), "url": url}
+                    )
+                    all_posts.extend(chunk)
+                routes.append("profile_cdp")
+            finally:
+                pass
 
     merged = merge_square_posts(all_posts)
     scraped_n = len(merged)

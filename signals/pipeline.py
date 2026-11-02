@@ -1,5 +1,5 @@
 # coding=utf-8
-"""列表交易信号流水线：时间窗去重 → CDP 抓取 → 下图 → AI 解析 → 卡片。"""
+"""列表交易信号流水线：时间窗去重 → X API/CDP 抓取 → 下图 → AI 解析 → 卡片。"""
 
 from __future__ import annotations
 
@@ -155,7 +155,7 @@ def run_list_signal_pipeline(
                 "可勾选「忽略已爬时间窗」后重跑，或等列表有新帖。",
             )
         elif not page_seen:
-            _log(progress, "提示：页面未抽到推文，请确认 CDP Chrome 已登录 X 且列表 ID 正确。")
+            _log(progress, "提示：未抽到推文，请确认 X 会话（output/signals/x_api_session.json 或 X_AUTH_TOKEN/X_CT0）且列表 ID 正确。")
         else:
             _log(progress, "提示：窗口内帖子均已处理过；可勾选「重新解析已见」或等新帖。")
 
@@ -522,7 +522,7 @@ def run_user_signal_pipeline(
     realtime_session_id: str = "",
     push_enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """博主主页回溯：CDP 抓取时间范围内推文 → AI 判交易信号 → 卡片入库。"""
+    """博主主页回溯：X API/CDP 抓取时间范围内推文 → AI 判交易信号 → 卡片入库。"""
     from signals.backfill_range import (
         backfill_range_span_days,
         resolve_backfill_range,

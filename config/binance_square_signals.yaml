@@ -2,7 +2,8 @@ debugger_url: 127.0.0.1:9223
 backfill_range: last_7d
 cutoff_hours: 24
 max_posts_per_profile: 40
-try_bapi_first: false
+try_bapi_first: true
+use_profile_api: true
 replay_whisper_auto: true
 replay_whisper_max_days: 2
 cycle_enabled: false

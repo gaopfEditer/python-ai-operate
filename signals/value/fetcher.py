@@ -1,5 +1,5 @@
 # coding=utf-8
-"""抓取：复用列表信号 CDP crawl_list_timeline。"""
+"""抓取：复用列表信号 crawl_list_timeline（默认 X GraphQL API）。"""
 
 from __future__ import annotations
 
