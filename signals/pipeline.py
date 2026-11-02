@@ -163,7 +163,7 @@ def run_list_signal_pipeline(
                 "可勾选「忽略已爬时间窗」后重跑，或等列表有新帖。",
             )
         elif not page_seen:
-            _log(progress, "提示：未抽到推文，请确认 X 会话（output/signals/x_api_session.json 或 X_AUTH_TOKEN/X_CT0）且列表 ID 正确。")
+            _log(progress, "提示：未抽到推文，请确认 Chrome 已登录 x.com、已打开列表/首页（CDP 捕获 queryId），且列表 ID 正确。")
         else:
             _log(progress, "提示：窗口内帖子均已处理过；可勾选「重新解析已见」或等新帖。")
 
