@@ -190,21 +190,25 @@ def row_to_post(
     body = _body_text_only(row)
     published = _pick_release_iso(row)
     title = str(row.get("title") or row.get("contentTitle") or body[:80] or cid).strip()
-    return {
-        "href": href.split("#")[0],
-        "title": title,
-        "raw": body or title,
-        "content_id": cid,
-        "published_iso": published,
-        "created_at": published,
-        "time_label": published[:19].replace("T", " ") if published else "",
-        "image_urls": _image_urls(row),
-        "video_url": str(row.get("videoUrl") or row.get("video_url") or "").strip(),
-        "profile_id": profile_slug,
-        "profile_name": profile_name or profile_slug,
-        "source": "bapi",
-        "is_pinned": bool(row.get("isPin") or row.get("pinned")),
-    }
+    from signals.publish_time import normalize_square_post_times
+
+    return normalize_square_post_times(
+        {
+            "href": href.split("#")[0],
+            "title": title,
+            "raw": body or title,
+            "content_id": cid,
+            "published_iso": published,
+            "created_at": published,
+            "time_label": "",
+            "image_urls": _image_urls(row),
+            "video_url": str(row.get("videoUrl") or row.get("video_url") or "").strip(),
+            "profile_id": profile_slug,
+            "profile_name": profile_name or profile_slug,
+            "source": "bapi",
+            "is_pinned": bool(row.get("isPin") or row.get("pinned")),
+        }
+    )
 
 
 def _parse_list_payload(data: Any) -> List[Dict[str, Any]]:
@@ -302,6 +306,8 @@ def fetch_profile_posts(
     since: Optional[datetime] = None,
     profile_name: str = "",
     progress: Optional[Callable[[str], None]] = None,
+    realtime_incremental: bool = False,
+    is_known: Optional[Callable[[str], bool]] = None,
 ) -> List[Dict[str, Any]]:
     slug = str(profile_slug or "").strip()
     uid = resolve_square_uid(slug)
@@ -316,13 +322,23 @@ def fetch_profile_posts(
         rows, next_off = fetch_profile_posts_page(uid, time_offset=offset, profile_slug=slug)
         if not rows:
             break
+        from signals.incremental import filter_newest_until_known, square_id_from_post
+
+        stop_page = False
+        if realtime_incremental and is_known:
+            rows, stop_page = filter_newest_until_known(
+                rows,
+                id_fn=square_id_from_post,
+                is_known=is_known,
+                enabled=True,
+            )
         new_in_page = 0
         for row in rows:
             if not isinstance(row, dict):
                 continue
             p = dict(row)
-            if profile_slug:
-                p.setdefault("profile_id", profile_slug)
+            if slug:
+                p.setdefault("profile_id", slug)
             if profile_name:
                 p.setdefault("profile_name", profile_name)
             p.setdefault("source", "bapi_profile")
@@ -348,6 +364,10 @@ def fetch_profile_posts(
         if progress:
             progress(f"  bapi @{slug} 页 {page_i + 1} · 累计 {len(merged)}")
         if len(merged) >= max_items:
+            break
+        if stop_page:
+            if progress:
+                progress(f"  bapi @{slug} 命中已存帖，停止翻页")
             break
         if new_in_page == 0:
             stale_pages += 1

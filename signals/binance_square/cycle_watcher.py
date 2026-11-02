@@ -116,6 +116,7 @@ def _run_once() -> Dict[str, Any]:
             try_bapi=bool(cfg.get("try_bapi_first")),
             progress=lambda m: print(f"[bs-square-cycle] {m}", flush=True),
             control=ctl,
+            realtime_incremental=True,
         )
         posts = result.get("posts") if isinstance(result.get("posts"), list) else []
         if result.get("success") and posts:

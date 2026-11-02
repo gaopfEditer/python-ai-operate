@@ -66,6 +66,7 @@ def run_list_signal_pipeline(
     ignore_windows: bool = False,
     progress: ProgressCb = None,
     control: Optional[RunControl] = None,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
     cfg = get_config()
     lid = parse_list_id(list_id or str(cfg.get("list_id") or "")) or str(cfg.get("list_id") or "")
@@ -119,6 +120,7 @@ def run_list_signal_pipeline(
         max_tweets=limit,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        realtime_incremental=realtime_incremental,
     )
     if not crawled.get("success"):
         return crawled
@@ -603,6 +605,7 @@ def run_user_signal_pipeline(
         max_scroll=max_scroll,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        realtime_incremental=kol_realtime,
     )
     if not crawled.get("success"):
         return crawled

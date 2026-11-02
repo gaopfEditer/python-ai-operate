@@ -68,8 +68,12 @@ def _fetch_profiles_via_api(
     time_spec: Dict[str, Any],
     progress: ProgressCb,
     control: Optional["RunControl"],
+    realtime_incremental: bool = False,
 ) -> List[Dict[str, Any]]:
     from signals.backfill_range import resolve_backfill_since
+    from signals.incremental import build_square_known_checker
+
+    is_known = build_square_known_checker() if realtime_incremental else None
 
     since_dt = None
     if time_spec.get("mode") == "range":
@@ -95,6 +99,8 @@ def _fetch_profiles_via_api(
                 since=since_dt,
                 profile_name=name,
                 progress=progress,
+                realtime_incremental=realtime_incremental,
+                is_known=is_known,
             )
         except Exception as e:
             _log(progress, f"  bapi 失败: {e}")
@@ -188,6 +194,7 @@ def run_binance_square_fetch(
     try_bapi: Optional[bool] = None,
     progress: ProgressCb = None,
     control: Optional["RunControl"] = None,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
     cfg = load_config()
     aborted = False
@@ -198,6 +205,11 @@ def run_binance_square_fetch(
     )
     max_n = int(max_posts_per_profile if max_posts_per_profile is not None else cfg.get("max_posts_per_profile") or 40)
     use_bapi = bool(try_bapi if try_bapi is not None else cfg.get("try_bapi_first"))
+    incremental_fetch = bool(
+        realtime_incremental
+        if realtime_incremental
+        else time_spec.get("mode") != "range"
+    )
 
     profiles = [p for p in (cfg.get("profiles") or []) if isinstance(p, dict) and p.get("enabled", True)]
     if profile_ids:
@@ -242,6 +254,7 @@ def run_binance_square_fetch(
                 time_spec=time_spec,
                 progress=progress,
                 control=control,
+                realtime_incremental=incremental_fetch,
             )
             if api_posts:
                 all_posts.extend(api_posts)

@@ -96,6 +96,7 @@ def _run_once() -> Dict[str, Any]:
             ignore_windows=False,
             progress=lambda m: print(f"[signals-cycle] {m}", flush=True),
             control=ctl,
+            realtime_incremental=True,
         )
         now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         save_config({"last_crawl_at": now})

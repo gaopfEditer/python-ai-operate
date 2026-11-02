@@ -143,17 +143,19 @@ def tweet_node_to_item(node: Any) -> Optional[Dict[str, Any]]:
     created_iso = twitter_created_to_iso(created_raw)
     text = str(legacy.get("full_text") or legacy.get("text") or "").strip()
     images = _images_from_legacy(legacy)
-    return {
+    item = {
         "tweet_id": tid,
         "url": f"https://x.com/{screen}/status/{tid}" if screen else f"https://x.com/i/web/status/{tid}",
         "text": text[:8000],
         "author": author,
         "created_at": created_iso or created_raw,
-        "time_label": created_raw[:32] if created_raw else "",
         "images": images,
         "has_media": bool(images) or bool(legacy.get("extended_entities")),
         "source": "x_api",
     }
+    from signals.publish_time import normalize_tweet_item_times
+
+    return normalize_tweet_item_times(item)
 
 
 def _iter_instruction_lists(data: Any) -> Iterable[List[Any]]:
@@ -283,6 +285,46 @@ class XApiClient:
         return parse_timeline_payload(data)
 
 
+def _ingest_timeline_chunk(
+    chunk: List[Dict[str, Any]],
+    *,
+    since_cmp: datetime,
+    by_id: Dict[str, Dict[str, Any]],
+    max_tweets: int,
+    realtime_incremental: bool,
+    is_known: Optional[Callable[[str], bool]],
+) -> Tuple[bool, bool, int, int]:
+    """返回 (stop_pagination, page_stale, page_seen_delta, page_old_delta)。"""
+    from signals.incremental import filter_newest_until_known, tweet_id_from_item
+
+    stop = False
+    if realtime_incremental and is_known:
+        chunk, stop = filter_newest_until_known(
+            chunk,
+            id_fn=tweet_id_from_item,
+            is_known=is_known,
+            enabled=True,
+        )
+    stale = True
+    seen_delta = 0
+    old_delta = 0
+    for it in chunk:
+        tid = str(it.get("tweet_id") or "")
+        if not tid:
+            continue
+        seen_delta += 1
+        created = parse_dt(str(it.get("created_at") or ""))
+        if created and created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        too_old = bool(created and created < since_cmp)
+        if too_old:
+            old_delta += 1
+        else:
+            stale = False
+            by_id[tid] = it
+    return stop, stale, seen_delta, old_delta
+
+
 def fetch_list_timeline_api(
     list_id: str,
     *,
@@ -290,6 +332,8 @@ def fetch_list_timeline_api(
     max_tweets: int = 40,
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
+    realtime_incremental: bool = False,
+    is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
     if not session_ready():
         return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
@@ -322,29 +366,27 @@ def fetch_list_timeline_api(
             return {"success": False, "error": str(e), "items": [], "route": "x_api"}
         if not chunk and not by_id:
             return {"success": False, "error": "列表 API 无数据", "items": [], "route": "x_api"}
-        stale = True
-        for it in chunk:
-            tid = str(it.get("tweet_id") or "")
-            if not tid:
-                continue
-            page_seen += 1
-            created = parse_dt(str(it.get("created_at") or ""))
-            if created and created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
-            too_old = bool(created and created < since_cmp)
-            if too_old:
-                page_old += 1
-            else:
-                stale = False
-                by_id[tid] = it
+        stop, stale, seen_delta, old_delta = _ingest_timeline_chunk(
+            chunk,
+            since_cmp=since_cmp,
+            by_id=by_id,
+            max_tweets=max_tweets,
+            realtime_incremental=realtime_incremental,
+            is_known=is_known,
+        )
+        page_seen += seen_delta
+        page_old += old_delta
         _log(
             progress,
             f"X API 列表页 {page_i + 1} · 窗口内 {len(by_id)} · 本页 {len(chunk)}"
-            + (" · 已到时间窗之前" if stale and chunk else ""),
+            + (" · 已到时间窗之前" if stale and chunk else "")
+            + (" · 命中已存帖，停止翻页" if stop else ""),
         )
         if len(by_id) >= max_tweets:
             break
-        if stale and len(by_id) >= 3:
+        if stop:
+            break
+        if stale and len(by_id) >= 3 and not realtime_incremental:
             break
         if not next_cur or next_cur == cursor:
             break
@@ -377,6 +419,8 @@ def fetch_user_timeline_api(
     include_replies: bool = False,
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
+    realtime_incremental: bool = False,
+    is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
     if not session_ready():
         return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
@@ -416,28 +460,26 @@ def fetch_user_timeline_api(
             if by_id:
                 break
             return {"success": False, "error": str(e), "items": [], "route": "x_api"}
-        stale = True
-        for it in chunk:
-            tid = str(it.get("tweet_id") or "")
-            if not tid:
-                continue
-            page_seen += 1
-            created = parse_dt(str(it.get("created_at") or ""))
-            if created and created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
-            too_old = bool(created and created < since_cmp)
-            if too_old:
-                page_old += 1
-            else:
-                stale = False
-                by_id[tid] = it
+        stop, stale, seen_delta, old_delta = _ingest_timeline_chunk(
+            chunk,
+            since_cmp=since_cmp,
+            by_id=by_id,
+            max_tweets=max_tweets,
+            realtime_incremental=realtime_incremental,
+            is_known=is_known,
+        )
+        page_seen += seen_delta
+        page_old += old_delta
         _log(
             progress,
-            f"X API @{h} 页 {page_i + 1} · 窗口内 {len(by_id)} · 本页 {len(chunk)}",
+            f"X API @{h} 页 {page_i + 1} · 窗口内 {len(by_id)} · 本页 {len(chunk)}"
+            + (" · 命中已存帖，停止翻页" if stop else ""),
         )
         if len(by_id) >= max_tweets:
             break
-        if stale and page_i >= 1:
+        if stop:
+            break
+        if stale and page_i >= 1 and not realtime_incremental:
             break
         if not next_cur or next_cur == cursor:
             break
