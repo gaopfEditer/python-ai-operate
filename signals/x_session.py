@@ -77,12 +77,17 @@ def load_x_session() -> Optional[Dict[str, Any]]:
 def merge_x_supplemental(
     primary: Dict[str, Any], supplemental: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:
+    from signals.x_cdp_graphql import merge_captured_query_ids
+
     out = dict(primary)
+    layers = [primary.get("query_ids")]
     if supplemental:
-        out["query_ids"] = _merge_query_ids(supplemental.get("query_ids"))
+        layers.append(supplemental.get("query_ids"))
+    out["query_ids"] = merge_captured_query_ids(*layers)
+    if supplemental:
         bearer = str(supplemental.get("authorization") or "").strip()
-        if bearer and bearer != DEFAULT_BEARER:
-            out["authorization"] = bearer
+        if bearer and str(out.get("authorization") or "").strip() in ("", DEFAULT_BEARER):
+            out["authorization"] = bearer if bearer.lower().startswith("bearer") else f"Bearer {bearer}"
     return out
 
 

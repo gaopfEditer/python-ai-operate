@@ -332,6 +332,13 @@ class TestAnalyzeTimeout(unittest.TestCase):
         self.assertTrue(signal_parse_pending(pending_signal()))
         self.assertFalse(signal_parse_pending({"provider": "deepseek", "has_trade_signal": True}))
 
+    def test_merge_captured_query_ids(self):
+        from signals.x_cdp_graphql import merge_captured_query_ids
+
+        q = merge_captured_query_ids({"ListLatestTweetsTimeline": "FreshId123"})
+        self.assertEqual(q["ListLatestTweetsTimeline"], "FreshId123")
+        self.assertTrue(q.get("UserTweets"))
+
 
 if __name__ == "__main__":
     unittest.main()

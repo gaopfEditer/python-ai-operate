@@ -180,7 +180,8 @@ def pull_binance_session_from_cdp(debugger_url: str) -> Tuple[Optional[Dict[str,
 
 
 def pull_x_session_from_cdp(debugger_url: str) -> Tuple[Optional[Dict[str, Any]], str]:
-    from signals.x_session import DEFAULT_BEARER, DEFAULT_QUERY_IDS
+    from signals.x_cdp_graphql import capture_x_graphql_from_cdp, merge_captured_query_ids
+    from signals.x_session import DEFAULT_BEARER
 
     cookies, err = _collect_cookies_from_cdp(
         debugger_url,
@@ -192,13 +193,23 @@ def pull_x_session_from_cdp(debugger_url: str) -> Tuple[Optional[Dict[str, Any]]
     ct0 = cookies.get("ct0") or ""
     if not auth or not ct0:
         return None, err or "缺少 auth_token/ct0"
-    return {
+
+    captured_q, cap_bearer, cap_hint = capture_x_graphql_from_cdp(debugger_url)
+    qids = merge_captured_query_ids(captured_q)
+    bearer = DEFAULT_BEARER
+    if cap_bearer:
+        bearer = cap_bearer if cap_bearer.lower().startswith("bearer") else f"Bearer {cap_bearer}"
+
+    sess = {
         "auth_token": auth,
         "ct0": ct0,
-        "authorization": DEFAULT_BEARER,
-        "query_ids": dict(DEFAULT_QUERY_IDS),
+        "authorization": bearer,
+        "query_ids": qids,
         "cookie_header": f"auth_token={auth}; ct0={ct0}",
-    }, ""
+        "query_ids_captured": list(captured_q.keys()),
+        "query_id_hint": cap_hint,
+    }
+    return sess, cap_hint
 
 
 def _cache_get(key: str) -> Optional[Dict[str, Any]]:
@@ -286,9 +297,20 @@ def refresh_x_session_from_cdp(
         if cdp_sess:
             file_sess = load_x_session()
             merged = merge_x_supplemental(cdp_sess, file_sess)
-            _log(progress, f"X 会话：已从 CDP（{dbg}）读取 auth_token/ct0，立即走 GraphQL")
-            _cache_set("x", merged)
-            return merged
+            cap_ops = cdp_sess.get("query_ids_captured") or []
+            qn = len(cap_ops) if isinstance(cap_ops, list) else 0
+            ops_preview = ", ".join(list(cap_ops)[:4]) if qn else "内置默认"
+            hint = str(cdp_sess.get("query_id_hint") or err or "").strip()
+            _log(
+                progress,
+                f"X 会话：已从 CDP（{dbg}）读取 auth_token/ct0 + GraphQL queryId"
+                f"（{qn or '默认'} 项：{ops_preview}）",
+            )
+            if hint and qn == 0:
+                _log(progress, f"X queryId 提示：{hint}")
+            clean = {k: v for k, v in merged.items() if k not in ("query_ids_captured", "query_id_hint")}
+            _cache_set("x", clean)
+            return clean
         _log(
             progress,
             f"X 会话：CDP（{dbg}）读取失败 — {err}；"

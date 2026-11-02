@@ -28,8 +28,10 @@
 
 ## X / 列表信号（同一机制）
 
-- 抓取开始时从 CDP 读取 `x.com` 的 `auth_token` + `ct0`，走 GraphQL
-- 可选 `output/signals/x_api_session.json` 补充 `query_ids` 或作回退
+- 抓取开始时从 CDP 读取 `x.com` 的 **auth_token + ct0**，并从已打开标签的 `sessionStorage` / `performance` 捕获 **GraphQL queryId**（如 `ListLatestTweetsTimeline`、`UserTweets`），再走 GraphQL API
+- 若未捕获 queryId：在 Chrome **打开 X 首页、列表或博主页** 让页面发 GraphQL 请求后重跑（或安装 `tools/chrome-x-toolkit` 扩展）
+- 可选 `output/signals/x_api_session.json` 补充缺失 queryId 或作回退
+- 信号 **LLM 解析默认后台队列**，不阻塞抓取（`SIGNALS_BLOCKING_LLM=1` 恢复同步）
 - `SIGNALS_X_USE_CDP=1` 强制滚动回退
 
 ## 联调 smoke（可选）

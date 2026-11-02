@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding=utf-8
-"""可选：将 CDP Cookie 写入 X session 文件（正常运行 Console 不需要）。"""
+"""可选：将 CDP Cookie + queryId 写入 X session 文件（正常运行 Console 不需要）。"""
 from __future__ import annotations
 
 import argparse
@@ -22,14 +22,19 @@ def main() -> int:
     from signals.x_session import load_x_session, merge_x_supplemental, save_x_session
 
     dbg = resolve_debugger_url(explicit=str(args.debugger))
-    sess, err = pull_x_session_from_cdp(dbg)
+    sess, hint = pull_x_session_from_cdp(dbg)
     if not sess:
-        print(f"未在 CDP 中找到 x.com auth_token/ct0（{dbg}）: {err}", file=sys.stderr)
+        print(f"未在 CDP 中找到 x.com 会话（{dbg}）: {hint}", file=sys.stderr)
         return 2
+    if hint:
+        print(f"提示: {hint}", file=sys.stderr)
 
     out = Path(args.out) if args.out else ROOT / "output" / "signals" / "x_api_session.json"
-    save_x_session(merge_x_supplemental(sess, load_x_session()), path=out)
-    print(f"已写入 {out}（可选；运行时抓取会直接从 CDP 读 Cookie）")
+    clean = dict(sess)
+    clean.pop("query_ids_captured", None)
+    clean.pop("query_id_hint", None)
+    save_x_session(merge_x_supplemental(clean, load_x_session()), path=out)
+    print(f"已写入 {out}（可选；运行时抓取会直接从 CDP 读 Cookie + queryId）")
     return 0
 
 
