@@ -173,19 +173,19 @@ class TestBinanceRealtime(unittest.TestCase):
         from signals.incremental import filter_newest_until_known, square_id_from_post
 
         items = [
-            {"content_id": "pin1", "is_pinned": True},
-            {"content_id": "new9"},
-            {"content_id": "old8"},
+            {"content_id": "8001", "is_pinned": True},
+            {"content_id": "8009"},
+            {"content_id": "8008"},
         ]
 
         kept, stop = filter_newest_until_known(
             items,
             id_fn=square_id_from_post,
-            is_known=lambda c: c in ("pin1", "old8"),
+            is_known=lambda c: c in ("8001", "8008"),
             enabled=True,
             skip_known_if_pinned=True,
         )
-        self.assertEqual([x["content_id"] for x in kept], ["new9"])
+        self.assertEqual([x["content_id"] for x in kept], ["8009"])
         self.assertTrue(stop)
 
 

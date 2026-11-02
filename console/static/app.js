@@ -8121,6 +8121,7 @@ async function runSigBinanceCrawl(profileIdsOverride, opts = {}) {
           ? {
               profile_ids: ids,
               cutoff_hours: cycleHours,
+              realtime_incremental: true,
               max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
               try_bapi_first: !!$("#sigBsTryBapi")?.checked,
               replay_whisper_auto: !!$("#sigBsReplayWhisper")?.checked,

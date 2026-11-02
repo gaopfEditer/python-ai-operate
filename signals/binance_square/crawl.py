@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from signals.control import RunControl
 
 from signals.binance_square.bapi import fetch_profile_posts, fetch_trending
-from signals.binance_square.time_detail import enrich_posts_time_from_detail
 from signals.binance_square.profile_js import PROFILE_POST_EXTRACT_JS
 from signals.binance_square.enrich import enrich_posts_with_signals
 from signals.binance_square.store import (

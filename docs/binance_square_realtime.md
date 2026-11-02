@@ -38,8 +38,9 @@ python scripts/smoke_signals_http.py
 ## Console 验证
 
 1. `python console.py`
-2. **列表信号 → 币安广场**，勾选周期抓取
-3. 日志应出现：
+2. **列表信号 → 币安广场**，勾选周期抓取，或点 **实时** 视图的「立即抓取」
+3. 请求体会带 `realtime_incremental: true`（与周期 watcher 相同 bapi 增量路径）
+4. 日志应出现：
    - `Square 实时：跳过热榜，仅抓配置博主 bapi`
    - `bapi @<slug>` 分页
    - 增量轮次：`命中已存帖，停止翻页`
