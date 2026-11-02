@@ -4467,7 +4467,7 @@ def handle_api(
                     try_bapi=body.get("try_bapi_first"),
                     progress=_progress_bs,
                     control=ctl,
-                    incremental=inc,
+                    realtime_incremental=bool(inc) if inc is not None else False,
                 )
                 aborted = bool(result.get("aborted"))
                 ok = bool(result.get("success"))

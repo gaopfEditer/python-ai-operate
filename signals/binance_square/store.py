@@ -71,9 +71,32 @@ def load_config() -> Dict[str, Any]:
     return cfg
 
 
+def normalize_profile_id_list(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = re.split(r"[\s,]+", raw.strip())
+        return [p.strip().lower().lstrip("@") for p in parts if p.strip()]
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    for x in raw:
+        pid = str(x or "").strip().lower().lstrip("@")
+        if pid:
+            out.append(pid)
+    return out
+
+
+def cycle_profile_ids(cfg: Optional[Dict[str, Any]] = None) -> List[str]:
+    """周期/后台抓取仅使用控制台勾选的博主 id。"""
+    cfg = cfg or load_config()
+    return normalize_profile_id_list(cfg.get("cycle_profile_ids"))
+
+
 def save_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     payload = default_config()
     payload.update(cfg or {})
+    payload["cycle_profile_ids"] = normalize_profile_id_list(payload.get("cycle_profile_ids"))
     profiles = payload.get("profiles") or []
     norm_profiles: List[Dict[str, Any]] = []
     for p in profiles:

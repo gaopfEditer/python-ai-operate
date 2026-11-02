@@ -272,15 +272,16 @@ def resolve_square_uid(profile_slug: str) -> str:
 def fetch_profile_posts_page(
     square_uid: str,
     *,
-    time_offset: int = 0,
-    filter_type: str = "all",
+    time_offset: int = -1,
+    filter_type: str = "ALL",
     profile_slug: str = "",
 ) -> Tuple[List[Dict[str, Any]], int]:
     referer = f"https://www.binance.com/{_LOCALE}/square/profile/{profile_slug or square_uid}"
+    # 浏览器实参：targetSquareUid + timeOffset=-1 + filterType=ALL（squareUid/0/all 会 参数非法）
     params = {
-        "squareUid": square_uid,
-        "timeOffset": int(time_offset or 0),
-        "filterType": filter_type or "all",
+        "targetSquareUid": square_uid,
+        "timeOffset": int(time_offset if time_offset is not None else -1),
+        "filterType": (filter_type or "ALL").upper(),
     }
     data = _http_json(_PROFILE_POSTS_URL, params=params, referer=referer)
     rows = _parse_list_payload(data)
@@ -316,7 +317,7 @@ def fetch_profile_posts(
         since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     merged: List[Dict[str, Any]] = []
     seen_ids: set = set()
-    offset = 0
+    offset = -1
     stale_pages = 0
     for page_i in range(40):
         rows, next_off = fetch_profile_posts_page(uid, time_offset=offset, profile_slug=slug)

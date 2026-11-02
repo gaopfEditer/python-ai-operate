@@ -49,8 +49,7 @@ def _try_x_api_list(
     cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
     if cookie_file:
         load_from_cookie_file(cookie_file)
-    if not session_ready():
-        return None
+    # 不再因本地无会话直接放弃：GraphQL 前会 CDP 刷新 cookie/queryId
     is_known = build_x_known_checker() if realtime_incremental else None
     res = fetch_list_timeline_api(
         list_id,
@@ -85,8 +84,7 @@ def _try_x_api_user(
     cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
     if cookie_file:
         load_from_cookie_file(cookie_file)
-    if not session_ready():
-        return None
+    # 不再因本地无会话直接放弃：GraphQL 前会 CDP 刷新 cookie/queryId
     is_known = build_x_known_checker() if realtime_incremental else None
     res = fetch_user_timeline_api(
         handle,

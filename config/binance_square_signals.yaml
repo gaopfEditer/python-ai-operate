@@ -29,3 +29,6 @@ profiles:
   name: 格里芬院长
   url: https://www.binance.com/zh-CN/square/profile/square-creator-446e63a9fd9ef
   enabled: true
+cycle_profile_ids:
+- yanchibit
+- square-creator-446e63a9fd9ef

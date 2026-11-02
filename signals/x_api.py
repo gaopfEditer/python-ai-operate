@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from signals.store import parse_dt, parse_list_id, parse_user_handle
-from signals.x_session import DEFAULT_QUERY_IDS, load_x_session, query_id, session_ready
+from signals.x_session import DEFAULT_QUERY_IDS, load_x_session, query_id, refresh_x_session_from_cdp, session_ready
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +196,18 @@ def parse_timeline_payload(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
 
 
 class XApiClient:
-    def __init__(self, session: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        session: Optional[Dict[str, Any]] = None,
+        *,
+        progress: ProgressCb = None,
+        refresh_each_graphql: bool = True,
+    ) -> None:
+        self._progress = progress
+        self.refresh_each_graphql = refresh_each_graphql
         self.session = session or load_x_session() or {}
-        if not session_ready(self.session):
+        # 允许启动时尚无本地会话：首次 GraphQL 前会走 CDP 刷新
+        if self.session and not session_ready(self.session) and not refresh_each_graphql:
             raise RuntimeError("X 会话未配置（需要 auth_token + ct0）")
 
     def _headers(self) -> Dict[str, str]:
@@ -226,9 +235,14 @@ class XApiClient:
         *,
         method: str = "GET",
     ) -> Dict[str, Any]:
+        if self.refresh_each_graphql:
+            self.session = refresh_x_session_from_cdp(progress=self._progress, save=True)
+        if not session_ready(self.session):
+            raise RuntimeError("X 会话未配置（需要 auth_token + ct0）；CDP 刷新失败")
         qid = query_id(self.session, operation) or DEFAULT_QUERY_IDS.get(operation, "")
         if not qid:
             raise RuntimeError(f"缺少 GraphQL queryId: {operation}")
+        _log(self._progress, f"X API：GraphQL {operation} · queryId={qid[:10]}…")
         payload = {
             "variables": variables,
             "features": GRAPHQL_FEATURES,
@@ -335,13 +349,12 @@ def fetch_list_timeline_api(
     realtime_incremental: bool = False,
     is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
-    if not session_ready():
-        return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
+    # 会话在每次 GraphQL 前由 CDP 刷新；此处仅提示
     lid = parse_list_id(list_id) or str(list_id or "").strip()
     if not lid:
         return {"success": False, "error": "缺少 list_id", "items": []}
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
-    client = XApiClient()
+    client = XApiClient(progress=progress)
     by_id: Dict[str, Dict[str, Any]] = {}
     cursor = ""
     page_seen = 0
@@ -422,13 +435,12 @@ def fetch_user_timeline_api(
     realtime_incremental: bool = False,
     is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
-    if not session_ready():
-        return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
+    # 会话在每次 GraphQL 前由 CDP 刷新
     h = parse_user_handle(handle) or str(handle or "").strip().lstrip("@")
     if not h:
         return {"success": False, "error": "缺少 handle", "items": []}
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
-    client = XApiClient()
+    client = XApiClient(progress=progress)
     try:
         uid = client.user_id_by_screen_name(h)
     except Exception as e:
