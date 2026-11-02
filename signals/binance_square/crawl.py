@@ -13,6 +13,11 @@ if TYPE_CHECKING:
 from signals.binance_square.bapi import fetch_profile_posts, fetch_trending
 from signals.binance_square.profile_js import PROFILE_POST_EXTRACT_JS
 from signals.binance_square.enrich import enrich_posts_with_signals
+from signals.signal_parse_queue import (
+    enqueue_binance_square_posts,
+    llm_parse_is_deferred,
+    pending_signal,
+)
 from signals.binance_square.store import (
     apply_binance_time_filter,
     known_square_content_ids,
@@ -409,13 +414,25 @@ def run_binance_square_fetch(
 
     st = load_state()
     prior = st.get("last_posts") if isinstance(st.get("last_posts"), list) else []
+    parse_queued = 0
     if to_process:
-        _log(progress, f"AI/规则解析 {len(to_process)} 条新贴文信号…")
-        enriched = enrich_posts_with_signals(to_process, prior_posts=prior, progress=progress)
+        if llm_parse_is_deferred():
+            _log(progress, f"新帖 {len(to_process)} 条 · 先入库原文与卡片…")
+            enriched = []
+            for row in to_process:
+                p = dict(row)
+                p["signal"] = pending_signal()
+                enriched.append(p)
+            _log(progress, f"原文已入库 {len(enriched)} 条，信号解析排队中（后台）")
+        else:
+            _log(progress, f"AI/规则解析 {len(to_process)} 条新贴文信号…")
+            enriched = enrich_posts_with_signals(
+                to_process, prior_posts=prior, progress=progress, control=control
+            )
     else:
         enriched = []
         if merged and skipped_known:
-            _log(progress, "范围内帖子均已抓取过，跳过 AI 解析与入库")
+            _log(progress, "范围内帖子均已抓取过，跳过入库")
 
     register_square_content_ids(
         [post_content_id(p) for p in merged],
@@ -447,6 +464,9 @@ def run_binance_square_fetch(
         else:
             cards_sync = sync_posts_to_signal_cards(enriched, progress=progress)
 
+    if to_process and llm_parse_is_deferred() and enriched:
+        parse_queued = enqueue_binance_square_posts(enriched, progress=progress)
+
     ok = not aborted
     if realtime_incremental and not enriched and skipped_known and not aborted:
         _log(progress, "Square 实时：时间窗内无新帖（均已入库）")
@@ -456,6 +476,7 @@ def run_binance_square_fetch(
         "posts": combined_posts,
         "cards_sync": cards_sync,
         "new_count": len(enriched),
+        "parse_queued": parse_queued,
         "skipped_known": skipped_known,
         "total": len(merged),
         "routes": routes,

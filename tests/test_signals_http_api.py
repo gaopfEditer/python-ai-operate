@@ -298,5 +298,40 @@ class TestCdpSessionLoader(unittest.TestCase):
         self.assertTrue(any("回退" in x for x in logs))
 
 
+class TestAnalyzeTimeout(unittest.TestCase):
+    def test_analyze_times_out_and_uses_heuristic(self):
+        import time
+        from signals.analyze import analyze_tweet_signal
+
+        def slow_ai(**kwargs):
+            time.sleep(2.0)
+            return {"has_trade_signal": False, "provider": "slow", "coins": [], "direction": "unknown"}
+
+        with mock.patch(
+            "signals.analyze.analyze_tweet_signal_ai_only", side_effect=slow_ai
+        ):
+            sig = analyze_tweet_signal(text="做多 BTC", author="t", timeout_sec=0.3)
+        self.assertTrue(str(sig.get("provider") or "").startswith("timeout:"))
+        self.assertIn("BTC", sig.get("coins") or [])
+
+    def test_skip_llm_for_non_trade_text(self):
+        from signals.analyze import analyze_tweet_signal, should_skip_ai_llm
+
+        self.assertTrue(should_skip_ai_llm("今天天气不错", has_images=False))
+        self.assertFalse(should_skip_ai_llm("做多 BTC 突破", has_images=False))
+        with mock.patch("signals.analyze.analyze_tweet_signal_ai_only") as gen:
+            gen.return_value = {"provider": "ai", "has_trade_signal": False, "coins": []}
+            sig = analyze_tweet_signal(text="随手转发一条动态", author="x")
+        gen.assert_not_called()
+        self.assertEqual(sig.get("provider"), "heuristic:skip_llm")
+
+    def test_deferred_parse_default(self):
+        from signals.signal_parse_queue import llm_parse_is_deferred, pending_signal, signal_parse_pending
+
+        self.assertTrue(llm_parse_is_deferred())
+        self.assertTrue(signal_parse_pending(pending_signal()))
+        self.assertFalse(signal_parse_pending({"provider": "deepseek", "has_trade_signal": True}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -133,7 +133,9 @@ def sync_posts_to_signal_cards(
         if tid:
             existing = db_get_card_by_tweet_id(tid)
             sig = existing.get("signal") if isinstance(existing, dict) else None
-            if existing and isinstance(sig, dict) and sig:
+            from signals.signal_parse_queue import signal_parse_pending
+
+            if existing and isinstance(sig, dict) and sig and not signal_parse_pending(sig):
                 skipped_existing += 1
                 continue
         upsert_card(card)

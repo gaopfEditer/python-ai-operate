@@ -18,6 +18,7 @@
 - `Square 会话：已从 CDP（127.0.0.1:9223）读取 Cookie（N 项），立即走 bapi`
 - `Square 实时：跳过热榜，仅抓配置博主 bapi`
 - `命中已存帖，停止翻页`
+- `原文已入库 … 信号解析排队中（后台）`
 - `bapi 补全发帖时间（detail firstReleaseTime）`
 
 若 CDP 失败：
@@ -49,7 +50,9 @@ python scripts/smoke_signals_http.py
 | `SIGNALS_SESSION_CDP_DISABLE=1` | 禁用运行时 CDP，仅用文件/环境变量 |
 | `BINANCE_SQUARE_SESSION_FILE` | 可选指纹/回退 session 路径 |
 | `BNC_CSRF` / `BNC_UUID` | 临时覆盖 cookie |
-| `BINANCE_SQUARE_USE_CDP=1` | 强制 Square CDP 滚动 |
+| `SIGNALS_BLOCKING_LLM=1` | 恢复抓取循环内同步 LLM（默认关闭=后台队列） |
+| `SIGNALS_ANALYZE_TIMEOUT` | 后台单条 AI 上限秒数（默认 `25`） |
+| `SIGNALS_ANALYZE_CONCURRENCY` | 信号解析并发（默认 `2`，最大 `4`） |
 | `BINANCE_SQUARE_API_ONLY=1` | 禁止 CDP 回退 |
 | `X_COOKIES_FILE` / `X_AUTH_TOKEN` / `X_CT0` | X 回退会话 |
 | `SIGNALS_X_USE_CDP=1` | 强制 X CDP 滚动 |
