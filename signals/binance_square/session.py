@@ -55,8 +55,17 @@ def load_binance_session() -> Optional[Dict[str, Any]]:
     return {"cookies": cookies, "headers": headers, "cookie_header": cookie_header}
 
 
+def get_active_binance_session_for_http() -> Optional[Dict[str, Any]]:
+    try:
+        from signals.cdp_session_loader import get_cached_binance_session
+
+        return get_cached_binance_session()
+    except Exception:
+        return load_binance_session()
+
+
 def session_diagnostics(session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    s = session if session is not None else load_binance_session()
+    s = session if session is not None else get_active_binance_session_for_http()
     if not s:
         return {"ready": False, "has_cookie": False, "has_fingerprint": False}
     hdr = s.get("headers") if isinstance(s.get("headers"), dict) else {}
@@ -65,8 +74,68 @@ def session_diagnostics(session: Optional[Dict[str, Any]] = None) -> Dict[str, A
     return {"ready": session_ready(s), "has_cookie": has_cookie, "has_fingerprint": has_fp}
 
 
+def merge_supplemental_headers(
+    primary: Dict[str, Any], supplemental: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """CDP Cookie 为主；本地文件仅补充 device-info 等指纹头（不覆盖 Cookie）。"""
+    out = {
+        "cookies": dict(primary.get("cookies") or {}),
+        "headers": dict(primary.get("headers") or {}),
+        "cookie_header": str(primary.get("cookie_header") or ""),
+    }
+    if not supplemental:
+        return out
+    extra = supplemental.get("headers") if isinstance(supplemental.get("headers"), dict) else {}
+    fp_keys = ("device-info", "fvideo-id", "fvideo-token")
+    hdr = out["headers"]
+    for k in fp_keys:
+        v = str(extra.get(k) or "").strip()
+        if v and not str(hdr.get(k) or "").strip():
+            hdr[k] = v
+    csrf = out["cookies"].get("csrftoken") or hdr.get("csrftoken") or ""
+    if csrf:
+        hdr["csrftoken"] = csrf
+        hdr.setdefault("BNC-CSRF-TOKEN", csrf)
+    if not out["cookie_header"]:
+        out["cookie_header"] = "; ".join(
+            f"{k}={v}" for k, v in out["cookies"].items() if str(v).strip()
+        )
+    return out
+
+
+def resolve_binance_session(
+    *,
+    debugger_url: str = "",
+    progress=None,
+    force_refresh: bool = False,
+) -> Optional[Dict[str, Any]]:
+    from signals.cdp_session_loader import refresh_binance_session_from_cdp
+
+    cfg_dbg = ""
+    try:
+        from signals.binance_square.store import load_config
+
+        cfg_dbg = str(load_config().get("debugger_url") or "")
+    except Exception:
+        pass
+    return refresh_binance_session_from_cdp(
+        debugger_url=debugger_url,
+        binance_cfg_debugger=cfg_dbg,
+        progress=progress,
+        force_refresh=force_refresh,
+    )
+
+
 def session_ready(session: Optional[Dict[str, Any]] = None) -> bool:
-    s = session if session is not None else load_binance_session()
+    if session is not None:
+        s = session
+    else:
+        try:
+            from signals.cdp_session_loader import get_cached_binance_session
+
+            s = get_cached_binance_session()
+        except Exception:
+            s = load_binance_session()
     if not s:
         return False
     if str(s.get("cookie_header") or "").strip():

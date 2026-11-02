@@ -33,6 +33,15 @@ def _x_api_only() -> bool:
     return _env_flag("SIGNALS_X_API_ONLY", False)
 
 
+def _ensure_x_api_session(progress: ProgressCb = None) -> None:
+    from signals.store import resolve_signals_debugger_url
+    from signals.x_session import resolve_x_session
+
+    resolve_x_session(
+        debugger_url=resolve_signals_debugger_url(), progress=progress, force_refresh=False
+    )
+
+
 def _try_x_api_list(
     list_id: str,
     *,
@@ -49,6 +58,7 @@ def _try_x_api_list(
     cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
     if cookie_file:
         load_from_cookie_file(cookie_file)
+    _ensure_x_api_session(progress)
     if not session_ready():
         return None
     is_known = build_x_known_checker() if realtime_incremental else None
@@ -85,6 +95,7 @@ def _try_x_api_user(
     cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
     if cookie_file:
         load_from_cookie_file(cookie_file)
+    _ensure_x_api_session(progress)
     if not session_ready():
         return None
     is_known = build_x_known_checker() if realtime_incremental else None

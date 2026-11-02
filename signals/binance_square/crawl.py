@@ -229,10 +229,16 @@ def run_binance_square_fetch(
     if _wait_control(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "posts": []}
 
+    dbg_url = (debugger_url or cfg.get("debugger_url") or "").strip() or None
+    if use_bapi and _square_api_primary(cfg):
+        from signals.binance_square.session import resolve_binance_session
+
+        resolve_binance_session(debugger_url=str(dbg_url or ""), progress=progress)
+
     if realtime_incremental:
         from signals.binance_square.realtime import ensure_binance_session_for_realtime
 
-        ensure_binance_session_for_realtime(progress)
+        ensure_binance_session_for_realtime(progress, debugger_url=str(dbg_url or ""))
 
     all_posts: List[Dict[str, Any]] = []
     routes: List[str] = []

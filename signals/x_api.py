@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from signals.store import parse_dt, parse_list_id, parse_user_handle
-from signals.x_session import DEFAULT_QUERY_IDS, load_x_session, query_id, session_ready
+from signals.cdp_session_loader import get_cached_x_session
+from signals.x_session import DEFAULT_QUERY_IDS, query_id, resolve_x_session, session_ready
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +198,7 @@ def parse_timeline_payload(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
 
 class XApiClient:
     def __init__(self, session: Optional[Dict[str, Any]] = None) -> None:
-        self.session = session or load_x_session() or {}
+        self.session = session or get_cached_x_session() or {}
         if not session_ready(self.session):
             raise RuntimeError("X 会话未配置（需要 auth_token + ct0）")
 
@@ -335,6 +336,7 @@ def fetch_list_timeline_api(
     realtime_incremental: bool = False,
     is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
+    resolve_x_session(progress=progress, force_refresh=False)
     if not session_ready():
         return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
     lid = parse_list_id(list_id) or str(list_id or "").strip()
@@ -422,6 +424,7 @@ def fetch_user_timeline_api(
     realtime_incremental: bool = False,
     is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
+    resolve_x_session(progress=progress, force_refresh=False)
     if not session_ready():
         return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
     h = parse_user_handle(handle) or str(handle or "").strip().lstrip("@")

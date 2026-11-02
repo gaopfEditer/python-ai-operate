@@ -1,5 +1,5 @@
 # coding=utf-8
-"""币安 Square 实时抓取：bapi 优先、会话校验、入库前补时间。"""
+"""币安 Square 实时抓取：bapi 优先、运行时 CDP Cookie、入库前补时间。"""
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
@@ -12,22 +12,26 @@ def _log(cb: ProgressCb, msg: str) -> None:
         cb(msg)
 
 
-def ensure_binance_session_for_realtime(progress: ProgressCb = None) -> bool:
-    from signals.binance_square.session import load_binance_session, session_diagnostics, session_ready
+def ensure_binance_session_for_realtime(
+    progress: ProgressCb = None,
+    *,
+    debugger_url: str = "",
+) -> bool:
+    from signals.binance_square.session import resolve_binance_session, session_diagnostics, session_ready
 
+    resolve_binance_session(debugger_url=debugger_url, progress=progress, force_refresh=False)
     if session_ready():
         diag = session_diagnostics()
         if not diag.get("has_fingerprint"):
             _log(
                 progress,
-                "提示：Square session 缺少 device-info 等指纹头，bapi 可能返回空 data；"
-                "请在 Square 页滚动后重跑 bootstrap_binance_session_from_cdp.py",
+                "提示：未检测到 device-info 等指纹头（可选）；若 bapi 返回空 data，"
+                "请在 Chrome 打开 Square 时间线或在本机 session 文件补充 headers",
             )
         return True
     _log(
         progress,
-        "Square session 未配置：请运行 scripts/bootstrap_binance_session_from_cdp.py "
-        "或写入 output/signals/binance_square_session.json",
+        "Square 会话未就绪：请启动带 --remote-debugging-port 的 Chrome 并登录 binance.com",
     )
     return False
 

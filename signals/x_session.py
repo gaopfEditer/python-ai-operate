@@ -74,8 +74,41 @@ def load_x_session() -> Optional[Dict[str, Any]]:
     }
 
 
+def merge_x_supplemental(
+    primary: Dict[str, Any], supplemental: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    out = dict(primary)
+    if supplemental:
+        out["query_ids"] = _merge_query_ids(supplemental.get("query_ids"))
+        bearer = str(supplemental.get("authorization") or "").strip()
+        if bearer and bearer != DEFAULT_BEARER:
+            out["authorization"] = bearer
+    return out
+
+
+def resolve_x_session(
+    *,
+    debugger_url: str = "",
+    progress=None,
+    force_refresh: bool = False,
+) -> Optional[Dict[str, Any]]:
+    from signals.cdp_session_loader import refresh_x_session_from_cdp
+
+    return refresh_x_session_from_cdp(
+        debugger_url=debugger_url, progress=progress, force_refresh=force_refresh
+    )
+
+
 def session_ready(session: Optional[Dict[str, Any]] = None) -> bool:
-    s = session if session is not None else load_x_session()
+    if session is not None:
+        s = session
+    else:
+        try:
+            from signals.cdp_session_loader import get_cached_x_session
+
+            s = get_cached_x_session()
+        except Exception:
+            s = load_x_session()
     return bool(s and s.get("auth_token") and s.get("ct0"))
 
 

@@ -232,5 +232,71 @@ class TestBinanceBapi(unittest.TestCase):
         self.assertEqual(out[0].get("published_iso"), "2024-06-01T12:00:00+08:00")
 
 
+class TestCdpSessionLoader(unittest.TestCase):
+    def test_merge_supplemental_headers_keeps_cdp_cookies(self):
+        from signals.binance_square.session import merge_supplemental_headers
+
+        primary = {
+            "cookies": {"csrftoken": "from_cdp"},
+            "headers": {"csrftoken": "from_cdp"},
+            "cookie_header": "csrftoken=from_cdp",
+        }
+        file_sess = {
+            "cookies": {"csrftoken": "from_file"},
+            "headers": {"device-info": "fp-token", "csrftoken": "from_file"},
+            "cookie_header": "csrftoken=from_file",
+        }
+        merged = merge_supplemental_headers(primary, file_sess)
+        self.assertEqual(merged["cookies"]["csrftoken"], "from_cdp")
+        self.assertEqual(merged["headers"]["device-info"], "fp-token")
+
+    def test_pull_binance_from_cdp_mock(self):
+        from signals import cdp_session_loader as loader
+
+        fake_pages = [{"webSocketDebuggerUrl": "ws://fake"}]
+
+        class FakeClient:
+            def __init__(self, ws):
+                pass
+
+            def call(self, method, params=None):
+                if method == "Network.getCookies":
+                    return {
+                        "cookies": [
+                            {"name": "csrftoken", "value": "abc"},
+                            {"name": "bnc-uuid", "value": "u1"},
+                        ]
+                    }
+                return {}
+
+            def close(self):
+                pass
+
+        with mock.patch.object(loader, "_http_json_on_host", return_value=fake_pages), mock.patch(
+            "allnews_mornitor.cdp_browser._CdpClient", FakeClient
+        ):
+            sess, err = loader.pull_binance_session_from_cdp("127.0.0.1:9223")
+        self.assertEqual(err, "")
+        self.assertIn("csrftoken=abc", sess.get("cookie_header") or "")
+
+    def test_refresh_falls_back_to_file_when_cdp_fails(self):
+        from signals import cdp_session_loader as loader
+        from signals.binance_square.session import load_binance_session
+
+        logs: list = []
+        with mock.patch.object(loader, "pull_binance_session_from_cdp", return_value=(None, "no chrome")), mock.patch.object(
+            loader, "_cdp_disabled", return_value=False
+        ), mock.patch(
+            "signals.binance_square.session.load_binance_session",
+            return_value={"cookies": {"csrftoken": "f"}, "headers": {}, "cookie_header": "csrftoken=f"},
+        ):
+            loader.clear_session_cache()
+            out = loader.refresh_binance_session_from_cdp(
+                debugger_url="127.0.0.1:9223", progress=logs.append
+            )
+        self.assertTrue(out)
+        self.assertTrue(any("回退" in x for x in logs))
+
+
 if __name__ == "__main__":
     unittest.main()

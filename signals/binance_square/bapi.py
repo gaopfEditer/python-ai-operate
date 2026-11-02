@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from urllib import request as urlrequest
 
-from signals.binance_square.session import load_binance_session, session_ready
+from signals.binance_square.session import get_active_binance_session_for_http, session_ready
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ def _base_headers(*, referer: str = "") -> Dict[str, str]:
         "Referer": referer or f"https://www.binance.com/{_LOCALE}/square",
         "Origin": "https://www.binance.com",
     }
-    sess = load_binance_session()
+    sess = get_active_binance_session_for_http()
     if sess:
         extra = sess.get("headers") if isinstance(sess.get("headers"), dict) else {}
         for k, v in extra.items():
