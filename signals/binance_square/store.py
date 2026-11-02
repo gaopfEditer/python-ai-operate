@@ -301,6 +301,55 @@ def _parse_iso_time(iso: str) -> Optional[datetime]:
         return None
 
 
+
+
+def _looks_like_time_label(text: str) -> bool:
+    t = str(text or "").strip()
+    if not t:
+        return False
+    return bool(
+        re.match(
+            r"^(刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)(?:前)?|"
+            r"\d+\s*(?:minutes?|hours?|days?)\s*ago|"
+            r"\d{1,2}\s*月\s*\d{1,2}\s*日|"
+            r"\d{4}-\d{2}-\d{2})",
+            t,
+            re.I,
+        )
+    )
+
+
+def _looks_like_relative_time_label(text: str) -> bool:
+    t = str(text or "").strip()
+    if not t:
+        return False
+    return bool(
+        re.match(
+            r"^(刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)(?:前)?|"
+            r"\d+\s*(?:minutes?|hours?|days?)\s*ago)",
+            t,
+            re.I,
+        )
+    )
+
+
+def _extract_create_time_snippet(text: str) -> str:
+    """从 create-time 单元格文案中提取「12小时」「3天前」等，忽略作者名等前缀。"""
+    t = str(text or "").strip()
+    if not t:
+        return ""
+    if _looks_like_time_label(t):
+        return t
+    m = re.search(r"(刚刚|昨天|今天|\d+\s*(?:秒|分钟|小时|天)(?:前)?)", t)
+    if m:
+        return m.group(1).strip()
+    m2 = re.search(r"(\d{1,2}\s*月\s*\d{1,2}\s*日)", t)
+    if m2:
+        return m2.group(1).strip()
+    m3 = re.search(r"(\d{4}-\d{2}-\d{2})", t)
+    return m3.group(1).strip() if m3 else ""
+
+
 def _parse_time_label(label: str, *, now: Optional[datetime] = None) -> Optional[datetime]:
     text = str(label or "").strip()
     if not text:
