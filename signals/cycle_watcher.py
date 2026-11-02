@@ -97,6 +97,7 @@ def _run_once() -> Dict[str, Any]:
             ignore_windows=True,
             progress=lambda m: print(f"[signals-cycle] {m}", flush=True),
             control=ctl,
+            realtime_incremental=True,
         )
         now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         parsed_n = int(result.get("parsed") or result.get("parsed_count") or 0)

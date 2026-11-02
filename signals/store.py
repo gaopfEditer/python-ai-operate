@@ -653,6 +653,21 @@ def is_seen(tweet_id: str) -> bool:
     return tid in set(state.get("seen_tweet_ids") or [])
 
 
+def is_stored_tweet(tweet_id: str) -> bool:
+    """本地已入库或已标记处理过的 tweet_id（增量停爬用）。"""
+    tid = str(tweet_id or "").strip()
+    if not tid:
+        return False
+    if is_seen(tid):
+        return True
+    try:
+        from signals.card_db import db_get_card_by_tweet_id
+
+        return db_get_card_by_tweet_id(tid) is not None
+    except Exception:
+        return False
+
+
 def is_pushed(tweet_id: str) -> bool:
     tid = str(tweet_id or "").strip()
     if not tid:

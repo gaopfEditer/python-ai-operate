@@ -95,6 +95,10 @@ def _ms_to_iso(raw: Any) -> str:
 
 
 _TIME_RAW_KEYS = (
+    "fabricTime",
+    "fabric",
+    "fabricCreateTime",
+
     "createTime",
     "publishTime",
     "publishedAt",

@@ -1,0 +1,73 @@
+{
+  "data": {
+    "list": {
+      "tweets_timeline": {
+        "timeline": {
+          "instructions": [
+            {
+              "type": "TimelineAddEntries",
+              "entries": [
+                {
+                  "content": {
+                    "entryType": "TimelineTimelineItem",
+                    "itemContent": {
+                      "tweet_results": {
+                        "result": {
+                          "rest_id": "1001",
+                          "legacy": {
+                            "id_str": "1001",
+                            "created_at": "Wed Oct 10 20:19:24 +0000 2018",
+                            "full_text": "hello api",
+                            "user_id_str": "12"
+                          },
+                          "core": {
+                            "user_results": {
+                              "result": {
+                                "legacy": { "screen_name": "trader1" }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "content": {
+                    "entryType": "TimelineTimelineCursor",
+                    "cursorType": "Bottom",
+                    "value": "cursor-bottom-abc"
+                  }
+                },
+                {
+                  "content": {
+                    "entryType": "TimelineTimelineItem",
+                    "itemContent": {
+                      "tweet_results": {
+                        "result": {
+                          "rest_id": "1002",
+                          "legacy": {
+                            "id_str": "1002",
+                            "created_at": "Wed Oct 11 20:19:24 +0000 2018",
+                            "full_text": "second tweet"
+                          },
+                          "core": {
+                            "user_results": {
+                              "result": {
+                                "legacy": { "screen_name": "trader1" }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

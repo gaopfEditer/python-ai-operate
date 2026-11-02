@@ -1,0 +1,14 @@
+{
+  "_comment": "复制为 output/signals/binance_square_session.json。登录 binance.com 后可用 scripts/bootstrap_binance_session_from_cdp.py 从 CDP 导出 Cookie + 指纹头。",
+  "cookies": {
+    "csrftoken": "",
+    "bnc-uuid": ""
+  },
+  "headers": {
+    "bnc-uuid": "",
+    "csrftoken": "",
+    "device-info": "",
+    "fvideo-id": "",
+    "fvideo-token": ""
+  }
+}

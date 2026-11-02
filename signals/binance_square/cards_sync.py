@@ -20,26 +20,46 @@ def _log(cb: ProgressCb, msg: str) -> None:
 
 
 def _display_time(post: Dict[str, Any]) -> str:
-    from signals.binance_square.store import _extract_create_time_snippet, _parse_time_label
+    """卡片时间：只用接口绝对发布时间（fabric/createTime/firstReleaseTime→published_iso）。"""
+    from signals.binance_square.store import (
+        _extract_create_time_snippet,
+        _looks_like_relative_time_label,
+        _parse_iso_time,
+    )
+
+    for key in ("published_iso", "created_at", "firstReleaseTime", "createTime", "fabricTime", "fabric"):
+        raw = post.get(key)
+        if raw in (None, ""):
+            continue
+        if isinstance(raw, (int, float)) or (isinstance(raw, str) and str(raw).isdigit()):
+            try:
+                from signals.binance_square.bapi_profile import _ms_to_iso
+                iso = _ms_to_iso(raw)
+            except Exception:
+                try:
+                    from signals.binance_square.bapi import _ms_to_iso
+                    iso = _ms_to_iso(raw)
+                except Exception:
+                    iso = ""
+            pdt = _parse_iso_time(iso) if iso else None
+        else:
+            pdt = _parse_iso_time(str(raw))
+        if pdt is not None:
+            return fmt_beijing(pdt)
 
     dt = parse_post_time(post)
     if dt is not None:
-        return fmt_beijing(dt)
+        iso = str(post.get("published_iso") or "").strip()
+        if iso and _parse_iso_time(iso):
+            return fmt_beijing(dt)
+
     raw_tl = str(post.get("time_label") or "").strip()
     snippet = _extract_create_time_snippet(raw_tl)
-    if snippet:
-        dt2 = _parse_time_label(snippet, now=datetime.now(timezone.utc))
-        if dt2 is not None:
-            return fmt_beijing(dt2)
+    if snippet and _looks_like_relative_time_label(snippet):
+        return ""
+    if snippet and not _looks_like_relative_time_label(snippet):
         return snippet
-    iso = str(post.get("published_iso") or "").strip()
-    if iso:
-        from signals.binance_square.store import _parse_iso_time
-
-        pdt = _parse_iso_time(iso)
-        if pdt is not None:
-            return fmt_beijing(pdt)
-    if raw_tl and len(raw_tl) <= 56:
+    if raw_tl and len(raw_tl) <= 56 and not _looks_like_relative_time_label(raw_tl):
         return raw_tl
     return ""
 

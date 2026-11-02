@@ -8192,7 +8192,8 @@ function binancePostToSigCard(p) {
   const replayUrl = String(p.replay_url || "").trim();
   const liveCid = String(p.live_content_id || "").trim();
   const timeLabel = String(p.time_label || p.time || "").trim();
-  const publishedIso = String(p.published_iso || "").trim();
+  const publishedIso = String(p.published_iso || p.created_at || "").trim();
+  // 币安卡片：优先接口绝对时间
   const card = {
     id: cid ? `bs_${cid}` : liveCid ? `bs_live_${liveCid}` : `bs_${dedup.slice(-24)}`,
     tweet_id: cid || liveCid,

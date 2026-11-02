@@ -1,8 +1,9 @@
 # coding=utf-8
-"""CDP 抓取 X List 时间线推文（含时间、正文、图片）。"""
+"""X List / 博主时间线抓取：默认 Cookie+GraphQL API，CDP 滚动仅作显式回退。"""
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -14,6 +15,95 @@ from signals.store import media_root, parse_dt, parse_list_id
 from signals.tweet_log import fmt_tweet_line
 
 ProgressCb = Optional[Callable[[str], None]]
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _x_api_primary() -> bool:
+    """默认走 HTTP API；SIGNALS_X_USE_CDP=1 强制 CDP 滚动。"""
+    return not _env_flag("SIGNALS_X_USE_CDP", False)
+
+
+def _x_api_only() -> bool:
+    return _env_flag("SIGNALS_X_API_ONLY", False)
+
+
+def _try_x_api_list(
+    list_id: str,
+    *,
+    since: datetime,
+    max_tweets: int,
+    progress: ProgressCb,
+    should_abort: Optional[Callable[[], bool]],
+    realtime_incremental: bool = False,
+) -> Optional[Dict[str, Any]]:
+    from signals.incremental import build_x_known_checker
+    from signals.x_api import fetch_list_timeline_api
+    from signals.x_session import load_from_cookie_file, session_ready
+
+    cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
+    if cookie_file:
+        load_from_cookie_file(cookie_file)
+    if not session_ready():
+        return None
+    is_known = build_x_known_checker() if realtime_incremental else None
+    res = fetch_list_timeline_api(
+        list_id,
+        since=since,
+        max_tweets=max_tweets,
+        progress=progress,
+        should_abort=should_abort,
+        realtime_incremental=realtime_incremental,
+        is_known=is_known,
+    )
+    if res.get("success"):
+        return res
+    if _x_api_only():
+        return res
+    _log(progress, f"X API 列表失败，回退 CDP：{res.get('error')}")
+    return None
+
+
+def _try_x_api_user(
+    handle: str,
+    *,
+    since: datetime,
+    max_tweets: int,
+    progress: ProgressCb,
+    should_abort: Optional[Callable[[], bool]],
+    realtime_incremental: bool = False,
+) -> Optional[Dict[str, Any]]:
+    from signals.incremental import build_x_known_checker
+    from signals.x_api import fetch_user_timeline_api
+    from signals.x_session import load_from_cookie_file, session_ready
+
+    cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
+    if cookie_file:
+        load_from_cookie_file(cookie_file)
+    if not session_ready():
+        return None
+    is_known = build_x_known_checker() if realtime_incremental else None
+    res = fetch_user_timeline_api(
+        handle,
+        since=since,
+        max_tweets=max_tweets,
+        include_replies=False,
+        progress=progress,
+        should_abort=should_abort,
+        realtime_incremental=realtime_incremental,
+        is_known=is_known,
+    )
+    if res.get("success"):
+        return res
+    if _x_api_only():
+        return res
+    _log(progress, f"X API 博主失败，回退 CDP：{res.get('error')}")
+    return None
 
 # 专用静默标签标记（用于复用 / 清理，避免每次 createTarget 堆 tab）
 _SIGNALS_TAB_MARKER = "trendradar-signals"
@@ -104,9 +194,7 @@ for (const a of arts) {
     if (/^(Relevant|People|Top|Latest|Post|Posts)$/i.test(head)) continue;
     const st = pickStatus(a);
     if (!st || !st.tweet_id) continue;
-    let timeEl = a.querySelector('a[href*="/status/"] time[datetime]');
-    if (!timeEl) timeEl = a.querySelector('time[datetime]');
-    if (!timeEl) timeEl = a.querySelector('time');
+    const timeEl = a.querySelector('time');
     const created_at = timeEl ? (timeEl.getAttribute('datetime') || '') : '';
     const time_label = timeEl ? (timeEl.textContent || '').trim() : '';
     const textParts = [...a.querySelectorAll('[data-testid="tweetText"]')]
@@ -368,27 +456,10 @@ def _merge_tweet_item(store: Dict[str, Dict[str, Any]], it: Dict[str, Any]) -> b
     old_text = str(old.get("text") or "").strip()
     if len(new_text) > len(old_text):
         old["text"] = it.get("text")
-    def _time_rank(row: Dict[str, Any]) -> int:
-        raw = str(row.get("created_at") or "").strip()
-        score = 0
-        if raw:
-            score += 8
-            if parse_dt(raw):
-                score += 12
-        if str(row.get("time_label") or "").strip():
-            score += 2
-        return score
-
-    if _time_rank(it) > _time_rank(old):
-        if it.get("created_at"):
-            old["created_at"] = it.get("created_at")
-        if it.get("time_label"):
-            old["time_label"] = it.get("time_label")
-    else:
-        if not old.get("created_at") and it.get("created_at"):
-            old["created_at"] = it.get("created_at")
-        if not old.get("time_label") and it.get("time_label"):
-            old["time_label"] = it.get("time_label")
+    if not old.get("created_at") and it.get("created_at"):
+        old["created_at"] = it.get("created_at")
+    if not old.get("time_label") and it.get("time_label"):
+        old["time_label"] = it.get("time_label")
     if not old.get("author") and it.get("author"):
         old["author"] = it.get("author")
     if not old.get("url") and it.get("url"):
@@ -546,49 +617,6 @@ def _scroll_feed_page(page, *, rounds: int = 4, aggressive: bool = False) -> Non
 })()
 """
         )
-    except Exception:
-        pass
-
-
-_RESET_TIMELINE_SCROLL_JS = r"""
-(() => {
-  const reset = (el) => {
-    try {
-      if (!el) return;
-      if (el.scrollHeight > el.clientHeight + 40) el.scrollTop = 0;
-    } catch (e) {}
-  };
-  reset(document.scrollingElement);
-  reset(document.documentElement);
-  reset(document.body);
-  const col = document.querySelector('[data-testid="primaryColumn"]');
-  reset(col);
-  if (col) {
-    col.querySelectorAll('*').forEach((el) => {
-      try {
-        const st = getComputedStyle(el);
-        if (
-          (st.overflowY === 'auto' || st.overflowY === 'scroll' || st.overflowY === 'overlay')
-          && el.scrollHeight > el.clientHeight + 40
-        ) {
-          el.scrollTop = 0;
-        }
-      } catch (e) {}
-    });
-  }
-  window.scrollTo(0, 0);
-  return true;
-})()
-"""
-
-
-def _reset_timeline_scroll_top(page, *, progress: ProgressCb = None, label: str = "") -> None:
-    """复用 CDP 页签时 X 会留在上次滚动深度，每次抓取前必须先回到顶部。"""
-    try:
-        page.eval_js(_RESET_TIMELINE_SCROLL_JS)
-        time.sleep(0.55)
-        head = f"{label} " if label else ""
-        _log(progress, f"{head}已滚回时间线顶部，从最新帖重新向下（不接上次位置）")
     except Exception:
         pass
 
@@ -762,12 +790,8 @@ def _crawl_timeline_at_url(
     page_kind: str = "profile",
     prefer_live: bool = True,
     stall_limit: int = 18,
-    stop_if_known: Optional[Callable[[str], bool]] = None,
-    stop_known_streak: int = 2,
-    soft_reload: Optional[bool] = None,
+    is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
-    from signals.store import get_config
-
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     feed_js = _feed_js(handle, filter_author=filter_author)
     by_id: Dict[str, Dict[str, Any]] = {}
@@ -777,32 +801,13 @@ def _crawl_timeline_at_url(
     window_exhausted = False
     lazy_stall = 0
     stall_stop = max(8, min(int(stall_limit or 18), 40))
-    known_streak = 0
-    stopped_known = False
-    need_known = max(1, int(stop_known_streak or 2))
+    stopped_on_known = False
 
-    if soft_reload is None:
-        soft_reload = get_config().get("x_fetch_soft_reload") is False
-
-    navigated = True
-    if soft_reload:
-        try:
-            cur = str(page.eval_js("return location.href || ''") or "").strip()
-        except Exception:
-            cur = ""
-        norm = lambda u: (u or "").split("#")[0].strip().rstrip("/")
-        if norm(cur) == norm(url):
-            navigated = False
-
-    if navigated:
-        _log(progress, f"打开 {label}：{url}")
-        page.silent_navigate(url)
-        wait_s = 5.0 if page_kind == "search" else 3.5
-        time.sleep(wait_s)
-        _prepare_timeline_page(page, kind=page_kind, prefer_live=prefer_live)
-        _reset_timeline_scroll_top(page, progress=progress, label=label)
-    else:
-        _log(progress, f"{label} 软复用当前页（不 reload / 不滚回顶）")
+    _log(progress, f"打开 {label}：{url}")
+    page.silent_navigate(url)
+    wait_s = 5.0 if page_kind == "search" else 3.5
+    time.sleep(wait_s)
+    _prepare_timeline_page(page, kind=page_kind, prefer_live=prefer_live)
 
     for round_i in range(max_scroll):
         if should_abort and should_abort():
@@ -816,6 +821,16 @@ def _crawl_timeline_at_url(
             raw = []
         if not isinstance(raw, list):
             raw = []
+        stop_known = False
+        if is_known and raw:
+            from signals.incremental import filter_newest_until_known, tweet_id_from_item
+
+            raw, stop_known = filter_newest_until_known(
+                raw,
+                id_fn=tweet_id_from_item,
+                is_known=is_known,
+                enabled=True,
+            )
         if not raw:
             dom_n = _dom_tweet_count(page)
             if dom_n:
@@ -835,9 +850,6 @@ def _crawl_timeline_at_url(
                         )
             elif round_i == 0:
                 _log(progress, f"{label} 首屏无推文 DOM，继续滚动…")
-                if not navigated:
-                    _reset_timeline_scroll_top(page, progress=progress, label=label)
-                    navigated = True
 
         oldest_in_batch = None
         new_in_round = 0
@@ -874,26 +886,11 @@ def _crawl_timeline_at_url(
                 if not too_old:
                     new_all_old = False
 
-            if stop_if_known and tid and stop_if_known(tid):
-                known_streak += 1
-                if known_streak >= need_known:
-                    stopped_known = True
-                    _log(
-                        progress,
-                        f"{label}：连续 {known_streak} 条已收录，停止继续向下滚动",
-                    )
-                    break
-            elif stop_if_known:
-                known_streak = 0
-
             if too_old:
                 continue
             is_new = _merge_tweet_item(by_id, it)
             if is_new:
                 new_in_window += 1
-
-        if stopped_known:
-            break
 
         _log(
             progress,
@@ -903,6 +900,11 @@ def _crawl_timeline_at_url(
         )
 
         if len(by_id) >= max_tweets:
+            break
+
+        if stop_known:
+            _log(progress, f"{label}：命中已存帖，停止滚动")
+            stopped_on_known = True
             break
 
         if new_in_round > 0:
@@ -948,7 +950,7 @@ def _crawl_timeline_at_url(
         "page_seen": page_seen,
         "page_old": page_old,
         "count": min(len(items), max_tweets),
-        "stopped_known": stopped_known,
+        "stopped_on_known": stopped_on_known,
     }
 
 
@@ -1052,41 +1054,19 @@ def _session_alive(sess: Dict[str, Any]) -> bool:
         return False
 
 
-def _persist_signals_cdp_target_id(target_id: str) -> None:
-    tid = str(target_id or "").strip()
-    if not tid:
-        return
-    try:
-        from signals.store import save_config
-
-        save_config({"signals_cdp_target_id": tid})
-    except Exception:
-        pass
-
-
 def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[Any, Any]:
     """
-    复用 Signals 专用后台页签（持久 target_id），避免附着用户最后一 tab。
+    复用 Chrome 最后一个页签抓取列表，避免周期任务每次 Target.createTarget 新开 tab。
     """
     from allnews_mornitor.cdp_browser import BackgroundTarget, _CdpClient, _browser_ws_url, _http_json
-    from signals.store import get_config
 
     global _SESSION
-
-    cfg = get_config()
-    soft_skip_reload = cfg.get("x_fetch_soft_reload") is False
-    stored_tid = str(cfg.get("signals_cdp_target_id") or "").strip()
 
     with _SESSION_LOCK:
         if _SESSION and _session_alive(_SESSION):
             page = _SESSION["page"]
-            last = str(_SESSION.get("last_url") or "")
-            if soft_skip_reload and last == list_url:
-                _log(progress, f"CDP 软复用（不 reload）→ {list_url}")
-                return _SESSION["client"], page
-            _log(progress, f"CDP 复用 Signals 专用页签 → {list_url}")
+            _log(progress, f"CDP 复用会话页签 → {list_url}")
             page.silent_navigate(list_url)
-            _SESSION["last_url"] = list_url
             return _SESSION["client"], page
 
         _close_session()
@@ -1103,31 +1083,27 @@ def _acquire_list_page(list_url: str, *, progress: ProgressCb = None) -> Tuple[A
         created_new = False
         pages = _list_page_targets()
 
-        if stored_tid:
-            for p in pages:
-                if str(p.get("id") or "") == stored_tid:
-                    try:
-                        page = BackgroundTarget.attach(client, stored_tid)
-                        _log(
-                            progress,
-                            f"CDP 附着 Signals 专用页签（{stored_tid[:8]}…）",
-                        )
-                    except Exception:
-                        page = None
-                    break
+        if pages:
+            tid = str(pages[-1].get("id") or "")
+            try:
+                page = BackgroundTarget.attach(client, tid)
+                _log(
+                    progress,
+                    f"CDP 附着最后一个页签（未新建 tab，当前共 {len(pages)} 个）",
+                )
+            except Exception:
+                page = None
 
         if page is None:
             page = BackgroundTarget.create(client, _SIGNALS_TAB_BLANK)
             created_new = True
-            _persist_signals_cdp_target_id(page.target_id)
-            _log(progress, "CDP 新建 Signals 专用后台标签（仅此一次）")
+            _log(progress, "CDP 无可用页签，建立后台专用标签（仅此一次）")
 
         _SESSION = {
             "client": client,
             "page": page,
             "target_id": page.target_id,
             "created_new": created_new,
-            "last_url": list_url,
         }
         page.silent_navigate(list_url)
         return client, page
@@ -1222,13 +1198,14 @@ def crawl_list_timeline(
     max_scroll: int = 18,
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
-    stop_if_known: Optional[Callable[[str], bool]] = None,
-    stop_known_streak: int = 2,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
     """
-    静默 CDP 打开列表页，滚动直到推文时间早于 since 或达到上限。
-    should_abort: 返回 True 时提前结束滚动。
+    打开 X 列表时间线：默认 GraphQL API（Cookie 会话），SIGNALS_X_USE_CDP=1 时回退 CDP 滚动。
+    should_abort: 返回 True 时提前结束。
+    realtime_incremental: 实时增量模式，遇本地已存 tweet_id 即停止翻页。
     """
+
     from allnews_mornitor.cdp_browser import _http_json
 
     lid = parse_list_id(list_id) or str(list_id or "").strip()
@@ -1237,6 +1214,20 @@ def crawl_list_timeline(
     url = f"https://x.com/i/lists/{lid}"
     max_tweets = max(1, min(int(max_tweets or 40), 120))
     max_scroll = max(3, min(int(max_scroll or 18), 40))
+
+    if _x_api_primary():
+        api_res = _try_x_api_list(
+            lid,
+            since=since,
+            max_tweets=max_tweets,
+            progress=progress,
+            should_abort=should_abort,
+            realtime_incremental=realtime_incremental,
+        )
+        if api_res and api_res.get("success"):
+            return api_res
+        if api_res and _x_api_only():
+            return api_res
 
     def _aborted() -> bool:
         try:
@@ -1247,10 +1238,6 @@ def crawl_list_timeline(
     host = _debugger_host()
     _orig = _patch_debugger_host(host)
 
-    from utils.signals_fetch_lock import signals_fetch_lock
-
-    _fetch_lock = signals_fetch_lock()
-    _fetch_lock.acquire()
     page = None
     try:
         try:
@@ -1264,7 +1251,6 @@ def crawl_list_timeline(
 
         _, page = _acquire_list_page(url, progress=progress)
         time.sleep(2.5)
-        _reset_timeline_scroll_top(page, progress=progress, label=f"列表 {lid}")
 
         by_id: Dict[str, Dict[str, Any]] = {}
         seen_log: set = set()
@@ -1272,9 +1258,11 @@ def crawl_list_timeline(
         page_kept = 0
         page_old = 0
         reached_old = False
-        known_streak = 0
-        stopped_known = False
-        need_known = max(1, int(stop_known_streak or 2))
+        is_known = None
+        if realtime_incremental:
+            from signals.incremental import build_x_known_checker
+
+            is_known = build_x_known_checker()
         for round_i in range(max_scroll):
             if _aborted():
                 _log(progress, "抓取已终止（滚动中）")
@@ -1287,6 +1275,16 @@ def crawl_list_timeline(
                 raw = []
             if not isinstance(raw, list):
                 raw = []
+            stop_known = False
+            if is_known and raw:
+                from signals.incremental import filter_newest_until_known, tweet_id_from_item
+
+                raw, stop_known = filter_newest_until_known(
+                    raw,
+                    id_fn=tweet_id_from_item,
+                    is_known=is_known,
+                    enabled=True,
+                )
             oldest_in_batch = None
             new_in_round = 0
             for it in raw:
@@ -1327,21 +1325,9 @@ def crawl_list_timeline(
 
                 if too_old:
                     continue
-
-                if stop_if_known and tid and stop_if_known(tid):
-                    known_streak += 1
-                    if known_streak >= need_known:
-                        stopped_known = True
-                        _log(
-                            progress,
-                            f"列表：连续 {known_streak} 条已收录，停止继续向下滚动",
-                        )
-                        break
-                elif stop_if_known:
-                    known_streak = 0
-
                 _merge_tweet_item(by_id, it)
-            if stopped_known:
+            if stop_known:
+                _log(progress, "命中已存帖，停止 CDP 滚动")
                 break
             _log(
                 progress,
@@ -1393,16 +1379,11 @@ def crawl_list_timeline(
             "count": len(items),
             "page_seen": page_seen,
             "page_old": page_old,
-            "stopped_known": stopped_known,
         }
     except Exception as e:
         _close_session()
         return {"success": False, "error": str(e), "items": []}
     finally:
-        try:
-            _fetch_lock.release()
-        except Exception:
-            pass
         if _orig is not None:
             try:
                 import allnews_mornitor.cdp_browser as cdp_mod
@@ -1421,10 +1402,9 @@ def crawl_user_timeline(
     max_scroll: int = 24,
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
-    stop_if_known: Optional[Callable[[str], bool]] = None,
-    stop_known_streak: int = 2,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
-    """CDP 抓取博主时间窗推文：按日期切片搜索(Latest)，不足再补主页/回复。"""
+    """抓取博主时间窗推文：默认 GraphQL API；SIGNALS_X_USE_CDP=1 时回退 CDP 搜索/滚动。"""
     from allnews_mornitor.cdp_browser import _http_json
     from signals.store import parse_user_handle, user_profile_url
 
@@ -1435,6 +1415,21 @@ def crawl_user_timeline(
     max_tweets = max(1, min(int(max_tweets or 80), 300))
     # 单段深滚上限；整月靠切片叠加，不必单次滚上百轮
     max_scroll = max(18, min(int(max_scroll or 24), 60))
+
+    if _x_api_primary():
+        api_res = _try_x_api_user(
+            h,
+            since=since,
+            max_tweets=max_tweets,
+            progress=progress,
+            should_abort=should_abort,
+            realtime_incremental=realtime_incremental,
+        )
+        if api_res and api_res.get("success"):
+            return api_res
+        if api_res and _x_api_only():
+            return api_res
+
     now = datetime.now(timezone.utc).astimezone()
     span_days = max(1, (now - (since if since.tzinfo else since.replace(tzinfo=timezone.utc))).days + 1)
     # >7 天按 4~5 天切片，避免 X 搜索深滚失效只拿到最近几条
@@ -1459,11 +1454,13 @@ def crawl_user_timeline(
 
     host = _debugger_host()
     _orig = _patch_debugger_host(host)
+    is_known_fn = None
+    if realtime_incremental:
+        from signals.incremental import build_x_known_checker
 
-    from utils.signals_fetch_lock import signals_fetch_lock
+        is_known_fn = build_x_known_checker()
+    stopped_on_known = False
 
-    _fetch_lock = signals_fetch_lock()
-    _fetch_lock.acquire()
     page = None
     try:
         try:
@@ -1514,24 +1511,25 @@ def crawl_user_timeline(
                 page_kind="search",
                 prefer_live=True,
                 stall_limit=12,
-                stop_if_known=stop_if_known,
-                stop_known_streak=stop_known_streak,
+                is_known=is_known_fn,
             )
             before = len(merged)
             ps, po = _merge_items(merged, search_res)
             total_seen += ps
             total_old += po
+            if realtime_incremental and search_res.get("stopped_on_known"):
+                _log(progress, "实时增量：搜索命中已存帖，停止更深回溯")
+                stopped_on_known = True
+                break
             gained = len(merged) - before
             _log(
                 progress,
                 f"{label} 本段新增 {gained} · 累计窗口内 {len(merged)}",
             )
-            if search_res.get("stopped_known"):
-                _log(progress, "遇到已收录帖，停止更早时间切片")
-                break
+            # 空段继续往更早切（可能该周没发帖），不要提前 break 整月
 
         min_want = max(10, min(max_tweets // 3, 40))
-        if len(merged) < min_want and not _aborted():
+        if len(merged) < min_want and not _aborted() and not stopped_on_known:
             _log(
                 progress,
                 f"切片搜索仅 {len(merged)} 条，补充抓取主页时间线…",
@@ -1549,14 +1547,15 @@ def crawl_user_timeline(
                 filter_author=True,
                 page_kind="profile",
                 stall_limit=18,
-                stop_if_known=stop_if_known,
-                stop_known_streak=stop_known_streak,
+                is_known=is_known_fn,
             )
             ps, po = _merge_items(merged, profile_res)
             total_seen += ps
             total_old += po
+            if realtime_incremental and profile_res.get("stopped_on_known"):
+                stopped_on_known = True
 
-        if len(merged) < min_want and not _aborted():
+        if len(merged) < min_want and not _aborted() and not stopped_on_known:
             replies_url = f"{profile_url.rstrip('/')}/with_replies"
             _log(progress, f"主页仍仅 {len(merged)} 条，尝试回复时间线…")
             replies_res = _crawl_timeline_at_url(
@@ -1572,8 +1571,7 @@ def crawl_user_timeline(
                 filter_author=True,
                 page_kind="profile",
                 stall_limit=16,
-                stop_if_known=stop_if_known,
-                stop_known_streak=stop_known_streak,
+                is_known=is_known_fn,
             )
             ps, po = _merge_items(merged, replies_res)
             total_seen += ps
@@ -1624,10 +1622,6 @@ def crawl_user_timeline(
         _close_session()
         return {"success": False, "error": str(e), "items": []}
     finally:
-        try:
-            _fetch_lock.release()
-        except Exception:
-            pass
         if _orig is not None:
             try:
                 import allnews_mornitor.cdp_browser as cdp_mod
