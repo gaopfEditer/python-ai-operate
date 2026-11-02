@@ -112,8 +112,6 @@ def _fetch_profiles_via_api(
                 row["source"] = "bapi_profile"
         _log(progress, f"  bapi 抽到 {len(chunk)} 条")
         posts.extend(chunk)
-    if posts:
-        posts = enrich_posts_time_from_detail(posts, limit=max(8, max_n // 3), progress=progress)
     return posts
 
 
@@ -232,17 +230,25 @@ def run_binance_square_fetch(
     if _wait_control(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "posts": []}
 
+    if realtime_incremental:
+        from signals.binance_square.realtime import ensure_binance_session_for_realtime
+
+        ensure_binance_session_for_realtime(progress)
+
     all_posts: List[Dict[str, Any]] = []
     routes: List[str] = []
 
-    if use_bapi:
+    skip_trending = bool(realtime_incremental and profiles)
+    if use_bapi and not skip_trending:
         _log(progress, "尝试 bapi 热榜…")
         trending = fetch_trending(limit=max_n)
         if trending:
             all_posts.extend(trending)
             routes.append("bapi")
         else:
-            _log(progress, "bapi 无数据，改走 CDP 主页…")
+            _log(progress, "bapi 热榜无数据（继续博主 bapi）")
+    elif skip_trending:
+        _log(progress, "Square 实时：跳过热榜，仅抓配置博主 bapi")
 
     if profiles:
         api_ok = False
@@ -346,6 +352,13 @@ def run_binance_square_fetch(
 
     merged = merge_square_posts(all_posts)
     scraped_n = len(merged)
+    if merged and ("bapi_profile" in routes or realtime_incremental):
+        from signals.binance_square.realtime import enrich_publish_times_before_filter
+
+        _log(progress, "bapi 补全发帖时间（detail firstReleaseTime）…")
+        merged = enrich_publish_times_before_filter(
+            merged, limit=max(12, max_n // 2), progress=progress
+        )
     if time_spec.get("mode") == "range":
         rk = str(time_spec.get("backfill_range") or "last_7d")
         label = BACKFILL_RANGE_LABELS.get(rk, rk)
@@ -363,20 +376,31 @@ def run_binance_square_fetch(
         _log(progress, f"跳过已抓取 {skipped_known} 条（contentId 已在缓存/库）")
 
     if profiles and to_process:
-        from signals.binance_square.media import enrich_posts_media_from_detail
-        from public.platforms.cdp_common import connect_cdp
+        used_bapi = "bapi_profile" in routes or _square_api_primary(cfg)
+        if used_bapi and not _env_flag("BINANCE_SQUARE_USE_CDP"):
+            from signals.binance_square.media import enrich_posts_media_from_bapi
 
-        try:
-            driver = connect_cdp(dbg)
-            _log(progress, "详情页补抓无媒体帖子（仅新帖）…")
-            to_process = enrich_posts_media_from_detail(
-                driver,
+            _log(progress, "bapi 详情补媒体（仅新帖）…")
+            to_process = enrich_posts_media_from_bapi(
                 to_process,
                 limit=min(10, max(4, max_n // 4)),
                 progress=progress,
             )
-        except Exception as e:
-            _log(progress, f"详情补媒体跳过: {e}")
+        else:
+            from signals.binance_square.media import enrich_posts_media_from_detail
+            from public.platforms.cdp_common import connect_cdp
+
+            try:
+                driver = connect_cdp(dbg)
+                _log(progress, "详情页补抓无媒体帖子（仅新帖）…")
+                to_process = enrich_posts_media_from_detail(
+                    driver,
+                    to_process,
+                    limit=min(10, max(4, max_n // 4)),
+                    progress=progress,
+                )
+            except Exception as e:
+                _log(progress, f"详情补媒体跳过: {e}")
 
     st = load_state()
     prior = st.get("last_posts") if isinstance(st.get("last_posts"), list) else []
@@ -419,8 +443,10 @@ def run_binance_square_fetch(
             cards_sync = sync_posts_to_signal_cards(enriched, progress=progress)
 
     ok = not aborted
+    if realtime_incremental and not enriched and skipped_known and not aborted:
+        _log(progress, "Square 实时：时间窗内无新帖（均已入库）")
     return {
-        "success": ok or bool(merged),
+        "success": ok or bool(merged) or (realtime_incremental and not aborted),
         "aborted": aborted,
         "posts": combined_posts,
         "cards_sync": cards_sync,

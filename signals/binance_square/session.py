@@ -47,16 +47,32 @@ def load_binance_session() -> Optional[Dict[str, Any]]:
         return None
     for k, v in cookies.items():
         headers.setdefault(k, v)
+    csrf = cookies.get("csrftoken") or headers.get("csrftoken") or ""
+    if csrf:
+        headers["csrftoken"] = csrf
+        headers.setdefault("BNC-CSRF-TOKEN", csrf)
     cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items() if v)
     return {"cookies": cookies, "headers": headers, "cookie_header": cookie_header}
+
+
+def session_diagnostics(session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    s = session if session is not None else load_binance_session()
+    if not s:
+        return {"ready": False, "has_cookie": False, "has_fingerprint": False}
+    hdr = s.get("headers") if isinstance(s.get("headers"), dict) else {}
+    has_cookie = bool(s.get("cookie_header") or hdr.get("csrftoken") or hdr.get("bnc-uuid"))
+    has_fp = bool(hdr.get("device-info") or hdr.get("fvideo-id") or hdr.get("fvideo-token"))
+    return {"ready": session_ready(s), "has_cookie": has_cookie, "has_fingerprint": has_fp}
 
 
 def session_ready(session: Optional[Dict[str, Any]] = None) -> bool:
     s = session if session is not None else load_binance_session()
     if not s:
         return False
+    if str(s.get("cookie_header") or "").strip():
+        return True
     hdr = s.get("headers") if isinstance(s.get("headers"), dict) else {}
-    return bool(hdr.get("csrftoken") or hdr.get("bnc-uuid") or s.get("cookie_header"))
+    return bool(hdr.get("csrftoken") or hdr.get("bnc-uuid"))
 
 
 def save_binance_session(payload: Dict[str, Any], *, path: Optional[Path] = None) -> Path:

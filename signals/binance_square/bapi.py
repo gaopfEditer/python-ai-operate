@@ -42,6 +42,75 @@ _DETAIL_URL_TMPL = (
 
 _CONTENT_ID_RE = re.compile(r"/square/post/(\d+)", re.I)
 _LOCALE = "zh-CN"
+_BAPI_OK = frozenset({"000000", "0", 0, None})
+
+
+def _bapi_envelope_ok(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return bool(data)
+    code = data.get("code")
+    if code in _BAPI_OK:
+        return True
+    return str(code or "") in ("000000", "0")
+
+
+def _bapi_error_message(data: Any) -> str:
+    if not isinstance(data, dict):
+        return "invalid response"
+    return str(data.get("message") or data.get("msg") or data.get("code") or "bapi error")
+
+
+def _collect_row_list(node: Any, depth: int = 0) -> List[Any]:
+    if depth > 6 or node is None:
+        return []
+    if isinstance(node, list):
+        return node
+    if not isinstance(node, dict):
+        return []
+    for key in (
+        "list",
+        "voList",
+        "contents",
+        "rows",
+        "dataList",
+        "contentList",
+        "result",
+        "data",
+    ):
+        sub = node.get(key)
+        if isinstance(sub, list) and sub:
+            return sub
+        if isinstance(sub, dict):
+            found = _collect_row_list(sub, depth + 1)
+            if found:
+                return found
+    return []
+
+
+def _parse_list_payload(data: Any) -> List[Dict[str, Any]]:
+    if not _bapi_envelope_ok(data):
+        logger.debug("bapi envelope: %s", _bapi_error_message(data))
+    items = _collect_row_list(data.get("data") if isinstance(data, dict) else data)
+    if not items and isinstance(data, list):
+        items = data
+    out: List[Dict[str, Any]] = []
+    for row in items:
+        p = row_to_post(row if isinstance(row, dict) else {})
+        if p:
+            out.append(p)
+    return out
+
+
+def _profile_page_meta(data: Any) -> Tuple[int, bool]:
+    """返回 (next_time_offset, has_more)。"""
+    if not isinstance(data, dict):
+        return 0, False
+    d = data.get("data")
+    if isinstance(d, dict):
+        nxt = int(d.get("timeOffset") or d.get("nextTimeOffset") or 0)
+        has_more = bool(d.get("hasMore") or d.get("hasNext"))
+        return nxt, has_more
+    return 0, False
 
 
 def _base_headers(*, referer: str = "") -> Dict[str, str]:
@@ -206,35 +275,11 @@ def row_to_post(
             "profile_id": profile_slug,
             "profile_name": profile_name or profile_slug,
             "source": "bapi",
-            "is_pinned": bool(row.get("isPin") or row.get("pinned")),
+            "is_pinned": bool(
+                row.get("isPin") or row.get("pinned") or row.get("top") or row.get("isTop")
+            ),
         }
     )
-
-
-def _parse_list_payload(data: Any) -> List[Dict[str, Any]]:
-    items: List[Any] = []
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict):
-        for key in ("data", "list", "voList", "contents", "result"):
-            node = data.get(key)
-            if isinstance(node, list):
-                items = node
-                break
-            if isinstance(node, dict):
-                for k2 in ("list", "voList", "contents", "data", "rows"):
-                    sub = node.get(k2)
-                    if isinstance(sub, list):
-                        items = sub
-                        break
-            if items:
-                break
-    out: List[Dict[str, Any]] = []
-    for row in items:
-        p = row_to_post(row if isinstance(row, dict) else {})
-        if p:
-            out.append(p)
-    return out
 
 
 def fetch_trending(limit: int = 40) -> List[Dict[str, Any]]:
@@ -255,18 +300,35 @@ def resolve_square_uid(profile_slug: str) -> str:
     if not slug:
         raise ValueError("缺少 profile slug")
     referer = f"https://www.binance.com/{_LOCALE}/square/profile/{slug}"
-    data = _http_json(
-        _USER_CLIENT_URL,
-        method="POST",
-        body={"username": slug, "getFollowCount": False},
-        referer=referer,
-    )
-    node = data.get("data") if isinstance(data, dict) else {}
-    if isinstance(node, dict):
-        uid = str(node.get("squareUid") or node.get("squareUserId") or node.get("userId") or "").strip()
-        if uid:
-            return uid
-    raise RuntimeError(f"无法解析 Square UID: {slug}")
+    bodies = [
+        {"username": slug, "getFollowCount": False},
+        {"userName": slug, "getFollowCount": False},
+        {"uniqueName": slug, "getFollowCount": False},
+        {"opUserName": slug, "getFollowCount": False},
+    ]
+    last_err = ""
+    for body in bodies:
+        try:
+            data = _http_json(_USER_CLIENT_URL, method="POST", body=body, referer=referer)
+        except Exception as e:
+            last_err = str(e)
+            continue
+        if not _bapi_envelope_ok(data):
+            last_err = _bapi_error_message(data)
+            continue
+        node = data.get("data") if isinstance(data, dict) else {}
+        if isinstance(node, dict):
+            uid = str(
+                node.get("squareUid")
+                or node.get("squareUserId")
+                or node.get("userId")
+                or node.get("uid")
+                or ""
+            ).strip()
+            if uid:
+                return uid
+        last_err = "data 无 squareUid"
+    raise RuntimeError(f"无法解析 Square UID: {slug} ({last_err})")
 
 
 def fetch_profile_posts_page(
@@ -277,25 +339,31 @@ def fetch_profile_posts_page(
     profile_slug: str = "",
 ) -> Tuple[List[Dict[str, Any]], int]:
     referer = f"https://www.binance.com/{_LOCALE}/square/profile/{profile_slug or square_uid}"
-    params = {
-        "squareUid": square_uid,
-        "timeOffset": int(time_offset or 0),
-        "filterType": filter_type or "all",
-    }
-    data = _http_json(_PROFILE_POSTS_URL, params=params, referer=referer)
-    rows = _parse_list_payload(data)
-    next_offset = 0
-    if isinstance(data, dict):
-        d = data.get("data")
-        if isinstance(d, dict):
-            next_offset = int(d.get("timeOffset") or d.get("nextTimeOffset") or 0)
-        elif isinstance(d, list) and rows:
+
+    def _load(off: int) -> Tuple[List[Dict[str, Any]], int, Any]:
+        params = {
+            "squareUid": square_uid,
+            "timeOffset": int(off or 0),
+            "filterType": filter_type or "all",
+        }
+        data = _http_json(_PROFILE_POSTS_URL, params=params, referer=referer)
+        if not _bapi_envelope_ok(data):
+            raise RuntimeError(_bapi_error_message(data))
+        rows = _parse_list_payload(data)
+        nxt, _has_more = _profile_page_meta(data)
+        if not nxt and rows:
             last = rows[-1]
             iso = str(last.get("published_iso") or "")
             try:
-                next_offset = int(datetime.fromisoformat(iso).timestamp() * 1000)
+                nxt = int(datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp() * 1000)
             except Exception:
-                next_offset = 0
+                nxt = 0
+        return rows, nxt, data
+
+    rows, next_offset, _data = _load(time_offset)
+    if not rows and int(time_offset or 0) == 0:
+        now_ms = int(time.time() * 1000)
+        rows, next_offset, _data = _load(now_ms)
     return rows, next_offset
 
 
@@ -316,12 +384,15 @@ def fetch_profile_posts(
         since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     merged: List[Dict[str, Any]] = []
     seen_ids: set = set()
-    offset = 0
+    offset = int(time.time() * 1000) if realtime_incremental else 0
     stale_pages = 0
     for page_i in range(40):
         rows, next_off = fetch_profile_posts_page(uid, time_offset=offset, profile_slug=slug)
         if not rows:
-            break
+            if page_i == 0 and offset != 0:
+                rows, next_off = fetch_profile_posts_page(uid, time_offset=0, profile_slug=slug)
+            if not rows:
+                break
         from signals.incremental import filter_newest_until_known, square_id_from_post
 
         stop_page = False
@@ -331,6 +402,7 @@ def fetch_profile_posts(
                 id_fn=square_id_from_post,
                 is_known=is_known,
                 enabled=True,
+                skip_known_if_pinned=True,
             )
         new_in_page = 0
         for row in rows:

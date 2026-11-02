@@ -1,0 +1,21 @@
+{
+  "code": "000000",
+  "data": {
+    "timeOffset": 1699000000000,
+    "hasMore": true,
+    "voList": [
+      {
+        "contentId": "9001",
+        "bodyTextOnly": "new post alpha",
+        "firstReleaseTime": 1699100000000,
+        "shareUrl": "https://www.binance.com/zh-CN/square/post/9001"
+      },
+      {
+        "contentId": "9000",
+        "bodyTextOnly": "pinned old",
+        "firstReleaseTime": 1698000000000,
+        "isPin": true
+      }
+    ]
+  }
+}

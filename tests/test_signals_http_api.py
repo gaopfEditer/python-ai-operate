@@ -151,6 +151,44 @@ class TestIncrementalStop(unittest.TestCase):
         self.assertNotIn("1001", ids)
 
 
+class TestBinanceRealtime(unittest.TestCase):
+    def test_parse_profile_posts_fixture(self):
+        from signals.binance_square.bapi import _parse_list_payload
+
+        data = json.loads((FIXTURES / "binance_profile_posts.json").read_text(encoding="utf-8"))
+        posts = _parse_list_payload(data)
+        self.assertEqual(len(posts), 2)
+        self.assertEqual(posts[0]["content_id"], "9001")
+        self.assertIn("2023", posts[0].get("published_iso") or "")
+
+    def test_resolve_uid_fixture(self):
+        from signals.binance_square import bapi
+
+        payload = json.loads((FIXTURES / "binance_user_client.json").read_text(encoding="utf-8"))
+        with mock.patch.object(bapi, "_http_json", return_value=payload):
+            uid = bapi.resolve_square_uid("yanchibit")
+        self.assertEqual(uid, "TestSquareUid123")
+
+    def test_incremental_skips_known_pinned(self):
+        from signals.incremental import filter_newest_until_known, square_id_from_post
+
+        items = [
+            {"content_id": "pin1", "is_pinned": True},
+            {"content_id": "new9"},
+            {"content_id": "old8"},
+        ]
+
+        kept, stop = filter_newest_until_known(
+            items,
+            id_fn=square_id_from_post,
+            is_known=lambda c: c in ("pin1", "old8"),
+            enabled=True,
+            skip_known_if_pinned=True,
+        )
+        self.assertEqual([x["content_id"] for x in kept], ["new9"])
+        self.assertTrue(stop)
+
+
 class TestBinanceBapi(unittest.TestCase):
     def test_row_to_post_detail_times(self):
         from signals.binance_square.bapi import row_to_post
