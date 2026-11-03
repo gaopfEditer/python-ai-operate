@@ -26,6 +26,10 @@
 - `Square 会话：CDP（…）读取失败 — …`（不会打印 Cookie 值）
 - 随后尝试本地 session 文件 / `BNC_CSRF`、`BNC_UUID` 环境变量
 
+## 抓取路径标签与周期日志
+
+卡片字段 `fetch_source`（`cookie+api` | `cdp`）与每轮抓取 JSONL 日志说明见 [signals_fetch_routes.md](./signals_fetch_routes.md)。
+
 ## X / 列表信号（同一机制）
 
 - 抓取开始时从 CDP 读取 `x.com` 的 **auth_token + ct0**，并从已打开标签的 `sessionStorage` / `performance` 捕获 **GraphQL queryId**（如 `ListLatestTweetsTimeline`、`UserTweets`），再走 GraphQL API
