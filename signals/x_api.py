@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from signals.store import parse_dt, parse_list_id, parse_user_handle
 from signals.cdp_session_loader import get_cached_x_session
+from signals.http_proxy import urlopen as vpn_urlopen
 from signals.x_session import DEFAULT_QUERY_IDS, query_id, resolve_x_session, session_ready
 
 logger = logging.getLogger(__name__)
@@ -249,7 +250,7 @@ class XApiClient:
             body = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(url, data=body, headers=self._headers(), method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=25) as resp:
+            with vpn_urlopen(req, timeout=25) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")[:500]
