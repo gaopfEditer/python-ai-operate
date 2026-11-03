@@ -1,16 +1,23 @@
 # coding=utf-8
 from __future__ import annotations
 
+import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from signals.control import RunControl
 
-from signals.binance_square.bapi import fetch_trending
+from signals.binance_square.bapi import fetch_profile_posts, fetch_trending
 from signals.binance_square.profile_js import PROFILE_POST_EXTRACT_JS
 from signals.binance_square.enrich import enrich_posts_with_signals
+from signals.signal_parse_queue import (
+    enqueue_binance_square_posts,
+    llm_parse_is_deferred,
+    pending_signal,
+)
 from signals.binance_square.store import (
     apply_binance_time_filter,
     known_square_content_ids,
@@ -41,6 +48,78 @@ def _wait_control(control: Optional["RunControl"], progress: ProgressCb) -> str:
     if control.check() == "stop":
         return "stop"
     return "ok"
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _square_api_primary(cfg: Dict[str, Any]) -> bool:
+    if _env_flag("BINANCE_SQUARE_USE_CDP"):
+        return False
+    if _env_flag("BINANCE_SQUARE_USE_API", True):
+        return True
+    return bool(cfg.get("use_profile_api", True))
+
+
+def _fetch_profiles_via_api(
+    profiles: List[Dict[str, Any]],
+    *,
+    max_n: int,
+    time_spec: Dict[str, Any],
+    progress: ProgressCb,
+    control: Optional["RunControl"],
+    realtime_incremental: bool = False,
+) -> List[Dict[str, Any]]:
+    from signals.backfill_range import resolve_backfill_since
+    from signals.incremental import build_square_known_checker
+
+    is_known = build_square_known_checker() if realtime_incremental else None
+
+    since_dt = None
+    if time_spec.get("mode") == "range":
+        rk = str(time_spec.get("backfill_range") or "last_7d")
+        since_dt, _ = resolve_backfill_since(rk)
+    else:
+        hours = float(time_spec.get("cutoff_hours") or 24)
+        since_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    posts: List[Dict[str, Any]] = []
+    for i, prof in enumerate(profiles, 1):
+        if _wait_control(control, progress) == "stop":
+            break
+        slug = str(prof.get("id") or "").strip()
+        name = str(prof.get("name") or slug)
+        if not slug:
+            continue
+        _log(progress, f"======== [{i}/{len(profiles)}] bapi @{slug} · {name} ========")
+        try:
+            chunk = fetch_profile_posts(
+                slug,
+                max_items=max_n,
+                since=since_dt,
+                profile_name=name,
+                progress=progress,
+                realtime_incremental=realtime_incremental,
+                is_known=is_known,
+            )
+        except Exception as e:
+            _log(progress, f"  bapi 失败: {e}")
+            chunk = []
+        from signals.fetch_source import FETCH_COOKIE_API
+
+        for row in chunk:
+            if isinstance(row, dict):
+                row["profile_id"] = slug
+                row["profile_name"] = name
+                row["source"] = "bapi_profile"
+                row["fetch_source"] = FETCH_COOKIE_API
+        _log(progress, f"  bapi 抽到 {len(chunk)} 条")
+        posts.extend(chunk)
+    return posts
 
 
 def _slug_from_profile(url: str) -> str:
@@ -120,6 +199,7 @@ def run_binance_square_fetch(
     try_bapi: Optional[bool] = None,
     progress: ProgressCb = None,
     control: Optional["RunControl"] = None,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
     cfg = load_config()
     aborted = False
@@ -130,6 +210,11 @@ def run_binance_square_fetch(
     )
     max_n = int(max_posts_per_profile if max_posts_per_profile is not None else cfg.get("max_posts_per_profile") or 40)
     use_bapi = bool(try_bapi if try_bapi is not None else cfg.get("try_bapi_first"))
+    incremental_fetch = bool(
+        realtime_incremental
+        if realtime_incremental
+        else time_spec.get("mode") != "range"
+    )
 
     profiles = [p for p in (cfg.get("profiles") or []) if isinstance(p, dict) and p.get("enabled", True)]
     if profile_ids:
@@ -152,81 +237,150 @@ def run_binance_square_fetch(
     if _wait_control(control, progress) == "stop":
         return {"success": False, "error": "已终止", "aborted": True, "posts": []}
 
+    dbg_url = (debugger_url or cfg.get("debugger_url") or "").strip() or None
+    if use_bapi and _square_api_primary(cfg):
+        from signals.binance_square.session import resolve_binance_session
+
+        resolve_binance_session(debugger_url=str(dbg_url or ""), progress=progress)
+
+    if realtime_incremental:
+        from signals.binance_square.realtime import ensure_binance_session_for_realtime
+
+        ensure_binance_session_for_realtime(progress, debugger_url=str(dbg_url or ""))
+
     all_posts: List[Dict[str, Any]] = []
     routes: List[str] = []
 
-    if use_bapi:
+    skip_trending = bool(realtime_incremental and profiles)
+    if use_bapi and not skip_trending:
         _log(progress, "尝试 bapi 热榜…")
         trending = fetch_trending(limit=max_n)
         if trending:
+            from signals.fetch_source import FETCH_COOKIE_API
+
+            for row in trending:
+                if isinstance(row, dict):
+                    row.setdefault("fetch_source", FETCH_COOKIE_API)
+                    row.setdefault("source", "bapi")
             all_posts.extend(trending)
             routes.append("bapi")
         else:
-            _log(progress, "bapi 无数据，改走 CDP 主页…")
+            _log(progress, "bapi 热榜无数据（继续博主 bapi）")
+    elif skip_trending:
+        _log(progress, "Square 实时：跳过热榜，仅抓配置博主 bapi")
 
     if profiles:
-        from public.platforms.cdp_common import connect_cdp, invalidate_cdp_driver
-
-        if not dbg:
-            from signals.store import resolve_signals_debugger_url
-
-            dbg = resolve_signals_debugger_url()
-        _log(progress, f"连接 CDP {dbg}…")
-        try:
-            driver = connect_cdp(dbg)
-        except Exception as e:
-            invalidate_cdp_driver(dbg)
-            return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
-
-        scroll_kw = _scroll_params_for_time_spec(time_spec)
-        try:
-            abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
-            for i, prof in enumerate(profiles, 1):
-                if _wait_control(control, progress) == "stop":
-                    aborted = True
-                    _log(progress, f"用户终止于博主 {i - 1}/{len(profiles)}")
-                    break
-                url = str(prof.get("url") or "").strip()
-                slug = _slug_from_profile(url) or str(prof.get("id") or "")
-                name = str(prof.get("name") or slug)
-                if not url:
-                    continue
-                _log(progress, f"======== [{i}/{len(profiles)}] @{slug} · {name} ========")
-                _log(progress, f"打开主页 …")
-                try:
-                    driver.get(url)
-                except Exception as e:
-                    _log(progress, f"  打开失败: {e}")
-                    continue
-                time.sleep(2.2)
-                try:
-                    chunk = _scroll_profile_and_extract(
-                        driver,
-                        max_items=max_n,
-                        author_slug=slug,
-                        progress=progress,
-                        should_abort=abort_fn,
-                        **scroll_kw,
+        api_ok = False
+        if _square_api_primary(cfg):
+            _log(progress, "Square 博主：bapi 分页（默认）…")
+            api_posts = _fetch_profiles_via_api(
+                profiles,
+                max_n=max_n,
+                time_spec=time_spec,
+                progress=progress,
+                control=control,
+                realtime_incremental=incremental_fetch,
+            )
+            if api_posts:
+                all_posts.extend(api_posts)
+                routes.append("bapi_profile")
+                for prof in profiles:
+                    slug = str(prof.get("id") or "").strip()
+                    profile_stats.append(
+                        {
+                            "id": slug,
+                            "name": str(prof.get("name") or slug),
+                            "fetched": sum(
+                                1
+                                for p in api_posts
+                                if str(p.get("profile_id") or "").lower() == slug.lower()
+                            ),
+                            "url": str(prof.get("url") or ""),
+                        }
                     )
-                except Exception as e:
-                    _log(progress, f"  解析失败: {e}")
-                    chunk = []
-                for row in chunk:
-                    if isinstance(row, dict):
-                        row["profile_id"] = slug
-                        row["profile_name"] = name
-                        row["source"] = "profile_cdp"
-                _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
-                profile_stats.append(
-                    {"id": slug, "name": name, "fetched": len(chunk), "url": url}
-                )
-                all_posts.extend(chunk)
-            routes.append("profile_cdp")
-        finally:
-            pass
+                api_ok = True
+            elif _env_flag("BINANCE_SQUARE_API_ONLY"):
+                return {
+                    "success": False,
+                    "error": "Square bapi 无数据（可配置 session 或 BINANCE_SQUARE_USE_CDP=1）",
+                    "posts": [],
+                }
+            else:
+                _log(progress, "bapi 博主无数据，回退 CDP 滚动…")
+
+        if not api_ok and not _env_flag("BINANCE_SQUARE_API_ONLY"):
+            from public.platforms.cdp_common import connect_cdp, invalidate_cdp_driver
+
+            if not dbg:
+                from signals.store import resolve_signals_debugger_url
+
+                dbg = resolve_signals_debugger_url()
+            _log(progress, f"连接 CDP {dbg}…")
+            try:
+                driver = connect_cdp(dbg)
+            except Exception as e:
+                invalidate_cdp_driver(dbg)
+                return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
+
+            scroll_kw = _scroll_params_for_time_spec(time_spec)
+            try:
+                abort_fn = (lambda: bool(control and control.is_stopped())) if control else None
+                for i, prof in enumerate(profiles, 1):
+                    if _wait_control(control, progress) == "stop":
+                        aborted = True
+                        _log(progress, f"用户终止于博主 {i - 1}/{len(profiles)}")
+                        break
+                    url = str(prof.get("url") or "").strip()
+                    slug = _slug_from_profile(url) or str(prof.get("id") or "")
+                    name = str(prof.get("name") or slug)
+                    if not url:
+                        continue
+                    _log(progress, f"======== [{i}/{len(profiles)}] CDP @{slug} · {name} ========")
+                    _log(progress, f"打开主页 …")
+                    try:
+                        driver.get(url)
+                    except Exception as e:
+                        _log(progress, f"  打开失败: {e}")
+                        continue
+                    time.sleep(2.2)
+                    try:
+                        chunk = _scroll_profile_and_extract(
+                            driver,
+                            max_items=max_n,
+                            author_slug=slug,
+                            progress=progress,
+                            should_abort=abort_fn,
+                            **scroll_kw,
+                        )
+                    except Exception as e:
+                        _log(progress, f"  解析失败: {e}")
+                        chunk = []
+                    from signals.fetch_source import FETCH_CDP
+
+                    for row in chunk:
+                        if isinstance(row, dict):
+                            row["profile_id"] = slug
+                            row["profile_name"] = name
+                            row["source"] = "profile_cdp"
+                            row["fetch_source"] = FETCH_CDP
+                    _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
+                    profile_stats.append(
+                        {"id": slug, "name": name, "fetched": len(chunk), "url": url}
+                    )
+                    all_posts.extend(chunk)
+                routes.append("profile_cdp")
+            finally:
+                pass
 
     merged = merge_square_posts(all_posts)
     scraped_n = len(merged)
+    if merged and ("bapi_profile" in routes or realtime_incremental):
+        from signals.binance_square.realtime import enrich_publish_times_before_filter
+
+        _log(progress, "bapi 补全发帖时间（detail firstReleaseTime）…")
+        merged = enrich_publish_times_before_filter(
+            merged, limit=max(12, max_n // 2), progress=progress
+        )
     if time_spec.get("mode") == "range":
         rk = str(time_spec.get("backfill_range") or "last_7d")
         label = BACKFILL_RANGE_LABELS.get(rk, rk)
@@ -244,30 +398,53 @@ def run_binance_square_fetch(
         _log(progress, f"跳过已抓取 {skipped_known} 条（contentId 已在缓存/库）")
 
     if profiles and to_process:
-        from signals.binance_square.media import enrich_posts_media_from_detail
-        from public.platforms.cdp_common import connect_cdp
+        used_bapi = "bapi_profile" in routes or _square_api_primary(cfg)
+        if used_bapi and not _env_flag("BINANCE_SQUARE_USE_CDP"):
+            from signals.binance_square.media import enrich_posts_media_from_bapi
 
-        try:
-            driver = connect_cdp(dbg)
-            _log(progress, "详情页补抓无媒体帖子（仅新帖）…")
-            to_process = enrich_posts_media_from_detail(
-                driver,
+            _log(progress, "bapi 详情补媒体（仅新帖）…")
+            to_process = enrich_posts_media_from_bapi(
                 to_process,
                 limit=min(10, max(4, max_n // 4)),
                 progress=progress,
             )
-        except Exception as e:
-            _log(progress, f"详情补媒体跳过: {e}")
+        else:
+            from signals.binance_square.media import enrich_posts_media_from_detail
+            from public.platforms.cdp_common import connect_cdp
+
+            try:
+                driver = connect_cdp(dbg)
+                _log(progress, "详情页补抓无媒体帖子（仅新帖）…")
+                to_process = enrich_posts_media_from_detail(
+                    driver,
+                    to_process,
+                    limit=min(10, max(4, max_n // 4)),
+                    progress=progress,
+                )
+            except Exception as e:
+                _log(progress, f"详情补媒体跳过: {e}")
 
     st = load_state()
     prior = st.get("last_posts") if isinstance(st.get("last_posts"), list) else []
+    parse_queued = 0
     if to_process:
-        _log(progress, f"AI/规则解析 {len(to_process)} 条新贴文信号…")
-        enriched = enrich_posts_with_signals(to_process, prior_posts=prior, progress=progress)
+        if llm_parse_is_deferred():
+            _log(progress, f"新帖 {len(to_process)} 条 · 先入库原文与卡片…")
+            enriched = []
+            for row in to_process:
+                p = dict(row)
+                p["signal"] = pending_signal()
+                enriched.append(p)
+            _log(progress, f"原文已入库 {len(enriched)} 条，信号解析排队中（后台）")
+        else:
+            _log(progress, f"AI/规则解析 {len(to_process)} 条新贴文信号…")
+            enriched = enrich_posts_with_signals(
+                to_process, prior_posts=prior, progress=progress, control=control
+            )
     else:
         enriched = []
         if merged and skipped_known:
-            _log(progress, "范围内帖子均已抓取过，跳过 AI 解析与入库")
+            _log(progress, "范围内帖子均已抓取过，跳过入库")
 
     register_square_content_ids(
         [post_content_id(p) for p in merged],
@@ -299,13 +476,20 @@ def run_binance_square_fetch(
         else:
             cards_sync = sync_posts_to_signal_cards(enriched, progress=progress)
 
+    if to_process and llm_parse_is_deferred() and enriched:
+        parse_queued = enqueue_binance_square_posts(enriched, progress=progress)
+
     ok = not aborted
-    return {
-        "success": ok or bool(merged),
+    if realtime_incremental and not enriched and skipped_known and not aborted:
+        _log(progress, "Square 实时：时间窗内无新帖（均已入库）")
+
+    out_payload = {
+        "success": ok or bool(merged) or (realtime_incremental and not aborted),
         "aborted": aborted,
         "posts": combined_posts,
         "cards_sync": cards_sync,
         "new_count": len(enriched),
+        "parse_queued": parse_queued,
         "skipped_known": skipped_known,
         "total": len(merged),
         "routes": routes,
@@ -319,3 +503,10 @@ def run_binance_square_fetch(
             else f"已终止 · 已得 {len(merged)} 条"
         ),
     }
+    try:
+        from signals.fetch_source import log_binance_square_crawl
+
+        log_binance_square_crawl(out_payload, realtime=realtime_incremental)
+    except Exception:
+        pass
+    return out_payload

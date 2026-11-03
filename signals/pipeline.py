@@ -1,5 +1,5 @@
 # coding=utf-8
-"""列表交易信号流水线：时间窗去重 → CDP 抓取 → 下图 → AI 解析 → 卡片。"""
+"""列表交易信号流水线：时间窗去重 → X API/CDP 抓取 → 下图 → AI 解析 → 卡片。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,12 @@ from uuid import uuid4
 from signals.labels import is_trade_signal
 from signals.analyze import analyze_tweet_signal
 from signals.control import RunControl
+from signals.signal_parse_queue import (
+    enqueue_list_cards,
+    llm_parse_is_deferred,
+    pending_signal,
+    signal_parse_pending,
+)
 from signals.crawl import crawl_list_timeline, crawl_user_timeline, download_image
 from signals.push import push_cards_batch
 from signals.store import (
@@ -29,6 +35,22 @@ from signals.store import (
 from signals.tweet_log import clip_text, fmt_item_summary_line, fmt_post_time, fmt_signal_line, fmt_tweet_line, resolve_display_time
 
 ProgressCb = Optional[Callable[[str], None]]
+
+
+def _item_fetch_source(it: Dict[str, Any], crawled: Dict[str, Any]) -> str:
+    from signals.fetch_source import crawl_default_fetch_source, fetch_source_for_item
+
+    return fetch_source_for_item(it, crawl_default_fetch_source(crawled))
+
+
+def _log_fetch_route_log_x(crawled: Dict[str, Any], *, list_id: str = "", handle: str = "", realtime: bool) -> None:
+    from signals.fetch_source import log_x_list_crawl, log_x_user_crawl
+
+    api_attempt = crawled.get("api_attempt") if isinstance(crawled.get("api_attempt"), dict) else None
+    if handle:
+        log_x_user_crawl(crawled, handle=handle, realtime=realtime, api_attempt=api_attempt)
+    else:
+        log_x_list_crawl(crawled, list_id=list_id, realtime=realtime, api_attempt=api_attempt)
 
 
 def _log(cb: ProgressCb, msg: str) -> None:
@@ -66,6 +88,7 @@ def run_list_signal_pipeline(
     ignore_windows: bool = False,
     progress: ProgressCb = None,
     control: Optional[RunControl] = None,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
     cfg = get_config()
     lid = parse_list_id(list_id or str(cfg.get("list_id") or "")) or str(cfg.get("list_id") or "")
@@ -119,9 +142,15 @@ def run_list_signal_pipeline(
         max_tweets=limit,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        realtime_incremental=realtime_incremental,
     )
     if not crawled.get("success"):
         return crawled
+
+    try:
+        _log_fetch_route_log_x(crawled, list_id=lid, realtime=realtime_incremental)
+    except Exception:
+        pass
 
     raw_items: List[Dict[str, Any]] = list(crawled.get("items") or [])
     fresh: List[Dict[str, Any]] = []
@@ -155,7 +184,7 @@ def run_list_signal_pipeline(
                 "可勾选「忽略已爬时间窗」后重跑，或等列表有新帖。",
             )
         elif not page_seen:
-            _log(progress, "提示：页面未抽到推文，请确认 CDP Chrome 已登录 X 且列表 ID 正确。")
+            _log(progress, "提示：未抽到推文，请确认 Chrome 已登录 x.com、已打开列表/首页（CDP 捕获 queryId），且列表 ID 正确。")
         else:
             _log(progress, "提示：窗口内帖子均已处理过；可勾选「重新解析已见」或等新帖。")
 
@@ -239,7 +268,11 @@ def run_list_signal_pipeline(
             if not reparse_seen
             else None
         )
-        from_cache = bool(cached_card and isinstance(cached_card.get("signal"), dict))
+        from_cache = bool(
+            cached_card
+            and isinstance(cached_card.get("signal"), dict)
+            and not signal_parse_pending(cached_card.get("signal"))
+        )
 
         if from_cache and cached_card:
             sig = cached_card.get("signal") if isinstance(cached_card.get("signal"), dict) else {}
@@ -251,6 +284,7 @@ def run_list_signal_pipeline(
                     mark_seen([tid])
                 _log(progress, "结果: 继承缓存 · 无交易信号，已跳过")
                 continue
+            fs = _item_fetch_source(it, crawled)
             saved = upsert_card(
                 {
                     **dict(cached_card),
@@ -259,11 +293,47 @@ def run_list_signal_pipeline(
                     "author": author or cached_card.get("author") or "",
                     "user_handle": parse_user_handle(author),
                     "source_mode": "list_realtime",
+                    **({"fetch_source": fs} if fs else {}),
                 }
             )
             cards.append(saved)
             parsed += 1
             _log(progress, "结果: 继承缓存 · 已合并入库")
+            continue
+
+        if llm_parse_is_deferred():
+            signal = pending_signal()
+            if not created_raw:
+                created_raw = now.isoformat(timespec="seconds")
+            if not time_label:
+                time_label = time_s
+            fs = _item_fetch_source(it, crawled)
+            card = {
+                "id": f"sig_{uuid4().hex[:10]}",
+                "list_id": lid,
+                "tweet_id": tid,
+                "user_handle": parse_user_handle(author),
+                "url": str(it.get("url") or ""),
+                "author": author,
+                "text": text,
+                "created_at": created_raw,
+                "time_label": time_label,
+                "display_time": time_s,
+                "images": images_meta,
+                "signal": signal,
+                "parsed_at": now.isoformat(timespec="seconds"),
+                "source_mode": "list_realtime",
+                **({"fetch_source": fs} if fs else {}),
+            }
+            upsert_card(card)
+            cards.append(card)
+            parsed += 1
+            if tid:
+                enqueue_list_cards([tid])
+            _log(
+                progress,
+                f"原文已入库 [{i}/{len(fresh)}] · 信号解析排队中（后台）",
+            )
             continue
 
         signal = analyze_tweet_signal(
@@ -289,7 +359,7 @@ def run_list_signal_pipeline(
             }
         )
 
-        if skip_nt and not signal.get("has_trade_signal"):
+        if skip_nt and not signal.get("has_trade_signal") and not signal_parse_pending(signal):
             skipped += 1
             from signals.store import mark_seen
 
@@ -303,6 +373,7 @@ def run_list_signal_pipeline(
         if not time_label:
             time_label = time_s
 
+        fs = _item_fetch_source(it, crawled)
         card = {
             "id": f"sig_{uuid4().hex[:10]}",
             "list_id": lid,
@@ -318,6 +389,7 @@ def run_list_signal_pipeline(
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
             "source_mode": "list_realtime",
+            **({"fetch_source": fs} if fs else {}),
         }
         upsert_card(card)
         cards.append(card)
@@ -522,7 +594,7 @@ def run_user_signal_pipeline(
     realtime_session_id: str = "",
     push_enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """博主主页回溯：CDP 抓取时间范围内推文 → AI 判交易信号 → 卡片入库。"""
+    """博主主页回溯：X API/CDP 抓取时间范围内推文 → AI 判交易信号 → 卡片入库。"""
     from signals.backfill_range import (
         backfill_range_span_days,
         resolve_backfill_range,
@@ -603,9 +675,15 @@ def run_user_signal_pipeline(
         max_scroll=max_scroll,
         progress=progress,
         should_abort=(lambda: bool(control and control.is_stopped())) if control else None,
+        realtime_incremental=kol_realtime,
     )
     if not crawled.get("success"):
         return crawled
+
+    try:
+        _log_fetch_route_log_x(crawled, handle=handle, realtime=kol_realtime)
+    except Exception:
+        pass
 
     raw_items: List[Dict[str, Any]] = list(crawled.get("items") or [])
     fresh: List[Dict[str, Any]] = []
@@ -690,7 +768,11 @@ def run_user_signal_pipeline(
             if not reparse_seen
             else None
         )
-        from_cache = bool(cached_card and isinstance(cached_card.get("signal"), dict))
+        from_cache = bool(
+            cached_card
+            and isinstance(cached_card.get("signal"), dict)
+            and not signal_parse_pending(cached_card.get("signal"))
+        )
 
         images_meta = []
         alts: List[str] = []
@@ -765,18 +847,26 @@ def run_user_signal_pipeline(
             reused_cache += 1
             _log(progress, fmt_signal_line(signal, time_s=time_s) + " · 继承缓存")
         else:
-            signal = analyze_tweet_signal(
-                text=text or "（无文字，见配图）",
-                author=author,
-                image_alts=alts,
-                image_urls=urls,
-            )
-            _log(progress, fmt_signal_line(signal, time_s=time_s))
+            if llm_parse_is_deferred():
+                signal = pending_signal()
+                _log(
+                    progress,
+                    f"原文已入库 [{i}/{len(fresh)}] · 信号解析排队中（后台）",
+                )
+            else:
+                signal = analyze_tweet_signal(
+                    text=text or "（无文字，见配图）",
+                    author=author,
+                    image_alts=alts,
+                    image_urls=urls,
+                )
+                _log(progress, fmt_signal_line(signal, time_s=time_s))
 
-        if skip_nt and not signal.get("has_trade_signal"):
+        if skip_nt and not signal.get("has_trade_signal") and not signal_parse_pending(signal):
             skipped += 1
             result_txt = "无交易信号，已跳过（缓存）" if from_cache else "无交易信号，已跳过"
             if not from_cache and tid:
+                fs = _item_fetch_source(it, crawled)
                 cache_card = {
                     "id": f"sig_{uuid4().hex[:10]}",
                     "list_id": scope,
@@ -793,6 +883,7 @@ def run_user_signal_pipeline(
                     "parsed_at": now.isoformat(timespec="seconds"),
                     **src_meta,
                     "cache_only": True,
+                    **({"fetch_source": fs} if fs else {}),
                 }
                 upsert_card(cache_card)
             ilog = {
@@ -817,9 +908,12 @@ def run_user_signal_pipeline(
             continue
 
         if from_cache and cached_card:
+            fs = _item_fetch_source(it, crawled)
             patch = {**dict(cached_card), **src_meta}
             if images_meta:
                 patch["images"] = images_meta
+            if fs:
+                patch["fetch_source"] = fs
             saved = upsert_card(patch)
             cards.append(saved)
             if is_trade_signal(signal):
@@ -854,6 +948,7 @@ def run_user_signal_pipeline(
         if not time_label:
             time_label = time_s
 
+        fs = _item_fetch_source(it, crawled)
         card = {
             "id": f"sig_{uuid4().hex[:10]}",
             "list_id": scope,
@@ -869,14 +964,20 @@ def run_user_signal_pipeline(
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
             **src_meta,
+            **({"fetch_source": fs} if fs else {}),
         }
         upsert_card(card)
         cards.append(card)
+        if tid and signal_parse_pending(signal):
+            enqueue_list_cards([tid])
         if signal.get("has_trade_signal"):
             trade_cards.append(card)
         parsed += 1
         has_trade = bool(signal.get("has_trade_signal"))
-        result_txt = "已入库 · 有交易信号" if has_trade else "已入库"
+        if signal_parse_pending(signal):
+            result_txt = "已入库 · 解析排队中"
+        else:
+            result_txt = "已入库 · 有交易信号" if has_trade else "已入库"
         ilog = {
             "author": author,
             "created_at": created_raw,

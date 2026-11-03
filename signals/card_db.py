@@ -184,6 +184,10 @@ def _merge_cards(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str
         out["cards_api_id"] = incoming["cards_api_id"]
     elif existing.get("cards_api_id"):
         out["cards_api_id"] = existing["cards_api_id"]
+    if incoming.get("fetch_source"):
+        out["fetch_source"] = str(incoming.get("fetch_source") or "").strip()
+    elif existing.get("fetch_source"):
+        out["fetch_source"] = existing["fetch_source"]
     if incoming.get("id"):
         out["id"] = incoming["id"]
     return out
@@ -223,6 +227,7 @@ def _split_card_fields(card: Dict[str, Any]) -> Dict[str, Any]:
         "replay_url",
         "video_url",
         "live_content_id",
+        "fetch_source",
     )
     extra = {k: card[k] for k in extra_keys if k in card}
     vs = card.get("value_score")

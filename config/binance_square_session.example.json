@@ -1,0 +1,14 @@
+{
+  "_comment": "可选回退/指纹补充。正常运行时 Console 会从 Chrome CDP 自动读 Cookie；仅当 bapi 需要 device-info 等时可填写 headers。",
+  "cookies": {
+    "csrftoken": "",
+    "bnc-uuid": ""
+  },
+  "headers": {
+    "bnc-uuid": "",
+    "csrftoken": "",
+    "device-info": "",
+    "fvideo-id": "",
+    "fvideo-token": ""
+  }
+}

@@ -4362,6 +4362,10 @@ def handle_api(
                     profile_ids = [
                         x.strip() for x in profile_ids.replace(",", " ").split() if x.strip()
                     ]
+                rt_inc = body.get("realtime_incremental")
+                if rt_inc is None:
+                    rt_inc = body.get("realtime")
+                realtime_incremental = bool(rt_inc)
                 result = run_binance_square_fetch(
                     profile_ids=profile_ids if isinstance(profile_ids, list) else None,
                     debugger_url=str(body.get("debugger_url") or "").strip() or None,
@@ -4371,6 +4375,7 @@ def handle_api(
                     try_bapi=body.get("try_bapi_first"),
                     progress=_progress_bs,
                     control=ctl,
+                    realtime_incremental=realtime_incremental,
                 )
                 aborted = bool(result.get("aborted"))
                 ok = bool(result.get("success"))

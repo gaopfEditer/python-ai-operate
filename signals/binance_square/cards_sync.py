@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 from signals.binance_square.store import parse_post_time, post_content_id
+from signals.fetch_source import fetch_source_for_item
 
 ProgressCb = Optional[Callable[[str], None]]
 BINANCE_LIST_ROOT = "binance:square"
@@ -99,6 +100,9 @@ def square_post_to_card(post: Dict[str, Any]) -> Dict[str, Any]:
         "video_url": str(post.get("video_url") or "").strip(),
         "live_content_id": str(post.get("live_content_id") or "").strip(),
     }
+    fs = fetch_source_for_item(post, "")
+    if fs:
+        card["fetch_source"] = fs
     card["_created_at_ts"] = created_ts
     return card
 
@@ -133,7 +137,9 @@ def sync_posts_to_signal_cards(
         if tid:
             existing = db_get_card_by_tweet_id(tid)
             sig = existing.get("signal") if isinstance(existing, dict) else None
-            if existing and isinstance(sig, dict) and sig:
+            from signals.signal_parse_queue import signal_parse_pending
+
+            if existing and isinstance(sig, dict) and sig and not signal_parse_pending(sig):
                 skipped_existing += 1
                 continue
         upsert_card(card)

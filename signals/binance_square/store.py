@@ -37,7 +37,8 @@ def default_config() -> Dict[str, Any]:
         "backfill_range": "last_7d",
         "cutoff_hours": 24,
         "max_posts_per_profile": 40,
-        "try_bapi_first": False,
+        "try_bapi_first": True,
+        "use_profile_api": True,
         "replay_whisper_auto": False,
         "replay_whisper_max_days": 2,
         "cycle_enabled": False,
@@ -316,7 +317,12 @@ def save_state(state: Dict[str, Any]) -> None:
 
 
 def parse_post_time(post: Dict[str, Any]) -> Optional[datetime]:
+    """优先 absolute published_iso / created_at（API 发布时间），再降级相对文案。"""
     now = datetime.now(timezone.utc)
+    for key in ("published_iso", "created_at"):
+        dt_iso = _parse_iso_time(str(post.get(key) or ""))
+        if dt_iso is not None:
+            return dt_iso
     label = str(post.get("time_label") or post.get("time") or "").strip()
     dt_label = _parse_time_label(label, now=now) if label else None
     if dt_label is None:
@@ -329,14 +335,7 @@ def parse_post_time(post: Dict[str, Any]) -> Optional[datetime]:
         )
         if m:
             dt_label = _parse_time_label(m.group(0), now=now)
-    dt_iso = _parse_iso_time(str(post.get("published_iso") or ""))
-    if dt_label and dt_iso:
-        if dt_iso < now - timedelta(days=45) and dt_label >= now - timedelta(days=21):
-            return dt_label
-        if dt_label < now - timedelta(days=45) and dt_iso >= now - timedelta(days=21):
-            return dt_iso
-        return max(dt_label, dt_iso)
-    return dt_label or dt_iso
+    return dt_label
 
 
 def _parse_cn_month_day(label: str, *, now: datetime) -> Optional[datetime]:

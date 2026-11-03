@@ -94,6 +94,7 @@ class QwenClient:
             }
         
         try:
+            req_timeout = kwargs.pop("request_timeout", None) or self.timeout
             # 构建请求数据
             messages = []
             if system_prompt:
@@ -128,7 +129,7 @@ class QwenClient:
                 self.api_endpoint,
                 headers=headers,
                 json=data,
-                timeout=self.timeout
+                timeout=req_timeout,
             )
             
             response.raise_for_status()
@@ -325,12 +326,13 @@ class DeepSeekClient:
             "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
         }
         for k, v in kwargs.items():
-            if k not in data:
+            if k not in data and k != "request_timeout":
                 data[k] = v
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        req_timeout = kwargs.pop("request_timeout", None) or self.timeout
         try:
             session = requests.Session()
             session.trust_env = False
@@ -338,7 +340,7 @@ class DeepSeekClient:
                 self.api_endpoint,
                 headers=headers,
                 json=data,
-                timeout=self.timeout,
+                timeout=req_timeout,
             )
             resp.raise_for_status()
             result = resp.json() if resp.content else {}
@@ -533,6 +535,7 @@ class OllamaClient:
         payload.update(kwargs)
 
         url = f"{self.base_url}/api/generate"
+        req_timeout = kwargs.pop("request_timeout", None) or self.timeout
         try:
             session = requests.Session()
             session.trust_env = False
@@ -540,7 +543,7 @@ class OllamaClient:
                 url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=self.timeout,
+                timeout=req_timeout,
             )
             r.raise_for_status()
             raw = r.json() if r.content else {}
@@ -660,7 +663,13 @@ def generate_text(
     - deepseek_first：DeepSeek → Ollama → 千问
     - ollama_first：Ollama → DeepSeek → 千问
     - deepseek / ollama / qwen：仅该通道
+
+    no_fallback=True 或带 request_timeout 时只调首选通道（避免信号解析串行等 3 遍）。
     """
+    no_fallback = bool(kwargs.pop("no_fallback", False))
+    if kwargs.get("request_timeout") is not None:
+        no_fallback = True
+
     prefer = "deepseek_first"
     try:
         project_root = Path(__file__).parent.parent
@@ -688,6 +697,13 @@ def generate_text(
         return _qwen()
     if prefer == "ollama":
         return _ollama()
+
+    if no_fallback:
+        if prefer == "ollama_first":
+            return _ollama()
+        if prefer in ("deepseek", "deepseek_first"):
+            return _deepseek()
+        return _qwen()
 
     if prefer == "ollama_first":
         r = _ollama()

@@ -116,13 +116,14 @@ def _run_once() -> Dict[str, Any]:
             try_bapi=bool(cfg.get("try_bapi_first")),
             progress=lambda m: print(f"[bs-square-cycle] {m}", flush=True),
             control=ctl,
+            realtime_incremental=True,
         )
-        posts = result.get("posts") if isinstance(result.get("posts"), list) else []
-        if result.get("success") and posts:
-            _maybe_whisper(posts, cfg)
         now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         if result.get("success"):
             save_config({**load_config(), "last_crawl_at": now})
+        posts = result.get("posts") if isinstance(result.get("posts"), list) else []
+        if result.get("success") and posts:
+            _maybe_whisper(posts, cfg)
         _set_status(
             last_run_at=now,
             last_status="ok" if result.get("success") else "error",

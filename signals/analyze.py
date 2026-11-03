@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Dict, List, Optional
 
 SYSTEM = """你是加密货币/合约交易信号解析器。根据推文正文与配图说明，提取结构化交易信息。
@@ -181,7 +183,40 @@ def _heuristic(text: str) -> Dict[str, Any]:
     )
 
 
-def analyze_tweet_signal(
+def should_skip_ai_llm(text: str, *, has_images: bool = False) -> bool:
+    """明显非交易帖跳过 LLM，仅用规则（加速批次）。"""
+    if has_images:
+        return False
+    t = (text or "").strip()
+    if len(t) < 6:
+        return True
+    trade_hint = re.search(
+        r"做多|做空|开多|开空|long|short|止盈|止损|入场|TP\d|SL\b|"
+        r"\b(BTC|ETH|SOL|BNB|XRP|DOGE|ADA|AVAX|LINK|OP|ARB|SUI)\b|"
+        r"\$[A-Za-z]{2,10}\b|多了\s*[A-Za-z]|0x[a-fA-F0-9]{6,}",
+        t,
+        re.I,
+    )
+    return not trade_hint
+
+
+def default_analyze_timeout_seconds() -> float:
+    raw = str(os.environ.get("SIGNALS_ANALYZE_TIMEOUT") or "25").strip()
+    try:
+        return max(5.0, float(raw))
+    except ValueError:
+        return 25.0
+
+
+def default_analyze_concurrency() -> int:
+    raw = str(os.environ.get("SIGNALS_ANALYZE_CONCURRENCY") or "2").strip()
+    try:
+        return max(1, min(4, int(raw)))
+    except ValueError:
+        return 2
+
+
+def analyze_tweet_signal_ai_only(
     *,
     text: str,
     author: str = "",
@@ -205,6 +240,7 @@ def analyze_tweet_signal(
     prompt += "请输出 JSON。"
 
     provider = ""
+    per_req_timeout = int(min(60, max(6, default_analyze_timeout_seconds() - 1)))
     try:
         from utils.ai_client import generate_text
 
@@ -212,7 +248,9 @@ def analyze_tweet_signal(
             prompt,
             system_prompt=SYSTEM,
             temperature=0.2,
-            max_tokens=900,
+            max_tokens=480,
+            request_timeout=per_req_timeout,
+            no_fallback=True,
         )
         provider = str(result.get("provider") or "")
         if result.get("success"):
@@ -237,8 +275,61 @@ def analyze_tweet_signal(
                 }
                 return _normalize_trade_signal(out, text=body)
     except Exception as e:
-        provider = f"error:{e}"
+        provider = f"error:{type(e).__name__}"
 
     h = _heuristic(body)
     h["provider"] = provider or h.get("provider") or "heuristic"
     return h
+
+
+def analyze_tweet_signal(
+    *,
+    text: str,
+    author: str = "",
+    image_alts: Optional[List[str]] = None,
+    image_urls: Optional[List[str]] = None,
+    timeout_sec: Optional[float] = None,
+    use_ai: bool = True,
+) -> Dict[str, Any]:
+    body = (text or "").strip()
+    if not use_ai or str(os.environ.get("SIGNALS_ANALYZE_AI") or "").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return _heuristic(body or "（无正文）")
+
+    has_images = bool(image_alts or image_urls)
+    if should_skip_ai_llm(body, has_images=has_images):
+        h = _heuristic(body or "（无正文）")
+        h["provider"] = "heuristic:skip_llm"
+        return h
+
+    limit = default_analyze_timeout_seconds() if timeout_sec is None else float(timeout_sec)
+    if limit <= 0:
+        return analyze_tweet_signal_ai_only(
+            text=text,
+            author=author,
+            image_alts=image_alts,
+            image_urls=image_urls,
+        )
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-analyze") as pool:
+        fut = pool.submit(
+            analyze_tweet_signal_ai_only,
+            text=text,
+            author=author,
+            image_alts=image_alts,
+            image_urls=image_urls,
+        )
+        try:
+            return fut.result(timeout=limit)
+        except FuturesTimeoutError:
+            h = _heuristic(body or "（无正文）")
+            h["provider"] = f"timeout:{int(limit)}s"
+            return h
+        except Exception as e:
+            h = _heuristic(body or "（无正文）")
+            h["provider"] = f"error:{type(e).__name__}"
+            return h

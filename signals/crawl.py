@@ -1,8 +1,9 @@
 # coding=utf-8
-"""CDP 抓取 X List 时间线推文（含时间、正文、图片）。"""
+"""X List / 博主时间线抓取：默认 Cookie+GraphQL API，CDP 滚动仅作显式回退。"""
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -14,6 +15,106 @@ from signals.store import media_root, parse_dt, parse_list_id
 from signals.tweet_log import fmt_tweet_line
 
 ProgressCb = Optional[Callable[[str], None]]
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _x_api_primary() -> bool:
+    """默认走 HTTP API；SIGNALS_X_USE_CDP=1 强制 CDP 滚动。"""
+    return not _env_flag("SIGNALS_X_USE_CDP", False)
+
+
+def _x_api_only() -> bool:
+    return _env_flag("SIGNALS_X_API_ONLY", False)
+
+
+def _ensure_x_api_session(progress: ProgressCb = None) -> None:
+    from signals.store import resolve_signals_debugger_url
+    from signals.x_session import resolve_x_session
+
+    resolve_x_session(
+        debugger_url=resolve_signals_debugger_url(), progress=progress, force_refresh=False
+    )
+
+
+def _try_x_api_list(
+    list_id: str,
+    *,
+    since: datetime,
+    max_tweets: int,
+    progress: ProgressCb,
+    should_abort: Optional[Callable[[], bool]],
+    realtime_incremental: bool = False,
+) -> Optional[Dict[str, Any]]:
+    from signals.incremental import build_x_known_checker
+    from signals.x_api import fetch_list_timeline_api
+    from signals.x_session import load_from_cookie_file, session_ready
+
+    cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
+    if cookie_file:
+        load_from_cookie_file(cookie_file)
+    _ensure_x_api_session(progress)
+    if not session_ready():
+        return None
+    is_known = build_x_known_checker() if realtime_incremental else None
+    res = fetch_list_timeline_api(
+        list_id,
+        since=since,
+        max_tweets=max_tweets,
+        progress=progress,
+        should_abort=should_abort,
+        realtime_incremental=realtime_incremental,
+        is_known=is_known,
+    )
+    if res.get("success"):
+        return res
+    if _x_api_only():
+        return res
+    _log(progress, f"X API 列表失败，回退 CDP：{res.get('error')}")
+    return None
+
+
+def _try_x_api_user(
+    handle: str,
+    *,
+    since: datetime,
+    max_tweets: int,
+    progress: ProgressCb,
+    should_abort: Optional[Callable[[], bool]],
+    realtime_incremental: bool = False,
+) -> Optional[Dict[str, Any]]:
+    from signals.incremental import build_x_known_checker
+    from signals.x_api import fetch_user_timeline_api
+    from signals.x_session import load_from_cookie_file, session_ready
+
+    cookie_file = str(os.environ.get("X_COOKIES_FILE") or "").strip()
+    if cookie_file:
+        load_from_cookie_file(cookie_file)
+    _ensure_x_api_session(progress)
+    if not session_ready():
+        return None
+    is_known = build_x_known_checker() if realtime_incremental else None
+    res = fetch_user_timeline_api(
+        handle,
+        since=since,
+        max_tweets=max_tweets,
+        include_replies=False,
+        progress=progress,
+        should_abort=should_abort,
+        realtime_incremental=realtime_incremental,
+        is_known=is_known,
+    )
+    if res.get("success"):
+        return res
+    if _x_api_only():
+        return res
+    _log(progress, f"X API 博主失败，回退 CDP：{res.get('error')}")
+    return None
 
 # 专用静默标签标记（用于复用 / 清理，避免每次 createTarget 堆 tab）
 _SIGNALS_TAB_MARKER = "trendradar-signals"
@@ -700,6 +801,7 @@ def _crawl_timeline_at_url(
     page_kind: str = "profile",
     prefer_live: bool = True,
     stall_limit: int = 18,
+    is_known: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Any]:
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     feed_js = _feed_js(handle, filter_author=filter_author)
@@ -710,6 +812,7 @@ def _crawl_timeline_at_url(
     window_exhausted = False
     lazy_stall = 0
     stall_stop = max(8, min(int(stall_limit or 18), 40))
+    stopped_on_known = False
 
     _log(progress, f"打开 {label}：{url}")
     page.silent_navigate(url)
@@ -729,6 +832,16 @@ def _crawl_timeline_at_url(
             raw = []
         if not isinstance(raw, list):
             raw = []
+        stop_known = False
+        if is_known and raw:
+            from signals.incremental import filter_newest_until_known, tweet_id_from_item
+
+            raw, stop_known = filter_newest_until_known(
+                raw,
+                id_fn=tweet_id_from_item,
+                is_known=is_known,
+                enabled=True,
+            )
         if not raw:
             dom_n = _dom_tweet_count(page)
             if dom_n:
@@ -800,6 +913,11 @@ def _crawl_timeline_at_url(
         if len(by_id) >= max_tweets:
             break
 
+        if stop_known:
+            _log(progress, f"{label}：命中已存帖，停止滚动")
+            stopped_on_known = True
+            break
+
         if new_in_round > 0:
             lazy_stall = 0
             if new_all_old:
@@ -843,6 +961,7 @@ def _crawl_timeline_at_url(
         "page_seen": page_seen,
         "page_old": page_old,
         "count": min(len(items), max_tweets),
+        "stopped_on_known": stopped_on_known,
     }
 
 
@@ -1090,11 +1209,14 @@ def crawl_list_timeline(
     max_scroll: int = 18,
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
     """
-    静默 CDP 打开列表页，滚动直到推文时间早于 since 或达到上限。
-    should_abort: 返回 True 时提前结束滚动。
+    打开 X 列表时间线：默认 GraphQL API（Cookie 会话），SIGNALS_X_USE_CDP=1 时回退 CDP 滚动。
+    should_abort: 返回 True 时提前结束。
+    realtime_incremental: 实时增量模式，遇本地已存 tweet_id 即停止翻页。
     """
+
     from allnews_mornitor.cdp_browser import _http_json
 
     lid = parse_list_id(list_id) or str(list_id or "").strip()
@@ -1103,6 +1225,35 @@ def crawl_list_timeline(
     url = f"https://x.com/i/lists/{lid}"
     max_tweets = max(1, min(int(max_tweets or 40), 120))
     max_scroll = max(3, min(int(max_scroll or 18), 40))
+
+    api_attempt: Dict[str, Any] = {"ok": False, "reason": ""}
+    if _x_api_primary():
+        api_res = _try_x_api_list(
+            lid,
+            since=since,
+            max_tweets=max_tweets,
+            progress=progress,
+            should_abort=should_abort,
+            realtime_incremental=realtime_incremental,
+        )
+        if api_res and api_res.get("success"):
+            from signals.fetch_source import FETCH_COOKIE_API, stamp_items
+
+            api_res["fetch_route"] = FETCH_COOKIE_API
+            api_res["route"] = "x_api"
+            api_res["api_attempt"] = {"ok": True, "reason": ""}
+            stamp_items(list(api_res.get("items") or []), FETCH_COOKIE_API)
+            return api_res
+        if api_res:
+            api_attempt = {
+                "ok": False,
+                "reason": str(api_res.get("error") or "X API 失败"),
+            }
+        else:
+            api_attempt = {"ok": False, "reason": "X API 会话未就绪或未调用"}
+        if api_res and _x_api_only():
+            api_res["api_attempt"] = api_attempt
+            return api_res
 
     def _aborted() -> bool:
         try:
@@ -1133,6 +1284,11 @@ def crawl_list_timeline(
         page_kept = 0
         page_old = 0
         reached_old = False
+        is_known = None
+        if realtime_incremental:
+            from signals.incremental import build_x_known_checker
+
+            is_known = build_x_known_checker()
         for round_i in range(max_scroll):
             if _aborted():
                 _log(progress, "抓取已终止（滚动中）")
@@ -1145,6 +1301,16 @@ def crawl_list_timeline(
                 raw = []
             if not isinstance(raw, list):
                 raw = []
+            stop_known = False
+            if is_known and raw:
+                from signals.incremental import filter_newest_until_known, tweet_id_from_item
+
+                raw, stop_known = filter_newest_until_known(
+                    raw,
+                    id_fn=tweet_id_from_item,
+                    is_known=is_known,
+                    enabled=True,
+                )
             oldest_in_batch = None
             new_in_round = 0
             for it in raw:
@@ -1186,6 +1352,9 @@ def crawl_list_timeline(
                 if too_old:
                     continue
                 _merge_tweet_item(by_id, it)
+            if stop_known:
+                _log(progress, "命中已存帖，停止 CDP 滚动")
+                break
             _log(
                 progress,
                 f"滚动 {round_i + 1}/{max_scroll} · 窗口内累计 {len(by_id)} · 页面见过 {page_seen}"
@@ -1228,6 +1397,9 @@ def crawl_list_timeline(
             progress,
             f"抓取结束：窗口内 {len(items)} 条 · 含图 {img_n} · 页面见过 {page_seen}（过旧 {page_old}）",
         )
+        from signals.fetch_source import FETCH_CDP, stamp_items
+
+        stamp_items(items, FETCH_CDP)
         return {
             "success": True,
             "list_id": lid,
@@ -1236,6 +1408,9 @@ def crawl_list_timeline(
             "count": len(items),
             "page_seen": page_seen,
             "page_old": page_old,
+            "route": "cdp",
+            "fetch_route": FETCH_CDP,
+            "api_attempt": api_attempt,
         }
     except Exception as e:
         _close_session()
@@ -1259,8 +1434,9 @@ def crawl_user_timeline(
     max_scroll: int = 24,
     progress: ProgressCb = None,
     should_abort: Optional[Callable[[], bool]] = None,
+    realtime_incremental: bool = False,
 ) -> Dict[str, Any]:
-    """CDP 抓取博主时间窗推文：按日期切片搜索(Latest)，不足再补主页/回复。"""
+    """抓取博主时间窗推文：默认 GraphQL API；SIGNALS_X_USE_CDP=1 时回退 CDP 搜索/滚动。"""
     from allnews_mornitor.cdp_browser import _http_json
     from signals.store import parse_user_handle, user_profile_url
 
@@ -1271,6 +1447,36 @@ def crawl_user_timeline(
     max_tweets = max(1, min(int(max_tweets or 80), 300))
     # 单段深滚上限；整月靠切片叠加，不必单次滚上百轮
     max_scroll = max(18, min(int(max_scroll or 24), 60))
+
+    api_attempt: Dict[str, Any] = {"ok": False, "reason": ""}
+    if _x_api_primary():
+        api_res = _try_x_api_user(
+            h,
+            since=since,
+            max_tweets=max_tweets,
+            progress=progress,
+            should_abort=should_abort,
+            realtime_incremental=realtime_incremental,
+        )
+        if api_res and api_res.get("success"):
+            from signals.fetch_source import FETCH_COOKIE_API, stamp_items
+
+            api_res["fetch_route"] = FETCH_COOKIE_API
+            api_res["route"] = "x_api"
+            api_res["api_attempt"] = {"ok": True, "reason": ""}
+            stamp_items(list(api_res.get("items") or []), FETCH_COOKIE_API)
+            return api_res
+        if api_res:
+            api_attempt = {
+                "ok": False,
+                "reason": str(api_res.get("error") or "X API 失败"),
+            }
+        else:
+            api_attempt = {"ok": False, "reason": "X API 会话未就绪或未调用"}
+        if api_res and _x_api_only():
+            api_res["api_attempt"] = api_attempt
+            return api_res
+
     now = datetime.now(timezone.utc).astimezone()
     span_days = max(1, (now - (since if since.tzinfo else since.replace(tzinfo=timezone.utc))).days + 1)
     # >7 天按 4~5 天切片，避免 X 搜索深滚失效只拿到最近几条
@@ -1295,6 +1501,12 @@ def crawl_user_timeline(
 
     host = _debugger_host()
     _orig = _patch_debugger_host(host)
+    is_known_fn = None
+    if realtime_incremental:
+        from signals.incremental import build_x_known_checker
+
+        is_known_fn = build_x_known_checker()
+    stopped_on_known = False
 
     page = None
     try:
@@ -1346,11 +1558,16 @@ def crawl_user_timeline(
                 page_kind="search",
                 prefer_live=True,
                 stall_limit=12,
+                is_known=is_known_fn,
             )
             before = len(merged)
             ps, po = _merge_items(merged, search_res)
             total_seen += ps
             total_old += po
+            if realtime_incremental and search_res.get("stopped_on_known"):
+                _log(progress, "实时增量：搜索命中已存帖，停止更深回溯")
+                stopped_on_known = True
+                break
             gained = len(merged) - before
             _log(
                 progress,
@@ -1359,7 +1576,7 @@ def crawl_user_timeline(
             # 空段继续往更早切（可能该周没发帖），不要提前 break 整月
 
         min_want = max(10, min(max_tweets // 3, 40))
-        if len(merged) < min_want and not _aborted():
+        if len(merged) < min_want and not _aborted() and not stopped_on_known:
             _log(
                 progress,
                 f"切片搜索仅 {len(merged)} 条，补充抓取主页时间线…",
@@ -1377,12 +1594,15 @@ def crawl_user_timeline(
                 filter_author=True,
                 page_kind="profile",
                 stall_limit=18,
+                is_known=is_known_fn,
             )
             ps, po = _merge_items(merged, profile_res)
             total_seen += ps
             total_old += po
+            if realtime_incremental and profile_res.get("stopped_on_known"):
+                stopped_on_known = True
 
-        if len(merged) < min_want and not _aborted():
+        if len(merged) < min_want and not _aborted() and not stopped_on_known:
             replies_url = f"{profile_url.rstrip('/')}/with_replies"
             _log(progress, f"主页仍仅 {len(merged)} 条，尝试回复时间线…")
             replies_res = _crawl_timeline_at_url(
@@ -1398,6 +1618,7 @@ def crawl_user_timeline(
                 filter_author=True,
                 page_kind="profile",
                 stall_limit=16,
+                is_known=is_known_fn,
             )
             ps, po = _merge_items(merged, replies_res)
             total_seen += ps
@@ -1433,6 +1654,9 @@ def crawl_user_timeline(
             f"博主抓取结束：@{h} 窗口内 {len(items)} 条 · 含图 {img_n} · 页面累计见过 {total_seen}（过旧 {total_old}）"
             f" · 切片 {len(chunks)}",
         )
+        from signals.fetch_source import FETCH_CDP, stamp_items
+
+        stamp_items(items, FETCH_CDP)
         return {
             "success": True,
             "handle": h,
@@ -1443,6 +1667,9 @@ def crawl_user_timeline(
             "count": len(items),
             "page_seen": total_seen,
             "page_old": total_old,
+            "route": "cdp",
+            "fetch_route": FETCH_CDP,
+            "api_attempt": api_attempt,
         }
     except Exception as e:
         _close_session()

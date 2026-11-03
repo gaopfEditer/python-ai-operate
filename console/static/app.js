@@ -8121,6 +8121,7 @@ async function runSigBinanceCrawl(profileIdsOverride, opts = {}) {
           ? {
               profile_ids: ids,
               cutoff_hours: cycleHours,
+              realtime_incremental: true,
               max_posts_per_profile: Number($("#sigBsMaxPosts")?.value || 40),
               try_bapi_first: !!$("#sigBsTryBapi")?.checked,
               replay_whisper_auto: !!$("#sigBsReplayWhisper")?.checked,
@@ -8504,6 +8505,10 @@ function sigSourceLabel(c) {
   if (!labels.length && c.list_id && String(c.list_id).startsWith("user:")) labels.push("博主");
   if (!labels.length && c.source_mode === "value_return") labels.push("价值");
   if (!labels.length && c.list_id) labels.push("列表");
+  const fetchSrc = String(c.fetch_source || "").trim();
+  if (fetchSrc === "cookie+api" || fetchSrc === "cdp") {
+    labels.push(`来源:${fetchSrc}`);
+  }
   return labels.length ? labels.join("+") : "";
 }
 
