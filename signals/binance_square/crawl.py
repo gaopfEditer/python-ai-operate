@@ -109,11 +109,14 @@ def _fetch_profiles_via_api(
         except Exception as e:
             _log(progress, f"  bapi 失败: {e}")
             chunk = []
+        from signals.fetch_source import FETCH_COOKIE_API
+
         for row in chunk:
             if isinstance(row, dict):
                 row["profile_id"] = slug
                 row["profile_name"] = name
                 row["source"] = "bapi_profile"
+                row["fetch_source"] = FETCH_COOKIE_API
         _log(progress, f"  bapi 抽到 {len(chunk)} 条")
         posts.extend(chunk)
     return posts
@@ -253,6 +256,12 @@ def run_binance_square_fetch(
         _log(progress, "尝试 bapi 热榜…")
         trending = fetch_trending(limit=max_n)
         if trending:
+            from signals.fetch_source import FETCH_COOKIE_API
+
+            for row in trending:
+                if isinstance(row, dict):
+                    row.setdefault("fetch_source", FETCH_COOKIE_API)
+                    row.setdefault("source", "bapi")
             all_posts.extend(trending)
             routes.append("bapi")
         else:
@@ -346,11 +355,14 @@ def run_binance_square_fetch(
                     except Exception as e:
                         _log(progress, f"  解析失败: {e}")
                         chunk = []
+                    from signals.fetch_source import FETCH_CDP
+
                     for row in chunk:
                         if isinstance(row, dict):
                             row["profile_id"] = slug
                             row["profile_name"] = name
                             row["source"] = "profile_cdp"
+                            row["fetch_source"] = FETCH_CDP
                     _log(progress, f"  抽到 {len(chunk)} 条（去重后）")
                     profile_stats.append(
                         {"id": slug, "name": name, "fetched": len(chunk), "url": url}
@@ -470,7 +482,8 @@ def run_binance_square_fetch(
     ok = not aborted
     if realtime_incremental and not enriched and skipped_known and not aborted:
         _log(progress, "Square 实时：时间窗内无新帖（均已入库）")
-    return {
+
+    out_payload = {
         "success": ok or bool(merged) or (realtime_incremental and not aborted),
         "aborted": aborted,
         "posts": combined_posts,
@@ -490,3 +503,10 @@ def run_binance_square_fetch(
             else f"已终止 · 已得 {len(merged)} 条"
         ),
     }
+    try:
+        from signals.fetch_source import log_binance_square_crawl
+
+        log_binance_square_crawl(out_payload, realtime=realtime_incremental)
+    except Exception:
+        pass
+    return out_payload

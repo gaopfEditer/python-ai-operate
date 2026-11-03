@@ -275,6 +275,7 @@ def row_to_post(
             "profile_id": profile_slug,
             "profile_name": profile_name or profile_slug,
             "source": "bapi",
+            "fetch_source": "cookie+api",
             "is_pinned": bool(
                 row.get("isPin") or row.get("pinned") or row.get("top") or row.get("isTop")
             ),
@@ -414,6 +415,7 @@ def fetch_profile_posts(
             if profile_name:
                 p.setdefault("profile_name", profile_name)
             p.setdefault("source", "bapi_profile")
+            p.setdefault("fetch_source", "cookie+api")
             cid = str(p.get("content_id") or "")
             if cid and cid in seen_ids:
                 continue

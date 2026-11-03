@@ -37,6 +37,22 @@ from signals.tweet_log import clip_text, fmt_item_summary_line, fmt_post_time, f
 ProgressCb = Optional[Callable[[str], None]]
 
 
+def _item_fetch_source(it: Dict[str, Any], crawled: Dict[str, Any]) -> str:
+    from signals.fetch_source import crawl_default_fetch_source, fetch_source_for_item
+
+    return fetch_source_for_item(it, crawl_default_fetch_source(crawled))
+
+
+def _log_fetch_route_log_x(crawled: Dict[str, Any], *, list_id: str = "", handle: str = "", realtime: bool) -> None:
+    from signals.fetch_source import log_x_list_crawl, log_x_user_crawl
+
+    api_attempt = crawled.get("api_attempt") if isinstance(crawled.get("api_attempt"), dict) else None
+    if handle:
+        log_x_user_crawl(crawled, handle=handle, realtime=realtime, api_attempt=api_attempt)
+    else:
+        log_x_list_crawl(crawled, list_id=list_id, realtime=realtime, api_attempt=api_attempt)
+
+
 def _log(cb: ProgressCb, msg: str) -> None:
     if cb:
         try:
@@ -130,6 +146,11 @@ def run_list_signal_pipeline(
     )
     if not crawled.get("success"):
         return crawled
+
+    try:
+        _log_fetch_route_log_x(crawled, list_id=lid, realtime=realtime_incremental)
+    except Exception:
+        pass
 
     raw_items: List[Dict[str, Any]] = list(crawled.get("items") or [])
     fresh: List[Dict[str, Any]] = []
@@ -263,6 +284,7 @@ def run_list_signal_pipeline(
                     mark_seen([tid])
                 _log(progress, "结果: 继承缓存 · 无交易信号，已跳过")
                 continue
+            fs = _item_fetch_source(it, crawled)
             saved = upsert_card(
                 {
                     **dict(cached_card),
@@ -271,6 +293,7 @@ def run_list_signal_pipeline(
                     "author": author or cached_card.get("author") or "",
                     "user_handle": parse_user_handle(author),
                     "source_mode": "list_realtime",
+                    **({"fetch_source": fs} if fs else {}),
                 }
             )
             cards.append(saved)
@@ -284,6 +307,7 @@ def run_list_signal_pipeline(
                 created_raw = now.isoformat(timespec="seconds")
             if not time_label:
                 time_label = time_s
+            fs = _item_fetch_source(it, crawled)
             card = {
                 "id": f"sig_{uuid4().hex[:10]}",
                 "list_id": lid,
@@ -299,6 +323,7 @@ def run_list_signal_pipeline(
                 "signal": signal,
                 "parsed_at": now.isoformat(timespec="seconds"),
                 "source_mode": "list_realtime",
+                **({"fetch_source": fs} if fs else {}),
             }
             upsert_card(card)
             cards.append(card)
@@ -348,6 +373,7 @@ def run_list_signal_pipeline(
         if not time_label:
             time_label = time_s
 
+        fs = _item_fetch_source(it, crawled)
         card = {
             "id": f"sig_{uuid4().hex[:10]}",
             "list_id": lid,
@@ -363,6 +389,7 @@ def run_list_signal_pipeline(
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
             "source_mode": "list_realtime",
+            **({"fetch_source": fs} if fs else {}),
         }
         upsert_card(card)
         cards.append(card)
@@ -653,6 +680,11 @@ def run_user_signal_pipeline(
     if not crawled.get("success"):
         return crawled
 
+    try:
+        _log_fetch_route_log_x(crawled, handle=handle, realtime=kol_realtime)
+    except Exception:
+        pass
+
     raw_items: List[Dict[str, Any]] = list(crawled.get("items") or [])
     fresh: List[Dict[str, Any]] = []
     filtered_old = 0
@@ -834,6 +866,7 @@ def run_user_signal_pipeline(
             skipped += 1
             result_txt = "无交易信号，已跳过（缓存）" if from_cache else "无交易信号，已跳过"
             if not from_cache and tid:
+                fs = _item_fetch_source(it, crawled)
                 cache_card = {
                     "id": f"sig_{uuid4().hex[:10]}",
                     "list_id": scope,
@@ -850,6 +883,7 @@ def run_user_signal_pipeline(
                     "parsed_at": now.isoformat(timespec="seconds"),
                     **src_meta,
                     "cache_only": True,
+                    **({"fetch_source": fs} if fs else {}),
                 }
                 upsert_card(cache_card)
             ilog = {
@@ -874,9 +908,12 @@ def run_user_signal_pipeline(
             continue
 
         if from_cache and cached_card:
+            fs = _item_fetch_source(it, crawled)
             patch = {**dict(cached_card), **src_meta}
             if images_meta:
                 patch["images"] = images_meta
+            if fs:
+                patch["fetch_source"] = fs
             saved = upsert_card(patch)
             cards.append(saved)
             if is_trade_signal(signal):
@@ -911,6 +948,7 @@ def run_user_signal_pipeline(
         if not time_label:
             time_label = time_s
 
+        fs = _item_fetch_source(it, crawled)
         card = {
             "id": f"sig_{uuid4().hex[:10]}",
             "list_id": scope,
@@ -926,6 +964,7 @@ def run_user_signal_pipeline(
             "signal": signal,
             "parsed_at": now.isoformat(timespec="seconds"),
             **src_meta,
+            **({"fetch_source": fs} if fs else {}),
         }
         upsert_card(card)
         cards.append(card)

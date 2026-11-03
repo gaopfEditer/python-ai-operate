@@ -8,6 +8,59 @@ from unittest import mock
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
+class TestFetchSourceLabeling(unittest.TestCase):
+    def test_normalize_and_square_mapping(self):
+        from signals.fetch_source import (
+            FETCH_CDP,
+            FETCH_COOKIE_API,
+            fetch_source_for_item,
+            normalize_fetch_source,
+            square_post_source_to_fetch_source,
+        )
+
+        self.assertEqual(normalize_fetch_source("x_api"), FETCH_COOKIE_API)
+        self.assertEqual(normalize_fetch_source("cdp"), FETCH_CDP)
+        self.assertEqual(square_post_source_to_fetch_source("bapi_profile"), FETCH_COOKIE_API)
+        self.assertEqual(square_post_source_to_fetch_source("profile_cdp"), FETCH_CDP)
+        post = {"source": "profile_cdp", "content_id": "1"}
+        self.assertEqual(fetch_source_for_item(post, ""), FETCH_CDP)
+
+    def test_square_post_to_card_carries_fetch_source(self):
+        from signals.binance_square.cards_sync import square_post_to_card
+        from signals.fetch_source import FETCH_COOKIE_API
+
+        card = square_post_to_card(
+            {
+                "content_id": "9001",
+                "href": "https://www.binance.com/en/square/post/9001",
+                "raw": "hi",
+                "source": "bapi_profile",
+                "fetch_source": FETCH_COOKIE_API,
+            }
+        )
+        self.assertEqual(card.get("fetch_source"), FETCH_COOKIE_API)
+
+    def test_append_fetch_route_log_redacts_secrets(self):
+        import tempfile
+        from pathlib import Path
+
+        from signals import fetch_source as fs_mod
+
+        with tempfile.TemporaryDirectory() as td:
+            fs_mod._LOG_PATH = Path(td) / "routes.jsonl"
+            fs_mod.append_fetch_route_log(
+                {
+                    "platform": "x_list",
+                    "cookie_api": {"ok": False, "reason": "auth_token=supersecret123456"},
+                    "final_fetch_source": fs_mod.FETCH_CDP,
+                    "sample_count": 0,
+                }
+            )
+            line = fs_mod._LOG_PATH.read_text(encoding="utf-8")
+            self.assertNotIn("supersecret", line)
+            self.assertIn("redacted", line)
+
+
 class TestXApiParse(unittest.TestCase):
     def test_twitter_created_to_iso(self):
         from signals.x_api import twitter_created_to_iso

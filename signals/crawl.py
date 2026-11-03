@@ -1226,6 +1226,7 @@ def crawl_list_timeline(
     max_tweets = max(1, min(int(max_tweets or 40), 120))
     max_scroll = max(3, min(int(max_scroll or 18), 40))
 
+    api_attempt: Dict[str, Any] = {"ok": False, "reason": ""}
     if _x_api_primary():
         api_res = _try_x_api_list(
             lid,
@@ -1236,8 +1237,22 @@ def crawl_list_timeline(
             realtime_incremental=realtime_incremental,
         )
         if api_res and api_res.get("success"):
+            from signals.fetch_source import FETCH_COOKIE_API, stamp_items
+
+            api_res["fetch_route"] = FETCH_COOKIE_API
+            api_res["route"] = "x_api"
+            api_res["api_attempt"] = {"ok": True, "reason": ""}
+            stamp_items(list(api_res.get("items") or []), FETCH_COOKIE_API)
             return api_res
+        if api_res:
+            api_attempt = {
+                "ok": False,
+                "reason": str(api_res.get("error") or "X API 失败"),
+            }
+        else:
+            api_attempt = {"ok": False, "reason": "X API 会话未就绪或未调用"}
         if api_res and _x_api_only():
+            api_res["api_attempt"] = api_attempt
             return api_res
 
     def _aborted() -> bool:
@@ -1382,6 +1397,9 @@ def crawl_list_timeline(
             progress,
             f"抓取结束：窗口内 {len(items)} 条 · 含图 {img_n} · 页面见过 {page_seen}（过旧 {page_old}）",
         )
+        from signals.fetch_source import FETCH_CDP, stamp_items
+
+        stamp_items(items, FETCH_CDP)
         return {
             "success": True,
             "list_id": lid,
@@ -1390,6 +1408,9 @@ def crawl_list_timeline(
             "count": len(items),
             "page_seen": page_seen,
             "page_old": page_old,
+            "route": "cdp",
+            "fetch_route": FETCH_CDP,
+            "api_attempt": api_attempt,
         }
     except Exception as e:
         _close_session()
@@ -1427,6 +1448,7 @@ def crawl_user_timeline(
     # 单段深滚上限；整月靠切片叠加，不必单次滚上百轮
     max_scroll = max(18, min(int(max_scroll or 24), 60))
 
+    api_attempt: Dict[str, Any] = {"ok": False, "reason": ""}
     if _x_api_primary():
         api_res = _try_x_api_user(
             h,
@@ -1437,8 +1459,22 @@ def crawl_user_timeline(
             realtime_incremental=realtime_incremental,
         )
         if api_res and api_res.get("success"):
+            from signals.fetch_source import FETCH_COOKIE_API, stamp_items
+
+            api_res["fetch_route"] = FETCH_COOKIE_API
+            api_res["route"] = "x_api"
+            api_res["api_attempt"] = {"ok": True, "reason": ""}
+            stamp_items(list(api_res.get("items") or []), FETCH_COOKIE_API)
             return api_res
+        if api_res:
+            api_attempt = {
+                "ok": False,
+                "reason": str(api_res.get("error") or "X API 失败"),
+            }
+        else:
+            api_attempt = {"ok": False, "reason": "X API 会话未就绪或未调用"}
         if api_res and _x_api_only():
+            api_res["api_attempt"] = api_attempt
             return api_res
 
     now = datetime.now(timezone.utc).astimezone()
@@ -1618,6 +1654,9 @@ def crawl_user_timeline(
             f"博主抓取结束：@{h} 窗口内 {len(items)} 条 · 含图 {img_n} · 页面累计见过 {total_seen}（过旧 {total_old}）"
             f" · 切片 {len(chunks)}",
         )
+        from signals.fetch_source import FETCH_CDP, stamp_items
+
+        stamp_items(items, FETCH_CDP)
         return {
             "success": True,
             "handle": h,
@@ -1628,6 +1667,9 @@ def crawl_user_timeline(
             "count": len(items),
             "page_seen": total_seen,
             "page_old": total_old,
+            "route": "cdp",
+            "fetch_route": FETCH_CDP,
+            "api_attempt": api_attempt,
         }
     except Exception as e:
         _close_session()
