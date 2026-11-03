@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib import request as urlrequest
 
 from signals.binance_square.session import get_active_binance_session_for_http, session_ready
+from signals.http_proxy import urlopen as vpn_urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def _http_json(
         headers["Content-Type"] = "application/json"
     req = urlrequest.Request(full, data=data, headers=headers, method=method.upper())
     try:
-        with urlrequest.urlopen(req, timeout=timeout) as resp:
+        with vpn_urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", errors="replace"))
     except urllib.error.HTTPError as e:
         err = e.read().decode("utf-8", errors="replace")[:400]

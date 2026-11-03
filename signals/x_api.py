@@ -10,6 +10,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+
+from signals.http_proxy import urlopen as vpn_urlopen
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from signals.store import parse_dt, parse_list_id, parse_user_handle
@@ -249,7 +251,7 @@ class XApiClient:
             body = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(url, data=body, headers=self._headers(), method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=25) as resp:
+            with vpn_urlopen(req, timeout=25) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")[:500]
