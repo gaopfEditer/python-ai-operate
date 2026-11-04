@@ -4,21 +4,27 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from signals.cdp_session_loader import _http_json_on_host, normalize_debugger_host
 
-_GRAPHQL_OP_RE = re.compile(r"/i/api/graphql/([^/]+)/(\w+)")
-_STORE_KEY = "__x_toolkit_api_capture"
+# x.com/i/api/graphql/{id}/{Op} 或 api.x.com/graphql/{id}/{Op}
+_GRAPHQL_OP_RE = re.compile(
+    r"(?:^|[/?#])graphql/([A-Za-z0-9_-]+)/(\w+)",
+    re.IGNORECASE,
+)
+_STORE_KEY = "__TrendRadarXGraphqlCapture"
 
 _READ_CAPTURE_JS = r"""
 (function () {
   var q = {};
-  var re = /\/i\/api\/graphql\/([^/]+)\/(\w+)/;
+  var re = /graphql\/([A-Za-z0-9_-]+)\/(\w+)/i;
   var auth = "";
   try {
-    var raw = sessionStorage.getItem("__x_toolkit_api_capture");
+    var raw = sessionStorage.getItem("__TrendRadarXGraphqlCapture")
+      || sessionStorage.getItem("__x_toolkit_api_capture");
     if (raw) {
       var st = JSON.parse(raw) || {};
       if (st.queryIds && typeof st.queryIds === "object") {
@@ -30,9 +36,19 @@ _READ_CAPTURE_JS = r"""
     }
   } catch (e) {}
   try {
+    if (window.__TrendRadarXGraphqlStore && window.__TrendRadarXGraphqlStore.queryIds) {
+      var wq = window.__TrendRadarXGraphqlStore.queryIds;
+      for (var k2 in wq) { if (wq[k2]) q[k2] = String(wq[k2]); }
+      if (window.__TrendRadarXGraphqlStore.authorization) {
+        auth = String(window.__TrendRadarXGraphqlStore.authorization);
+      }
+    }
+  } catch (e1) {}
+  try {
     var entries = performance.getEntriesByType("resource") || [];
     for (var i = 0; i < entries.length; i++) {
       var name = String(entries[i].name || "");
+      if (name.indexOf("graphql") < 0) continue;
       var m = name.match(re);
       if (m) q[m[2]] = m[1];
     }
@@ -41,12 +57,12 @@ _READ_CAPTURE_JS = r"""
 })()
 """
 
-_INJECT_HOOK_JS = r"""
+_MAIN_HOOK_JS = r"""
 (function () {
-  if (window.__TrendRadarXCapture) return "already";
+  if (window.__TrendRadarXCapture) return;
   window.__TrendRadarXCapture = true;
-  var STORE_KEY = "__x_toolkit_api_capture";
-  var OP_RE = /\/i\/api\/graphql\/([^/]+)\/(\w+)/;
+  var STORE_KEY = "__TrendRadarXGraphqlCapture";
+  var OP_RE = /graphql\/([A-Za-z0-9_-]+)\/(\w+)/i;
   function loadStore() {
     try { return JSON.parse(sessionStorage.getItem(STORE_KEY) || "{}") || {}; }
     catch (e) { return {}; }
@@ -54,8 +70,11 @@ _INJECT_HOOK_JS = r"""
   function saveStore(patch) {
     var prev = loadStore();
     var next = Object.assign({}, prev, patch, { updatedAt: Date.now() });
-    if (patch.queryIds) next.queryIds = Object.assign({}, prev.queryIds || {}, patch.queryIds);
+    if (patch.queryIds) {
+      next.queryIds = Object.assign({}, prev.queryIds || {}, patch.queryIds);
+    }
     try { sessionStorage.setItem(STORE_KEY, JSON.stringify(next)); } catch (e) {}
+    try { window.__TrendRadarXGraphqlStore = next; } catch (e2) {}
     return next;
   }
   function pickHeaders(h) {
@@ -63,14 +82,12 @@ _INJECT_HOOK_JS = r"""
     var get = function (k) { return (typeof h.get === "function" ? h.get(k) : h[k]); };
     var out = {};
     var auth = get("authorization") || get("Authorization");
-    var csrf = get("x-csrf-token") || get("X-Csrf-Token");
     if (auth) out.authorization = auth;
-    if (csrf) out.csrf = csrf;
     return out;
   }
   function captureFromRequest(url, headers) {
     var u = String(url || "");
-    if (u.indexOf("/i/api/") < 0) return;
+    if (u.indexOf("graphql") < 0) return;
     var patch = pickHeaders(headers);
     var m = u.match(OP_RE);
     if (m) { patch.queryIds = {}; patch.queryIds[m[2]] = m[1]; }
@@ -85,9 +102,33 @@ _INJECT_HOOK_JS = r"""
     } catch (e) {}
     return origFetch.apply(this, arguments);
   };
-  return "injected";
+  var XO = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    try { captureFromRequest(url, {}); } catch (e) {}
+    return XO.apply(this, arguments);
+  };
+  var XS = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    try {
+      if (String(name).toLowerCase() === "authorization") {
+        saveStore({ authorization: value });
+      }
+    } catch (e) {}
+    return XS.apply(this, arguments);
+  };
 })()
 """
+
+
+def parse_graphql_operation_from_url(url: str) -> Tuple[str, str]:
+    """从 GraphQL URL 解析 (queryId, operationName)，无法解析时返回 ('', '')。"""
+    text = str(url or "").strip()
+    if not text or "graphql" not in text.lower():
+        return "", ""
+    m = _GRAPHQL_OP_RE.search(text)
+    if not m:
+        return "", ""
+    return str(m.group(1)).strip(), str(m.group(2)).strip()
 
 
 def _parse_query_ids_from_value(val: Any) -> Tuple[Dict[str, str], str]:
@@ -117,22 +158,142 @@ def merge_captured_query_ids(*layers: Any) -> Dict[str, str]:
     return out
 
 
-def _eval_on_page(ws_url: str, expression: str) -> Any:
-    from allnews_mornitor.cdp_browser import _CdpClient
+class _CdpPageGraphqlCapture:
+    """单页 CDP：Network.requestWillBeSent 捕获 GraphQL（不依赖扩展）。"""
 
-    client = _CdpClient(ws_url)
+    def __init__(self, ws_url: str):
+        from websockets.sync.client import connect
+
+        self._ws = connect(ws_url, max_size=64 * 1024 * 1024, open_timeout=10)
+        self._next_id = 0
+        self._lock = threading.Lock()
+        self._cv = threading.Condition(self._lock)
+        self._pending: dict[int, dict] = {}
+        self._closed = False
+        self.query_ids: Dict[str, str] = {}
+        self.authorization: str = ""
+        self._reader = threading.Thread(target=self._read_loop, name="x-gql-cdp", daemon=True)
+        self._reader.start()
+
+    def _on_network_request(self, request: Dict[str, Any]) -> None:
+        url = str(request.get("url") or "")
+        qid, op = parse_graphql_operation_from_url(url)
+        if qid and op:
+            self.query_ids[op] = qid
+        headers = request.get("headers") if isinstance(request.get("headers"), dict) else {}
+        auth = str(
+            headers.get("authorization")
+            or headers.get("Authorization")
+            or ""
+        ).strip()
+        if auth and not self.authorization:
+            self.authorization = auth
+
+    def _read_loop(self) -> None:
+        try:
+            while not self._closed:
+                raw = self._ws.recv()
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", errors="replace")
+                msg = json.loads(raw)
+                method = msg.get("method")
+                if method == "Network.requestWillBeSent":
+                    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+                    req = params.get("request") if isinstance(params.get("request"), dict) else {}
+                    self._on_network_request(req)
+                mid = msg.get("id")
+                if mid is not None:
+                    with self._cv:
+                        self._pending[int(mid)] = msg
+                        self._cv.notify_all()
+        except Exception:
+            with self._cv:
+                self._closed = True
+                self._cv.notify_all()
+
+    def call(
+        self,
+        method: str,
+        params: Optional[dict] = None,
+        timeout: float = 60.0,
+    ) -> dict:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("CDP 连接已关闭")
+            self._next_id += 1
+            msg_id = self._next_id
+            payload: dict[str, Any] = {
+                "id": msg_id,
+                "method": method,
+                "params": params or {},
+            }
+            self._ws.send(json.dumps(payload))
+            deadline = time.time() + timeout
+            while msg_id not in self._pending:
+                if self._closed:
+                    raise RuntimeError(f"CDP 断开: {method}")
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise TimeoutError(f"CDP 超时: {method}")
+                self._cv.wait(timeout=remaining)
+            resp = self._pending.pop(msg_id)
+        if "error" in resp:
+            err = resp["error"]
+            raise RuntimeError(f"{method}: {err}")
+        return resp.get("result") or {}
+
+    def close(self) -> None:
+        self._closed = True
+        try:
+            self._ws.close()
+        except Exception:
+            pass
+
+
+def _eval_on_page(ws_url: str, expression: str) -> Any:
+    cap = _CdpPageGraphqlCapture(ws_url)
     try:
-        client.call("Runtime.enable", {})
-        res = client.call(
+        cap.call("Runtime.enable", {})
+        res = cap.call(
             "Runtime.evaluate",
             {"expression": expression, "returnByValue": True, "awaitPromise": False},
         )
         return (res.get("result") or {}).get("value")
     finally:
+        cap.close()
+
+
+def _install_main_world_hook(capture: _CdpPageGraphqlCapture) -> None:
+    """尽量在页面 MAIN world 安装 hook（新文档 + 当前文档各试一次）。"""
+    params: Dict[str, Any] = {"source": _MAIN_HOOK_JS}
+    try:
+        capture.call("Page.addScriptToEvaluateOnNewDocument", params)
+    except RuntimeError:
         try:
-            client.close()
-        except Exception:
+            capture.call("Page.addScriptToEvaluateOnNewDocument", {**params, "worldName": "MAIN"})
+        except RuntimeError:
             pass
+    for expr_params in (
+        {"expression": _MAIN_HOOK_JS, "returnByValue": True},
+        {"expression": _MAIN_HOOK_JS, "returnByValue": True, "includeCommandLineAPI": False},
+    ):
+        try:
+            capture.call("Runtime.evaluate", expr_params)
+            break
+        except RuntimeError:
+            continue
+
+
+def _read_page_capture_store(capture: _CdpPageGraphqlCapture) -> Tuple[Dict[str, str], str]:
+    res = capture.call(
+        "Runtime.evaluate",
+        {"expression": _READ_CAPTURE_JS, "returnByValue": True, "awaitPromise": False},
+    )
+    val = (res.get("result") or {}).get("value")
+    q, b = _parse_query_ids_from_value(val)
+    q.update(capture.query_ids)
+    bearer = b or capture.authorization
+    return q, bearer
 
 
 def _x_pages_from_debugger(host: str) -> List[Dict[str, Any]]:
@@ -161,38 +322,45 @@ def _navigate_and_wait_query_ids(
     *,
     navigate_url: str,
     needed: Sequence[str],
-    timeout_sec: float = 18.0,
+    timeout_sec: float = 22.0,
 ) -> Tuple[Dict[str, str], str]:
-    """在已有 x.com 标签上导航并轮询 performance / sessionStorage 捕获 queryId。"""
-    from allnews_mornitor.cdp_browser import _CdpClient
-
-    deadline = time.monotonic() + max(3.0, float(timeout_sec))
+    """Network 监听 + MAIN hook；导航列表/首页并轮询直到捕获所需 operation。"""
+    deadline = time.monotonic() + max(5.0, float(timeout_sec))
     merged: Dict[str, str] = {}
-    client = _CdpClient(ws_url)
+    bearer = ""
+    capture = _CdpPageGraphqlCapture(ws_url)
     try:
-        client.call("Page.enable", {})
-        client.call(
-            "Runtime.evaluate",
-            {"expression": _INJECT_HOOK_JS, "returnByValue": True},
-        )
+        capture.call("Network.enable", {})
+        capture.call("Page.enable", {})
+        _install_main_world_hook(capture)
+
         if navigate_url:
-            client.call("Page.navigate", {"url": navigate_url})
+            capture.call("Page.navigate", {"url": navigate_url})
+        else:
+            capture.call("Page.reload", {"ignoreCache": False})
+
         while time.monotonic() < deadline:
-            res = client.call(
-                "Runtime.evaluate",
-                {"expression": _READ_CAPTURE_JS, "returnByValue": True, "awaitPromise": False},
-            )
-            val = (res.get("result") or {}).get("value")
-            q, _ = _parse_query_ids_from_value(val)
+            q, b = _read_page_capture_store(capture)
             merged.update(q)
+            if b and not bearer:
+                bearer = b
             if not _missing_operations(merged, needed):
                 return merged, ""
-            time.sleep(0.45)
+            try:
+                res = capture.call(
+                    "Runtime.evaluate",
+                    {"expression": "document.readyState", "returnByValue": True},
+                    timeout=3.0,
+                )
+                state = (res.get("result") or {}).get("value")
+                if state == "complete" and time.monotonic() > deadline - 8.0:
+                    capture.call("Page.reload", {"ignoreCache": False})
+            except Exception:
+                pass
+            time.sleep(0.4)
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+        capture.close()
+
     missing = _missing_operations(merged, needed)
     if missing:
         return merged, f"导航后仍未捕获: {', '.join(missing)}"
@@ -204,10 +372,10 @@ def ensure_graphql_query_ids_from_cdp(
     needed_operations: Iterable[str],
     *,
     navigate_urls: Optional[Sequence[str]] = None,
-    timeout_sec: float = 18.0,
+    timeout_sec: float = 22.0,
 ) -> Tuple[Dict[str, str], str, str]:
     """
-    优先读已有标签；缺 operation 时在 x.com 标签上导航并等待 GraphQL 请求。
+    优先读已有标签；缺 operation 时在 x.com 标签上 Network 监听并导航等待。
     返回 (query_ids, authorization, hint)。
     """
     needed = [str(op).strip() for op in needed_operations if str(op).strip()]
@@ -255,7 +423,7 @@ def ensure_graphql_query_ids_from_cdp(
 def capture_x_graphql_from_cdp(debugger_url: str) -> Tuple[Dict[str, str], str, str]:
     """
     返回 (query_ids, authorization, error_hint)。
-    扫描 x.com / twitter.com 标签的 sessionStorage + performance。
+    扫描 x.com 标签 performance / sessionStorage；必要时短监听 Network。
     """
     host = normalize_debugger_host(debugger_url)
     if not host:
@@ -291,13 +459,6 @@ def capture_x_graphql_from_cdp(debugger_url: str) -> Tuple[Dict[str, str], str, 
             merged_q.update(q)
             if b and not bearer:
                 bearer = b
-            if not merged_q:
-                _eval_on_page(ws, _INJECT_HOOK_JS)
-                val2 = _eval_on_page(ws, _READ_CAPTURE_JS)
-                q2, b2 = _parse_query_ids_from_value(val2)
-                merged_q.update(q2)
-                if b2 and not bearer:
-                    bearer = b2
         except Exception:
             continue
         if merged_q.get("ListLatestTweetsTimeline") or merged_q.get("UserTweets"):

@@ -312,7 +312,7 @@ def refresh_x_session_from_cdp(
             )
             if hint and qn == 0:
                 _log(progress, f"X queryId 提示：{hint}")
-            clean = {k: v for k, v in merged.items() if k not in ("query_ids_captured", "query_id_hint")}
+            clean = {k: v for k, v in merged.items() if k != "query_id_hint"}
             _cache_set("x", clean)
             return clean
         _log(
@@ -354,7 +354,7 @@ def get_cached_x_session() -> Optional[Dict[str, Any]]:
 def patch_cached_x_session(session: Dict[str, Any]) -> None:
     if not isinstance(session, dict):
         return
-    clean = {k: v for k, v in session.items() if k not in ("query_ids_captured", "query_id_hint")}
+    clean = {k: v for k, v in session.items() if k != "query_id_hint"}
     _cache_set("x", clean)
 
 
@@ -389,7 +389,15 @@ def ensure_x_graphql_query_ids(
     need_capture = force
     if base and not need_capture:
         qids = base.get("query_ids") if isinstance(base.get("query_ids"), dict) else {}
-        need_capture = any(operation_query_id_is_builtin_only(qids, op) for op in ops)
+        captured_ops = {
+            str(x).strip()
+            for x in (base.get("query_ids_captured") or [])
+            if str(x).strip()
+        }
+        need_capture = any(
+            op not in captured_ops and operation_query_id_is_builtin_only(qids, op)
+            for op in ops
+        )
     elif not base:
         need_capture = True
 

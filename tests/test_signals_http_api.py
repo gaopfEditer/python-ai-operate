@@ -392,6 +392,38 @@ class TestAnalyzeTimeout(unittest.TestCase):
         self.assertEqual(q["ListLatestTweetsTimeline"], "FreshId123")
         self.assertTrue(q.get("UserTweets"))
 
+    def test_parse_graphql_operation_from_url(self):
+        from signals.x_cdp_graphql import parse_graphql_operation_from_url
+
+        qid, op = parse_graphql_operation_from_url(
+            "https://api.x.com/graphql/RlZzktZY_9wJynoepm8ZsA/ListLatestTweetsTimeline?variables=%7B%7D"
+        )
+        self.assertEqual(op, "ListLatestTweetsTimeline")
+        self.assertEqual(qid, "RlZzktZY_9wJynoepm8ZsA")
+        qid2, op2 = parse_graphql_operation_from_url(
+            "https://x.com/i/api/graphql/AbCdEf/UserTweets"
+        )
+        self.assertEqual(op2, "UserTweets")
+        self.assertEqual(qid2, "AbCdEf")
+
+    def test_network_capture_parses_api_x_com(self):
+        from signals.x_cdp_graphql import _CdpPageGraphqlCapture
+
+        cap = _CdpPageGraphqlCapture.__new__(_CdpPageGraphqlCapture)
+        cap.query_ids = {}
+        cap.authorization = ""
+        cap._on_network_request(
+            {
+                "url": "https://api.x.com/graphql/LiveQueryId123/ListLatestTweetsTimeline",
+                "headers": {"authorization": "Bearer token123"},
+            }
+        )
+        self.assertEqual(
+            cap.query_ids.get("ListLatestTweetsTimeline"),
+            "LiveQueryId123",
+        )
+        self.assertEqual(cap.authorization, "Bearer token123")
+
     def test_ensure_x_graphql_query_ids_skips_when_fresh(self):
         from signals import cdp_session_loader as loader
         from signals.x_cdp_graphql import operation_query_id_is_builtin_only

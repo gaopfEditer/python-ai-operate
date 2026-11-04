@@ -32,7 +32,7 @@
 
 ## X / 列表信号（同一机制）
 
-- 抓取开始时从 CDP 读取 `x.com` 的 **auth_token + ct0**；GraphQL 调用前会尝试从已打开标签的 `sessionStorage` / `performance` 捕获 **queryId**，不足时在后台 **导航到列表/首页** 等待 live 请求（不依赖仅内置默认 id）
+- 抓取开始时从 CDP 读取 `x.com` 的 **auth_token + ct0**；GraphQL 调用前通过 CDP **Network** 监听 `api.x.com/graphql/...`（及 `x.com/i/api/graphql/...`）捕获 **queryId**，必要时后台导航列表/首页；**无需**安装 chrome-x-toolkit 扩展
 - 若仍无 queryId：在 Chrome **打开 X 首页、列表或博主页** 让页面发 GraphQL 请求后重跑（或安装 `tools/chrome-x-toolkit` 扩展）
 - 出站 HTTP 默认代理顺序 **7891 → 7890**（Mac Clash mixed-port 常见为 7891）；可设 `AI_OPERATE_HTTP_PROXIES=http://127.0.0.1:7891`；短暂 SSL/连接失败会有界重试
 - 可选 `output/signals/x_api_session.json` 补充缺失 queryId 或作回退
