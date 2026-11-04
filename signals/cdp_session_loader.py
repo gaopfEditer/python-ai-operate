@@ -180,7 +180,7 @@ def pull_binance_session_from_cdp(debugger_url: str) -> Tuple[Optional[Dict[str,
 
 
 def pull_x_session_from_cdp(debugger_url: str) -> Tuple[Optional[Dict[str, Any]], str]:
-    from signals.x_cdp_graphql import capture_x_graphql_from_cdp, merge_captured_query_ids
+    from signals.x_cdp_graphql import ensure_graphql_query_ids_from_cdp, merge_captured_query_ids
     from signals.x_session import DEFAULT_BEARER
 
     cookies, err = _collect_cookies_from_cdp(
@@ -194,7 +194,11 @@ def pull_x_session_from_cdp(debugger_url: str) -> Tuple[Optional[Dict[str, Any]]
     if not auth or not ct0:
         return None, err or "缺少 auth_token/ct0"
 
-    captured_q, cap_bearer, cap_hint = capture_x_graphql_from_cdp(debugger_url)
+    captured_q, cap_bearer, cap_hint = ensure_graphql_query_ids_from_cdp(
+        debugger_url,
+        ("ListLatestTweetsTimeline", "UserTweets", "UserByScreenName"),
+        navigate_urls=("https://x.com/home",),
+    )
     qids = merge_captured_query_ids(captured_q)
     bearer = DEFAULT_BEARER
     if cap_bearer:
@@ -308,7 +312,7 @@ def refresh_x_session_from_cdp(
             )
             if hint and qn == 0:
                 _log(progress, f"X queryId 提示：{hint}")
-            clean = {k: v for k, v in merged.items() if k not in ("query_ids_captured", "query_id_hint")}
+            clean = {k: v for k, v in merged.items() if k != "query_id_hint"}
             _cache_set("x", clean)
             return clean
         _log(
@@ -345,3 +349,102 @@ def get_cached_x_session() -> Optional[Dict[str, Any]]:
     from signals.x_session import load_x_session
 
     return load_x_session()
+
+
+def patch_cached_x_session(session: Dict[str, Any]) -> None:
+    if not isinstance(session, dict):
+        return
+    clean = {k: v for k, v in session.items() if k != "query_id_hint"}
+    _cache_set("x", clean)
+
+
+def ensure_x_graphql_query_ids(
+    operations: Tuple[str, ...],
+    *,
+    debugger_url: str = "",
+    navigate_urls: Optional[Tuple[str, ...]] = None,
+    progress: ProgressCb = None,
+    force: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """
+    GraphQL 调用前：在 CDP 可用时刷新 Cookie + queryId（必要时导航 X 页面抓 live queryId）。
+    更新内存缓存；若已有 session 文件则合并写入 query_ids。
+    """
+    from signals.x_cdp_graphql import (
+        ensure_graphql_query_ids_from_cdp,
+        merge_captured_query_ids,
+        operation_query_id_is_builtin_only,
+    )
+    from signals.x_session import load_x_session, merge_x_supplemental, maybe_persist_x_query_ids
+
+    ops = tuple(str(o).strip() for o in operations if str(o).strip())
+    if not ops:
+        return get_cached_x_session()
+
+    if _cdp_disabled():
+        return get_cached_x_session()
+
+    dbg = resolve_debugger_url(explicit=debugger_url)
+    base = get_cached_x_session() or load_x_session()
+    need_capture = force
+    if base and not need_capture:
+        qids = base.get("query_ids") if isinstance(base.get("query_ids"), dict) else {}
+        captured_ops = {
+            str(x).strip()
+            for x in (base.get("query_ids_captured") or [])
+            if str(x).strip()
+        }
+        need_capture = any(
+            op not in captured_ops and operation_query_id_is_builtin_only(qids, op)
+            for op in ops
+        )
+    elif not base:
+        need_capture = True
+
+    if not need_capture:
+        return base
+
+    cookies, err = _collect_cookies_from_cdp(
+        dbg,
+        urls=_X_URLS,
+        want_names=_X_COOKIE_NAMES,
+        prefer_url_substr="x.com",
+    )
+    if not cookies.get("auth_token") or not cookies.get("ct0"):
+        _log(progress, f"X queryId：CDP Cookie 不可用（{err or '缺 auth_token/ct0'}）")
+        return base
+
+    captured_q, cap_bearer, cap_hint = ensure_graphql_query_ids_from_cdp(
+        dbg,
+        ops,
+        navigate_urls=navigate_urls,
+    )
+    from signals.x_session import DEFAULT_BEARER
+
+    bearer = DEFAULT_BEARER
+    if cap_bearer:
+        bearer = cap_bearer if cap_bearer.lower().startswith("bearer") else f"Bearer {cap_bearer}"
+
+    draft = {
+        "auth_token": cookies["auth_token"],
+        "ct0": cookies["ct0"],
+        "authorization": bearer,
+        "query_ids": merge_captured_query_ids(captured_q),
+        "cookie_header": f"auth_token={cookies['auth_token']}; ct0={cookies['ct0']}",
+        "query_ids_captured": list(captured_q.keys()),
+        "query_id_hint": cap_hint,
+    }
+    merged = merge_x_supplemental(draft, load_x_session())
+    cap_ops = draft.get("query_ids_captured") or []
+    qn = len(cap_ops) if isinstance(cap_ops, list) else 0
+    if qn:
+        _log(
+            progress,
+            f"X queryId：已从 CDP 捕获 {qn} 项（{', '.join(list(cap_ops)[:4])}）",
+        )
+    elif cap_hint:
+        _log(progress, f"X queryId 提示：{cap_hint}")
+
+    patch_cached_x_session(merged)
+    maybe_persist_x_query_ids(merged)
+    return merged

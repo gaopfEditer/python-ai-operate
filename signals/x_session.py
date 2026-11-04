@@ -122,6 +122,29 @@ def query_id(session: Dict[str, Any], operation: str) -> str:
     return str(q.get(operation) or DEFAULT_QUERY_IDS.get(operation) or "").strip()
 
 
+def maybe_persist_x_query_ids(session: Dict[str, Any]) -> None:
+    """若本地 session 文件已存在，或显式允许，则合并写入最新 query_ids（不写 Cookie 到 git）。"""
+    if not isinstance(session, dict):
+        return
+    path = session_file_path()
+    allow = str(os.environ.get("X_API_SESSION_PERSIST_QUERY_IDS") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if not allow and not path.is_file():
+        return
+    prev = load_x_session() if path.is_file() else None
+    merged = merge_x_supplemental(session, prev)
+    if not merged.get("auth_token") or not merged.get("ct0"):
+        return
+    try:
+        save_x_session(merged, path=path)
+    except Exception:
+        pass
+
+
 def save_x_session(payload: Dict[str, Any], *, path: Optional[Path] = None) -> Path:
     dest = path or session_file_path()
     dest.parent.mkdir(parents=True, exist_ok=True)

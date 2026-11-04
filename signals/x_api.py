@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from signals.store import parse_dt, parse_list_id, parse_user_handle
-from signals.cdp_session_loader import get_cached_x_session
+from signals.cdp_session_loader import ensure_x_graphql_query_ids, get_cached_x_session
 from signals.http_proxy import urlopen as vpn_urlopen
 from signals.x_session import DEFAULT_QUERY_IDS, query_id, resolve_x_session, session_ready
 
@@ -197,11 +197,19 @@ def parse_timeline_payload(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
     return items, next_cursor
 
 
+def _is_x_auth_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "401" in msg or "could not authenticate" in msg or "code\":32" in msg
+
+
 class XApiClient:
     def __init__(self, session: Optional[Dict[str, Any]] = None) -> None:
         self.session = session or get_cached_x_session() or {}
         if not session_ready(self.session):
             raise RuntimeError("X 会话未配置（需要 auth_token + ct0）")
+
+    def replace_session(self, session: Dict[str, Any]) -> None:
+        self.session = dict(session)
 
     def _headers(self) -> Dict[str, str]:
         s = self.session
@@ -336,13 +344,23 @@ def fetch_list_timeline_api(
     should_abort: Optional[Callable[[], bool]] = None,
     realtime_incremental: bool = False,
     is_known: Optional[Callable[[str], bool]] = None,
+    debugger_url: str = "",
 ) -> Dict[str, Any]:
-    resolve_x_session(progress=progress, force_refresh=False)
+    resolve_x_session(debugger_url=debugger_url, progress=progress, force_refresh=False)
     if not session_ready():
         return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
     lid = parse_list_id(list_id) or str(list_id or "").strip()
     if not lid:
         return {"success": False, "error": "缺少 list_id", "items": []}
+    ensure_x_graphql_query_ids(
+        ("ListLatestTweetsTimeline",),
+        debugger_url=debugger_url,
+        navigate_urls=(
+            f"https://x.com/i/lists/{lid}",
+            "https://x.com/home",
+        ),
+        progress=progress,
+    )
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     client = XApiClient()
     by_id: Dict[str, Dict[str, Any]] = {}
@@ -366,7 +384,30 @@ def fetch_list_timeline_api(
         except Exception as e:
             if by_id:
                 break
-            return {"success": False, "error": str(e), "items": [], "route": "x_api"}
+            if page_i == 0 and _is_x_auth_error(e):
+                _log(progress, "X API 401：刷新 CDP queryId/Cookie 后重试…")
+                refreshed = ensure_x_graphql_query_ids(
+                    ("ListLatestTweetsTimeline",),
+                    debugger_url=debugger_url,
+                    navigate_urls=(
+                        f"https://x.com/i/lists/{lid}",
+                        "https://x.com/home",
+                    ),
+                    progress=progress,
+                    force=True,
+                )
+                if refreshed:
+                    client.replace_session(refreshed)
+                    try:
+                        chunk, next_cur = client.fetch_timeline_page(
+                            "ListLatestTweetsTimeline", variables
+                        )
+                    except Exception as e2:
+                        return {"success": False, "error": str(e2), "items": [], "route": "x_api"}
+                else:
+                    return {"success": False, "error": str(e), "items": [], "route": "x_api"}
+            else:
+                return {"success": False, "error": str(e), "items": [], "route": "x_api"}
         if not chunk and not by_id:
             return {"success": False, "error": "列表 API 无数据", "items": [], "route": "x_api"}
         stop, stale, seen_delta, old_delta = _ingest_timeline_chunk(
@@ -424,21 +465,45 @@ def fetch_user_timeline_api(
     should_abort: Optional[Callable[[], bool]] = None,
     realtime_incremental: bool = False,
     is_known: Optional[Callable[[str], bool]] = None,
+    debugger_url: str = "",
 ) -> Dict[str, Any]:
-    resolve_x_session(progress=progress, force_refresh=False)
+    resolve_x_session(debugger_url=debugger_url, progress=progress, force_refresh=False)
     if not session_ready():
         return {"success": False, "error": "X API 会话未配置", "items": [], "route": "x_api"}
     h = parse_user_handle(handle) or str(handle or "").strip().lstrip("@")
     if not h:
         return {"success": False, "error": "缺少 handle", "items": []}
+    op = "UserTweetsAndReplies" if include_replies else "UserTweets"
+    ensure_x_graphql_query_ids(
+        ("UserByScreenName", op),
+        debugger_url=debugger_url,
+        navigate_urls=(f"https://x.com/{h}", "https://x.com/home"),
+        progress=progress,
+    )
     since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     client = XApiClient()
     try:
         uid = client.user_id_by_screen_name(h)
     except Exception as e:
-        return {"success": False, "error": str(e), "items": [], "route": "x_api"}
-
-    op = "UserTweetsAndReplies" if include_replies else "UserTweets"
+        if _is_x_auth_error(e):
+            _log(progress, "X API 401：刷新 CDP queryId/Cookie 后重试用户解析…")
+            refreshed = ensure_x_graphql_query_ids(
+                ("UserByScreenName", op),
+                debugger_url=debugger_url,
+                navigate_urls=(f"https://x.com/{h}", "https://x.com/home"),
+                progress=progress,
+                force=True,
+            )
+            if refreshed:
+                client.replace_session(refreshed)
+                try:
+                    uid = client.user_id_by_screen_name(h)
+                except Exception as e2:
+                    return {"success": False, "error": str(e2), "items": [], "route": "x_api"}
+            else:
+                return {"success": False, "error": str(e), "items": [], "route": "x_api"}
+        else:
+            return {"success": False, "error": str(e), "items": [], "route": "x_api"}
     by_id: Dict[str, Dict[str, Any]] = {}
     cursor = ""
     page_seen = 0
@@ -463,7 +528,25 @@ def fetch_user_timeline_api(
         except Exception as e:
             if by_id:
                 break
-            return {"success": False, "error": str(e), "items": [], "route": "x_api"}
+            if page_i == 0 and _is_x_auth_error(e):
+                _log(progress, "X API 401：刷新 CDP queryId 后重试时间线…")
+                refreshed = ensure_x_graphql_query_ids(
+                    (op,),
+                    debugger_url=debugger_url,
+                    navigate_urls=(f"https://x.com/{h}", "https://x.com/home"),
+                    progress=progress,
+                    force=True,
+                )
+                if refreshed:
+                    client.replace_session(refreshed)
+                    try:
+                        chunk, next_cur = client.fetch_timeline_page(op, variables)
+                    except Exception as e2:
+                        return {"success": False, "error": str(e2), "items": [], "route": "x_api"}
+                else:
+                    return {"success": False, "error": str(e), "items": [], "route": "x_api"}
+            else:
+                return {"success": False, "error": str(e), "items": [], "route": "x_api"}
         stop, stale, seen_delta, old_delta = _ingest_timeline_chunk(
             chunk,
             since_cmp=since_cmp,
