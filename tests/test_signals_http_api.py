@@ -392,6 +392,50 @@ class TestAnalyzeTimeout(unittest.TestCase):
         self.assertEqual(q["ListLatestTweetsTimeline"], "FreshId123")
         self.assertTrue(q.get("UserTweets"))
 
+    def test_ensure_x_graphql_query_ids_skips_when_fresh(self):
+        from signals import cdp_session_loader as loader
+        from signals.x_cdp_graphql import operation_query_id_is_builtin_only
+
+        self.assertFalse(
+            operation_query_id_is_builtin_only(
+                {"ListLatestTweetsTimeline": "LiveCapturedId"},
+                "ListLatestTweetsTimeline",
+            )
+        )
+        loader.clear_session_cache()
+        loader.patch_cached_x_session(
+            {
+                "auth_token": "a",
+                "ct0": "c",
+                "query_ids": {"ListLatestTweetsTimeline": "LiveCapturedId"},
+                "cookie_header": "auth_token=a; ct0=c",
+            }
+        )
+        with mock.patch.object(loader, "_collect_cookies_from_cdp") as ck:
+            out = loader.ensure_x_graphql_query_ids(("ListLatestTweetsTimeline",))
+        ck.assert_not_called()
+        self.assertEqual(
+            out.get("query_ids", {}).get("ListLatestTweetsTimeline"),
+            "LiveCapturedId",
+        )
+
+    def test_fetch_list_calls_ensure_query_ids(self):
+        from signals import x_api
+
+        since = datetime(2010, 1, 1, tzinfo=timezone.utc)
+        page = json.loads((FIXTURES / "x_list_timeline.json").read_text(encoding="utf-8"))
+
+        class FakeClient:
+            def fetch_timeline_page(self, operation, variables):
+                return x_api.parse_timeline_payload(page)
+
+        with mock.patch("signals.x_api.session_ready", return_value=True), mock.patch(
+            "signals.x_api.ensure_x_graphql_query_ids", return_value={"auth_token": "a", "ct0": "b"}
+        ) as ensure, mock.patch("signals.x_api.XApiClient", return_value=FakeClient()):
+            res = x_api.fetch_list_timeline_api("2088443239435215337", since=since, max_tweets=5)
+        self.assertTrue(res.get("success"))
+        ensure.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,11 +28,15 @@ def main() -> int:
     dbg = resolve_signals_debugger_url()
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     ok = 0
+    proxies = os.environ.get("AI_OPERATE_HTTP_PROXIES", "(默认 7891,7890)")
+    print(f"CDP={dbg} · HTTP 代理={proxies}")
 
     resolve_x_session(debugger_url=dbg, progress=print, force_refresh=True)
     if session_ready():
         lid = os.environ.get("SMOKE_X_LIST_ID", "2088443239435215337")
-        res = fetch_list_timeline_api(lid, since=since, max_tweets=5, progress=print)
+        res = fetch_list_timeline_api(
+            lid, since=since, max_tweets=5, progress=print, debugger_url=dbg
+        )
         print("X list:", res.get("success"), "count=", res.get("count"), "route=", res.get("route"))
         ok += 1 if res.get("success") else 0
     else:
