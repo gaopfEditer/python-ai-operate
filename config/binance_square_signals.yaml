@@ -29,3 +29,7 @@ profiles:
   name: 格里芬院长
   url: https://www.binance.com/zh-CN/square/profile/square-creator-446e63a9fd9ef
   enabled: true
+- id: btc7873
+  name: Btc星辰
+  url: https://www.binance.com/zh-CN/square/profile/btc7873
+  enabled: true
