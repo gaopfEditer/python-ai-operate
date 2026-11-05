@@ -116,6 +116,7 @@ def _publish_one(
             debugger_url=base.get("debugger_url") or None,
             media_paths=media_paths,
             submit=bool(base.get("submit", True)),
+            job_id=str(base.get("job_id") or ""),
         )
         row = (result.get("results") or [{}])[0] if isinstance(result.get("results"), list) else {}
         if not row:
@@ -169,6 +170,7 @@ def _run_worker(
         "use_cdp": bool(body.get("use_cdp", True)),
         "debugger_url": _resolve_publish_debugger_url(body.get("debugger_url")),
         "submit": submit,
+        "job_id": job_id,
     }
     from console.publish_context import bind_run_control, clear_run_control
 

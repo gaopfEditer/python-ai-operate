@@ -296,6 +296,7 @@ def _run_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
             debugger_url=payload.get("debugger_url") or None,
             media_paths=payload["media_paths"],
             submit=payload["submit"],
+            job_id=str(payload.get("job_id") or ""),
         )
         result["media_count"] = len(payload["media_paths"])
         if "elapsed_ms" not in result:
@@ -402,6 +403,8 @@ def _start_job(payload: Dict[str, Any]) -> tuple[bytes, int, str]:
                 if _V1_ACTIVE == job_id:
                     _V1_ACTIVE = None
 
+    payload = dict(payload)
+    payload["job_id"] = job_id
     threading.Thread(target=_worker, daemon=True, name=f"publish-api-{job_id[:8]}").start()
     return _json_bytes(
         {
