@@ -60,7 +60,7 @@ def _try_x_api_list(
         load_from_cookie_file(cookie_file)
     _ensure_x_api_session(progress)
     if not session_ready():
-        return None
+        return {"success": False, "error": "X API 会话未就绪", "items": [], "route": "x_api"}
     is_known = build_x_known_checker() if realtime_incremental else None
     res = fetch_list_timeline_api(
         list_id,
@@ -76,7 +76,8 @@ def _try_x_api_list(
     if _x_api_only():
         return res
     _log(progress, f"X API 列表失败，回退 CDP：{res.get('error')}")
-    return None
+    # 返回失败结果，便于 api_attempt 记录真实错误（勿误标「会话未就绪」）
+    return res
 
 
 def _try_x_api_user(
@@ -97,7 +98,7 @@ def _try_x_api_user(
         load_from_cookie_file(cookie_file)
     _ensure_x_api_session(progress)
     if not session_ready():
-        return None
+        return {"success": False, "error": "X API 会话未就绪", "items": [], "route": "x_api"}
     is_known = build_x_known_checker() if realtime_incremental else None
     res = fetch_user_timeline_api(
         handle,
@@ -114,7 +115,8 @@ def _try_x_api_user(
     if _x_api_only():
         return res
     _log(progress, f"X API 博主失败，回退 CDP：{res.get('error')}")
-    return None
+    # 返回失败结果，便于 api_attempt 记录真实错误（勿误标「会话未就绪」）
+    return res
 
 # 专用静默标签标记（用于复用 / 清理，避免每次 createTarget 堆 tab）
 _SIGNALS_TAB_MARKER = "trendradar-signals"
@@ -1250,7 +1252,7 @@ def crawl_list_timeline(
                 "reason": str(api_res.get("error") or "X API 失败"),
             }
         else:
-            api_attempt = {"ok": False, "reason": "X API 会话未就绪或未调用"}
+            api_attempt = {"ok": False, "reason": "X API 未返回结果"}
         if api_res and _x_api_only():
             api_res["api_attempt"] = api_attempt
             return api_res
@@ -1472,7 +1474,7 @@ def crawl_user_timeline(
                 "reason": str(api_res.get("error") or "X API 失败"),
             }
         else:
-            api_attempt = {"ok": False, "reason": "X API 会话未就绪或未调用"}
+            api_attempt = {"ok": False, "reason": "X API 未返回结果"}
         if api_res and _x_api_only():
             api_res["api_attempt"] = api_attempt
             return api_res

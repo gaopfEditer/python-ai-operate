@@ -1,5 +1,5 @@
 # coding=utf-8
-"""出站 HTTP：按本地 VPN 端口顺序尝试代理（7891 → 7890），本机 CDP 等直连。"""
+"""出站 HTTP：按本地 VPN 端口顺序尝试代理（7890 → 7891），本机 CDP 等直连。"""
 from __future__ import annotations
 
 import errno
@@ -16,10 +16,10 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 _ENV_KEY = "AI_OPERATE_HTTP_PROXIES"
-# Mac Clash 常见 mixed-port 为 7891；7890 常未监听，故优先 7891
+# Clash Verge 默认 mixed-port 为 7890；7891 常未监听。优先 7890，失败再试 7891。
 _DEFAULT_PROXIES: Sequence[str] = (
-    "http://127.0.0.1:7891",
     "http://127.0.0.1:7890",
+    "http://127.0.0.1:7891",
 )
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
@@ -175,6 +175,23 @@ def _proxy_opener(proxy: str) -> urllib.request.OpenerDirector:
     )
 
 
+def _fresh_request(req: Union[urllib.request.Request, str]) -> Union[urllib.request.Request, str]:
+    """每次 open 前重建 Request，避免上次 opener 的 set_proxy 污染 host。
+
+    urllib 在经代理访问 HTTPS 时会调用 Request.set_proxy，把 host 改成代理地址。
+    若复用同一 Request 再换端口，会继续连旧代理（常见 Connection refused → 7891）。
+    """
+    if isinstance(req, str):
+        return req
+    headers = {k: v for k, v in req.header_items()}
+    return urllib.request.Request(
+        req.full_url,
+        data=req.data,
+        headers=headers,
+        method=req.get_method(),
+    )
+
+
 def urlopen(
     req: Union[urllib.request.Request, str],
     timeout: Optional[float] = None,
@@ -182,14 +199,15 @@ def urlopen(
     context=None,
 ):
     """
-    对外 URL：依次尝试 AI_OPERATE_HTTP_PROXIES（默认 7891、7890）。
+    对外 URL：依次尝试 AI_OPERATE_HTTP_PROXIES（默认 7890、7891）。
     每个代理上对可恢复网络错误做有界重试；连接失败则换下一端口。
+    换代理 / 重试时重建 Request，避免 set_proxy 污染。
     本机 URL：强制直连，忽略系统 HTTP_PROXY。
     """
     url = _request_url(req)
     if not should_use_vpn_proxy(url):
         opener = _direct_opener()
-        return opener.open(req, timeout=timeout)
+        return opener.open(_fresh_request(req), timeout=timeout)
 
     proxies = parse_vpn_proxy_list()
     per_proxy = _per_proxy_retries()
@@ -200,7 +218,8 @@ def urlopen(
         opener = _proxy_opener(proxy)
         for attempt in range(per_proxy):
             try:
-                resp = opener.open(req, timeout=timeout)
+                # 关键：不可复用已被 set_proxy 改写过 host 的 Request
+                resp = opener.open(_fresh_request(req), timeout=timeout)
                 if idx > 0 or attempt > 0:
                     logger.info(
                         "HTTP 经代理 %s 成功（%s）",
