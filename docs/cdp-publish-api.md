@@ -246,6 +246,11 @@ while True:
 2. 会复用已打开的同站点页签，不会每个任务新开标签。
 3. 图片会先落到 `output/publish_cache/`，再交给 CDP。
 4. 旧接口 `POST /api/publish` 仍给控制台用；外部请走 `/api/v1/publish`。
+5. **发布诊断日志**：每次 CDP 发布（含多平台）会追加写入 `output/publish_logs/publish_YYYY-MM-DD.log`（JSON Lines，一行一条事件）。失败时查看 `platform_fail` 行，字段含 `platform`、`step`、`failure_category`（timeout/selector/login/network/error）、`message`、`steps`、`last_url`（无 cookie/token）、`job_id`（控制台/API 任务 id）。控制台 stderr 也会打 `[publish]` 前缀摘要。示例：
+
+```bash
+tail -f output/publish_logs/publish_$(date +%F).log | jq -c 'select(.event=="platform_fail")'
+```
 
 ---
 
