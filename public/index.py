@@ -52,6 +52,7 @@ def publish_content(
     debugger_url: Optional[str] = None,
     media_paths: Optional[List[str]] = None,
     submit: bool = True,
+    job_id: Optional[str] = None,
 ) -> Dict:
     """
     发布内容到指定平台
@@ -86,12 +87,26 @@ def publish_content(
             }
 
     from public.platforms.cdp_common import PublishAborted, publish_abort_requested
+    from public import publish_log
 
     media = list(media_paths or content.get("media_paths") or [])
     results = []
     shared_driver = None
     aborted = False
     t0 = time.perf_counter()
+    trace_job = str(job_id or content.get("job_id") or "").strip()
+    content_ref = publish_log.content_ref_from_body(
+        str(content.get("title") or ""),
+        str(content.get("content") or content.get("text") or ""),
+    )
+    publish_log.log_run_start(
+        platform_ids=platform_ids,
+        debugger_url=str(debugger_url or ""),
+        submit=submit,
+        media_count=len(media),
+        job_id=trace_job,
+        content_ref=content_ref,
+    )
     needs_cdp = use_cdp or any(
         (get_platform_config(pid) or {}).get("type")
         in ("x", "twitter", "binance_square", "okx", "bitget", "gate")
@@ -110,36 +125,57 @@ def publish_content(
             from public.platforms.cdp_common import connect_cdp
 
             shared_driver = connect_cdp(debugger_url)
+            publish_log.log_cdp_connect(ok=True, debugger_url=str(debugger_url))
         except Exception as e:
             from public.platforms.cdp_common import invalidate_cdp_driver
 
             cdp_connect_error = str(e)
             invalidate_cdp_driver(debugger_url)
             logger.warning("共享 CDP 连接失败，跳过各平台 CDP 发布: %s", e)
+            publish_log.log_cdp_connect(
+                ok=False,
+                debugger_url=str(debugger_url),
+                error=cdp_connect_error,
+                exc_type=type(e).__name__,
+            )
             shared_driver = None
 
     try:
-        for platform_id in platform_ids:
+        for idx, platform_id in enumerate(platform_ids, start=1):
             if publish_abort_requested():
                 aborted = True
                 break
             platform_config = get_platform_config(platform_id)
             if not platform_config:
-                results.append({
+                fail = {
                     'platform': platform_id,
                     'success': False,
                     'error': f'平台配置不存在: {platform_id}',
                     'elapsed_ms': 0,
-                })
+                }
+                publish_log.log_platform_result(
+                    platform_id=platform_id,
+                    platform_name=platform_id,
+                    result=fail,
+                    elapsed_ms=0,
+                )
+                results.append(fail)
                 continue
 
             if not platform_config.get('enabled', True):
-                results.append({
+                fail = {
                     'platform': platform_id,
                     'success': False,
                     'error': f'平台未启用: {platform_id}',
                     'elapsed_ms': 0,
-                })
+                }
+                publish_log.log_platform_result(
+                    platform_id=platform_id,
+                    platform_name=platform_config.get('name', platform_id),
+                    result=fail,
+                    elapsed_ms=0,
+                )
+                results.append(fail)
                 continue
 
             platform_type = (platform_config.get('type') or '').lower()
@@ -153,17 +189,33 @@ def publish_content(
                     invalidate_cdp_driver(debugger_url)
                     shared_driver = None
                 if cdp_connect_error:
-                    results.append({
+                    fail = {
                         'platform': platform_id,
                         'platform_name': platform_name,
                         'success': False,
                         'error': f'CDP 连接失败: {cdp_connect_error}',
                         'elapsed_ms': 0,
-                    })
+                        'steps': [],
+                    }
+                    publish_log.log_platform_result(
+                        platform_id=platform_id,
+                        platform_name=platform_name,
+                        result=fail,
+                        elapsed_ms=0,
+                    )
+                    results.append(fail)
                     continue
 
             logger.info(f"正在发布到平台: {platform_name} ({platform_id})")
+            publish_log.log_platform_start(
+                platform_id=platform_id,
+                platform_name=platform_name,
+                index=idx,
+                total=len(platform_ids),
+            )
             plat_t0 = time.perf_counter()
+            pub_driver = shared_driver
+            plat_exc: Optional[BaseException] = None
             try:
                 if platform_type == 'typecho':
                     from public.platforms.typecho_publisher import TypechoPublisher
@@ -181,6 +233,7 @@ def publish_content(
                         content=content.get('content', ''),
                         tags=tags or content.get('tags', '')
                     )
+                    pub_driver = getattr(publisher, "driver", None) or pub_driver
                 elif platform_type in ('x', 'twitter'):
                     from public.platforms.x_publisher import XPublisher
 
@@ -199,6 +252,7 @@ def publish_content(
                         submit=submit,
                         title=content.get('title', ''),
                     )
+                    pub_driver = getattr(publisher, "driver", None) or pub_driver
                 elif platform_type in ('binance_square', 'binance', 'square', 'okx', 'bitget', 'gate'):
                     from public.platforms.binance_square_publisher import (
                         BinanceSquarePublisher,
@@ -226,6 +280,7 @@ def publish_content(
                         submit=submit,
                         title=content.get('title', ''),
                     )
+                    pub_driver = getattr(publisher, "driver", None) or pub_driver
                 else:
                     result = {
                         'success': False,
@@ -233,22 +288,59 @@ def publish_content(
                     }
             except PublishAborted:
                 elapsed_ms = int((time.perf_counter() - plat_t0) * 1000)
-                results.append({
+                fail = {
                     'platform': platform_id,
                     'platform_name': platform_name,
                     'success': False,
                     'error': '已终止',
                     'aborted': True,
                     'elapsed_ms': elapsed_ms,
-                })
+                }
+                publish_log.log_platform_result(
+                    platform_id=platform_id,
+                    platform_name=platform_name,
+                    result=fail,
+                    elapsed_ms=elapsed_ms,
+                    driver=pub_driver,
+                )
+                results.append(fail)
                 aborted = True
                 break
+            except Exception as e:
+                plat_exc = e
+                elapsed_ms = int((time.perf_counter() - plat_t0) * 1000)
+                result = {
+                    'platform': platform_id,
+                    'platform_name': platform_name,
+                    'success': False,
+                    'error': str(e),
+                    'exception_type': type(e).__name__,
+                    'elapsed_ms': elapsed_ms,
+                }
+                publish_log.log_platform_result(
+                    platform_id=platform_id,
+                    platform_name=platform_name,
+                    result=result,
+                    elapsed_ms=elapsed_ms,
+                    driver=pub_driver,
+                    exc=e,
+                )
+                results.append(result)
+                continue
 
             elapsed_ms = int((time.perf_counter() - plat_t0) * 1000)
             result['platform'] = platform_id
             result['platform_name'] = platform_name
             result['elapsed_ms'] = elapsed_ms
             ok = bool(result.get('success'))
+            publish_log.log_platform_result(
+                platform_id=platform_id,
+                platform_name=platform_name,
+                result=result,
+                elapsed_ms=elapsed_ms,
+                driver=pub_driver,
+                exc=plat_exc,
+            )
             logger.info(
                 "CDP 发布%s · %s · %sms%s",
                 "成功" if ok else "失败",
@@ -264,8 +356,14 @@ def publish_content(
     success_count = sum(1 for r in results if r.get('success', False))
     total_count = len(results)
     total_ms = int((time.perf_counter() - t0) * 1000)
+    publish_log.log_run_end(
+        success_count=success_count,
+        total=total_count,
+        elapsed_ms=total_ms,
+        aborted=aborted,
+    )
     logger.info(
-        "CDP 发布结束 · 成功 %s/%s · 总耗时 %sms",
+        "CDP 发布结束 · 成功 %s/%s · 总耗时 %sms · 日志 output/publish_logs/",
         success_count,
         total_count,
         total_ms,
@@ -328,6 +426,7 @@ def publish_content_with_retry(
     submit: bool = True,
     *,
     max_retries: int = PUBLISH_RETRY_MAX,
+    job_id: Optional[str] = None,
 ) -> Dict:
     """发布失败后间隔 3–5 分钟重试，最多重试 max_retries 次（只重试失败平台）。"""
     from public.platforms.cdp_common import publish_abort_requested
@@ -340,6 +439,7 @@ def publish_content_with_retry(
         debugger_url=debugger_url,
         media_paths=media_paths,
         submit=submit,
+        job_id=job_id,
     )
     if not submit or result.get("aborted"):
         return result
@@ -368,6 +468,7 @@ def publish_content_with_retry(
             debugger_url=debugger_url,
             media_paths=media_paths,
             submit=submit,
+            job_id=job_id,
         )
         result = _merge_publish_results(result, nxt)
         result["retry_count"] = attempt
