@@ -134,6 +134,34 @@ def enqueue_list_cards(
     return len(ids)
 
 
+
+def _maybe_push_parsed_card(card: Dict[str, Any]) -> None:
+    """解析完成后按配置增量推送 Cards API（异步路径补洞）。"""
+    if not isinstance(card, dict):
+        return
+    try:
+        from signals.push import push_card_if_needed
+        from signals.store import get_config
+
+        cfg = get_config() or {}
+        sm = str(card.get("source_mode") or "").lower()
+        modes = [str(m).lower() for m in (card.get("source_modes") or []) if str(m).strip()]
+        list_id = str(card.get("list_id") or "").lower()
+        is_binance = ("binance" in sm) or any("binance" in m for m in modes) or list_id.startswith("binance")
+        is_kol = ("kol_realtime" in sm) or any("kol_realtime" in m for m in modes)
+        if is_binance:
+            allow = True
+        elif is_kol:
+            allow = bool(cfg.get("kol_realtime_push_enabled"))
+        else:
+            allow = bool(cfg.get("push_enabled") or cfg.get("user_push_enabled"))
+        if not allow:
+            return
+        push_card_if_needed(card)
+    except Exception:
+        pass
+
+
 def _process_binance_square(post: Dict[str, Any]) -> None:
     from signals.analyze import analyze_tweet_signal
     from signals.binance_square.cards_sync import square_post_to_card
@@ -176,6 +204,7 @@ def _process_binance_square(post: Dict[str, Any]) -> None:
 
     card = square_post_to_card(enriched)
     upsert_card(card)
+    _maybe_push_parsed_card(card)
 
 
 def _process_list_card(payload: Dict[str, Any]) -> None:
@@ -217,3 +246,4 @@ def _process_list_card(payload: Dict[str, Any]) -> None:
     updated["parsed_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     updated.pop("cache_only", None)
     upsert_card(updated)
+    _maybe_push_parsed_card(updated)

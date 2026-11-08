@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app.css?v=20261019b" />
+  <link rel="stylesheet" href="/app.css?v=20261104a" />
 </head>
 <body>
   <div class="shell">
@@ -1169,6 +1169,15 @@
           </form>
         </dialog>
 
+        <dialog id="sigImgPreviewDialog" class="corpus-dialog sig-img-preview-dialog">
+          <form method="dialog" class="sig-img-preview-form">
+            <img id="sigImgPreviewImg" class="sig-img-preview-img" alt="" />
+            <button type="submit" value="close" class="btn ghost sig-img-preview-close" aria-label="关闭">
+              关闭
+            </button>
+          </form>
+        </dialog>
+
         <dialog id="sigCardEditDialog" class="corpus-dialog sig-card-edit-dialog">
           <form method="dialog" id="sigCardEditForm" class="form-grid">
             <h3 style="grid-column:1/-1;margin:0">编辑卡片正文</h3>
@@ -1400,6 +1409,6 @@
   <script src="/taxonomy-page.js?v=20260930b"></script>
   <script src="/tasks-data.js?v=20260920n"></script>
   <script src="/tasks.js?v=20260922b"></script>
-  <script src="/app.js?v=20261103a"></script>
+  <script src="/app.js?v=20261104a"></script>
 </body>
 </html>

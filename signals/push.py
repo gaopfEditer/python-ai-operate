@@ -354,11 +354,16 @@ def build_cards_payload(
     if sig.get("stop_loss"):
         note_parts.append(f"止损={sig['stop_loss']}")
 
+    sm = str(card.get("source_mode") or "").lower()
+    list_id = str(card.get("list_id") or "").lower()
+    is_binance = ("binance" in sm) or list_id.startswith("binance")
+    source = "binance" if is_binance else cards_api_source_platform(cfg=cfg)
+
     payload: Dict[str, Any] = {
         "channelId": ch["channelId"],
         "channelName": ch["channelName"],
         "channelAvatar": ch["channelAvatar"],
-        "source": cards_api_source_platform(cfg=cfg),
+        "source": source,
         "body": body,
         "images": _image_urls(card),
         "symbol": symbol,
@@ -379,7 +384,7 @@ def build_cards_payload(
     payload["injectChannelMessage"] = inject
     tid = str(card.get("tweet_id") or "").strip()
     if tid:
-        payload["messageId"] = f"x-{tid}"
+        payload["messageId"] = f"binance-{tid}" if is_binance else f"x-{tid}"
         payload["sourceRef"] = tid
     return payload
 
@@ -551,6 +556,15 @@ def push_card_if_needed(
         return {"success": True, "skipped": True, "reason": "already_pushed", "tweet_id": tid}
 
     sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
+    prov = str(sig.get("provider") or "").strip().lower()
+    # 异步解析未完成：不 mark_pushed，等 parse queue 完成后再推
+    if prov in ("queued", "pending"):
+        return {
+            "success": True,
+            "skipped": True,
+            "reason": "parse_pending",
+            "tweet_id": tid,
+        }
     if api.get("only_trade_signals", True) and not is_trade_signal(sig):
         if tid:
             # 非交易也记已处理推送队列，避免反复尝试

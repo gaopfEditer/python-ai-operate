@@ -522,6 +522,17 @@ function sigImgSrc(im) {
   return normalizeSigImgUrl(im.url || "");
 }
 
+function openSigImgPreview(url) {
+  const u = String(url || "").trim();
+  if (!u) return;
+  const dlg = $("#sigImgPreviewDialog");
+  const img = $("#sigImgPreviewImg");
+  if (!dlg || !img) return;
+  img.src = u;
+  img.alt = "配图大图";
+  if (typeof dlg.showModal === "function") dlg.showModal();
+}
+
 function encodeData(s) {
   return encodeURIComponent(String(s || ""));
 }
@@ -6911,7 +6922,23 @@ function bind() {
   });
   $("#btnSigWhisperStart")?.addEventListener("click", () => startSigWhisperTranscribe());
   $("#sigWhisperName")?.addEventListener("input", () => updateSigWhisperOutPathHint());
+  $("#sigImgPreviewDialog")?.addEventListener("close", () => {
+    const img = $("#sigImgPreviewImg");
+    if (img) {
+      img.removeAttribute("src");
+      img.alt = "";
+    }
+  });
+  $("#sigImgPreviewDialog")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.close();
+  });
   $("#sigCards")?.addEventListener("click", (e) => {
+    const imgBtn = e.target.closest(".sig-card.is-noise [data-sig-img]");
+    if (imgBtn) {
+      e.preventDefault();
+      openSigImgPreview(imgBtn.getAttribute("data-sig-img") || "");
+      return;
+    }
     const arch = e.target.closest("[data-sig-value-archive]");
     if (arch) {
       e.preventDefault();
@@ -10533,12 +10560,17 @@ function renderSigCardItem(c) {
   if (sig.timeframe) {
     levels.push(`<div><b>周期</b>${escapeHtml(String(sig.timeframe))}</div>`);
   }
+  const isNoiseCard = !isValue && !trade;
   const imgs = (c.images || [])
     .map((im) => {
       const src = sigImgSrc(im);
       if (!src) return "";
       const href = normalizeSigImgUrl(im.url || "") || src;
-      return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener"><img src="${escapeAttr(src)}" alt="${escapeAttr(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" /></a>`;
+      const imgTag = `<img src="${escapeAttr(src)}" alt="${escapeAttr(im.alt || "")}" loading="lazy" referrerpolicy="no-referrer" />`;
+      if (isNoiseCard) {
+        return `<button type="button" class="sig-img-thumb" data-sig-img="${escapeAttr(href)}" title="查看大图">${imgTag}</button>`;
+      }
+      return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener">${imgTag}</a>`;
     })
     .join("");
   const chMap = c.channel || {};
