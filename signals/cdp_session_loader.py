@@ -358,6 +358,46 @@ def patch_cached_x_session(session: Dict[str, Any]) -> None:
     _cache_set("x", clean)
 
 
+def invalidate_cached_x_query_id(operation: str) -> None:
+    """从内存缓存与本地 session 文件中移除失效的 operation queryId（便于 force CDP 重抓）。"""
+    op = str(operation or "").strip()
+    if not op:
+        return
+    from signals.x_session import load_x_session, session_file_path
+
+    sess = get_cached_x_session()
+    if isinstance(sess, dict):
+        qids = dict(sess.get("query_ids") if isinstance(sess.get("query_ids"), dict) else {})
+        qids.pop(op, None)
+        captured = [
+            str(x).strip()
+            for x in (sess.get("query_ids_captured") or [])
+            if str(x).strip() and str(x).strip() != op
+        ]
+        patched = dict(sess)
+        patched["query_ids"] = qids
+        patched["query_ids_captured"] = captured
+        patch_cached_x_session(patched)
+
+    path = session_file_path()
+    if not path.is_file():
+        return
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    qfile = data.get("query_ids") if isinstance(data.get("query_ids"), dict) else {}
+    if isinstance(qfile, dict) and op in qfile:
+        qfile = dict(qfile)
+        qfile.pop(op, None)
+        data["query_ids"] = qfile
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def ensure_x_graphql_query_ids(
     operations: Tuple[str, ...],
     *,

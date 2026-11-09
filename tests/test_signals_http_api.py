@@ -392,6 +392,165 @@ class TestAnalyzeTimeout(unittest.TestCase):
         self.assertEqual(q["ListLatestTweetsTimeline"], "FreshId123")
         self.assertTrue(q.get("UserTweets"))
 
+    def test_merge_captured_query_ids_later_layer_wins(self):
+        from signals.x_cdp_graphql import merge_captured_query_ids
+        from signals.x_session import DEFAULT_QUERY_IDS
+
+        stale = DEFAULT_QUERY_IDS["UserByScreenName"]
+        fresh = "AMIBMjtxEEATh4z8V9GtRg"
+        q = merge_captured_query_ids(
+            {"UserByScreenName": stale},
+            {"UserByScreenName": fresh},
+        )
+        self.assertEqual(q["UserByScreenName"], fresh)
+
+    def test_merge_x_supplemental_primary_wins_over_stale_file(self):
+        from signals.x_session import DEFAULT_QUERY_IDS, merge_x_supplemental
+
+        primary = {
+            "auth_token": "a",
+            "ct0": "c",
+            "query_ids": {"UserByScreenName": "AMIBMjtxEEATh4z8V9GtRg"},
+            "query_ids_captured": ["UserByScreenName"],
+        }
+        supplemental = {
+            "auth_token": "a",
+            "ct0": "c",
+            "query_ids": {"UserByScreenName": DEFAULT_QUERY_IDS["UserByScreenName"]},
+        }
+        merged = merge_x_supplemental(primary, supplemental)
+        self.assertEqual(merged["query_ids"]["UserByScreenName"], "AMIBMjtxEEATh4z8V9GtRg")
+
+    def test_is_x_query_not_found_error(self):
+        from signals.x_api import _is_x_query_not_found_error
+
+        err = RuntimeError(
+            'UserByScreenName HTTP 404: {"errors":[{"message":"Query not found","code":0}]}'
+        )
+        self.assertTrue(_is_x_query_not_found_error(err))
+        self.assertFalse(_is_x_query_not_found_error(RuntimeError("UserByScreenName HTTP 401")))
+
+    def test_invalidate_cached_x_query_id(self):
+        import tempfile
+
+        from signals import cdp_session_loader as loader
+        loader.clear_session_cache()
+        loader.patch_cached_x_session(
+            {
+                "auth_token": "a",
+                "ct0": "c",
+                "query_ids": {
+                    "UserByScreenName": "dead",
+                    "UserTweets": "keep",
+                },
+                "query_ids_captured": ["UserByScreenName", "UserTweets"],
+                "cookie_header": "auth_token=a; ct0=c",
+            }
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "x_api_session.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "auth_token": "a",
+                        "ct0": "c",
+                        "query_ids": {"UserByScreenName": "dead", "UserTweets": "keep"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch("signals.x_session.session_file_path", return_value=path):
+                loader.invalidate_cached_x_query_id("UserByScreenName")
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertNotIn("UserByScreenName", data.get("query_ids", {}))
+            self.assertEqual(data["query_ids"]["UserTweets"], "keep")
+        sess = loader.get_cached_x_session()
+        self.assertNotIn("UserByScreenName", sess.get("query_ids", {}))
+        self.assertEqual(sess.get("query_ids_captured"), ["UserTweets"])
+
+    def test_refresh_session_query_ids_force_and_invalidate(self):
+        from signals import cdp_session_loader as loader
+        from signals.x_api import XApiClient, _refresh_session_query_ids
+
+        loader.clear_session_cache()
+        base = {
+            "auth_token": "a",
+            "ct0": "c",
+            "query_ids": {"UserByScreenName": "dead"},
+            "cookie_header": "auth_token=a; ct0=c",
+        }
+        client = XApiClient(session=dict(base))
+        refreshed = {
+            **base,
+            "query_ids": {"UserByScreenName": "AMIBMjtxEEATh4z8V9GtRg"},
+            "query_ids_captured": ["UserByScreenName"],
+        }
+        with mock.patch(
+            "signals.x_api.invalidate_cached_x_query_id"
+        ) as inv, mock.patch(
+            "signals.x_api.ensure_x_graphql_query_ids", return_value=refreshed
+        ) as ensure:
+            ok = _refresh_session_query_ids(
+                client,
+                ("UserByScreenName",),
+                invalidate_op="UserByScreenName",
+            )
+        self.assertTrue(ok)
+        inv.assert_called_once_with("UserByScreenName")
+        ensure.assert_called_once()
+        self.assertEqual(
+            client.session["query_ids"]["UserByScreenName"],
+            "AMIBMjtxEEATh4z8V9GtRg",
+        )
+
+    def test_fetch_user_timeline_retries_once_on_query_not_found(self):
+        from signals import x_api
+
+        since = datetime(2010, 1, 1, tzinfo=timezone.utc)
+        page = json.loads((FIXTURES / "x_list_timeline.json").read_text(encoding="utf-8"))
+        uid_calls = {"n": 0}
+        refresh_calls = {"n": 0}
+
+        class FakeClient:
+            session = {}
+
+            def replace_session(self, session):
+                self.session = dict(session)
+
+            def user_id_by_screen_name(self, screen_name):
+                uid_calls["n"] += 1
+                if uid_calls["n"] == 1:
+                    raise RuntimeError(
+                        'UserByScreenName HTTP 404: {"errors":[{"message":"Query not found"}]}'
+                    )
+                return "9001"
+
+            def fetch_timeline_page(self, operation, variables):
+                return x_api.parse_timeline_payload(page)
+
+        def fake_refresh(client, operations, **kwargs):
+            refresh_calls["n"] += 1
+            client.replace_session(
+                {
+                    "auth_token": "a",
+                    "ct0": "c",
+                    "query_ids": {"UserByScreenName": "fresh", "UserTweets": "fresh2"},
+                    "cookie_header": "auth_token=a; ct0=c",
+                }
+            )
+            return True
+
+        with mock.patch("signals.x_api.session_ready", return_value=True), mock.patch(
+            "signals.x_api.ensure_x_graphql_query_ids",
+            return_value={"auth_token": "a", "ct0": "c"},
+        ), mock.patch("signals.x_api.XApiClient", return_value=FakeClient()), mock.patch(
+            "signals.x_api._refresh_session_query_ids", side_effect=fake_refresh
+        ):
+            res = x_api.fetch_user_timeline_api("elonmusk", since=since, max_tweets=5)
+        self.assertTrue(res.get("success"))
+        self.assertEqual(uid_calls["n"], 2)
+        self.assertEqual(refresh_calls["n"], 1)
+
     def test_parse_graphql_operation_from_url(self):
         from signals.x_cdp_graphql import parse_graphql_operation_from_url
 

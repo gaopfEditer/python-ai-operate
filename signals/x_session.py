@@ -80,9 +80,11 @@ def merge_x_supplemental(
     from signals.x_cdp_graphql import merge_captured_query_ids
 
     out = dict(primary)
-    layers = [primary.get("query_ids")]
+    # supplemental 先铺底，primary（CDP/最新会话）后写入，避免本地文件里的过期 queryId 盖掉 CDP 捕获值
+    layers = []
     if supplemental:
         layers.append(supplemental.get("query_ids"))
+    layers.append(primary.get("query_ids"))
     out["query_ids"] = merge_captured_query_ids(*layers)
     if supplemental:
         bearer = str(supplemental.get("authorization") or "").strip()
