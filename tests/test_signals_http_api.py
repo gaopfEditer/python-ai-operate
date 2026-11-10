@@ -25,6 +25,21 @@ class TestFetchSourceLabeling(unittest.TestCase):
         post = {"source": "profile_cdp", "content_id": "1"}
         self.assertEqual(fetch_source_for_item(post, ""), FETCH_CDP)
 
+    def test_binance_enrich_card_uses_yaml_profile_name(self):
+        from signals.push import enrich_card_channel
+
+        card = {
+            "author": "@square-creator-446e63a9fd9ef",
+            "user_handle": "square-creator-446e63a9fd9ef",
+            "list_id": "binance:square-creator-446e63a9fd9ef",
+            "source_mode": "binance_square",
+            "created_at": "2026-11-01T12:00:00+08:00",
+        }
+        out = enrich_card_channel(card, {})
+        name = (out.get("channel") or {}).get("channelName") or ""
+        self.assertNotIn("未映射", name)
+        self.assertEqual(name, "格里芬院长")
+
     def test_square_post_to_card_carries_fetch_source(self):
         from signals.binance_square.cards_sync import square_post_to_card
         from signals.fetch_source import FETCH_COOKIE_API

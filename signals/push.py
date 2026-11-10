@@ -728,11 +728,60 @@ def channels_summary() -> Dict[str, Any]:
     }
 
 
+def _is_binance_square_card(card: Dict[str, Any]) -> bool:
+    lid = str(card.get("list_id") or "")
+    if lid.startswith("binance:"):
+        return True
+    sm = str(card.get("source_mode") or "")
+    if sm == "binance_square":
+        return True
+    for raw in card.get("source_modes") or []:
+        if str(raw or "").startswith("binance"):
+            return True
+    return False
+
+
+def resolve_binance_square_channel(card: Dict[str, Any]) -> Dict[str, str]:
+    """币安 Square：展示名来自 binance_square_signals.yaml，不走 X 频道 default「未映射」。"""
+    from signals.binance_square.store import load_config
+
+    lid = str(card.get("list_id") or "")
+    slug = str(card.get("user_handle") or "").strip().lower()
+    if not slug:
+        slug = normalize_handle(str(card.get("author") or ""))
+    if lid.startswith("binance:"):
+        part = lid.split(":", 1)[-1].strip().lower()
+        if part and part != "square":
+            slug = part
+    existing = card.get("channel") if isinstance(card.get("channel"), dict) else {}
+    name = str(existing.get("channelName") or "").strip()
+    if name in ("", "未映射", "未映射推特源"):
+        name = ""
+    for prof in load_config().get("profiles") or []:
+        if not isinstance(prof, dict):
+            continue
+        pid = str(prof.get("id") or "").strip().lower()
+        if pid and slug and pid == slug:
+            name = str(prof.get("name") or prof.get("id") or slug).strip()
+            break
+    if not name:
+        name = slug or "Square"
+    return {
+        "handle": slug,
+        "channelId": str(existing.get("channelId") or ""),
+        "channelName": name,
+        "channelAvatar": str(existing.get("channelAvatar") or ""),
+        "mapped": True,
+    }
+
+
 def enrich_card_channel(card: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """给卡片附上频道映射，供前端 sig-author 展示。"""
     out = dict(card)
-    ch = resolve_channel(str(card.get("author") or ""), cfg)
-    out["channel"] = ch
+    if _is_binance_square_card(card):
+        out["channel"] = resolve_binance_square_channel(card)
+    else:
+        out["channel"] = resolve_channel(str(card.get("author") or ""), cfg)
     out["display_time"] = resolve_display_time(
         str(card.get("created_at") or ""),
         str(card.get("time_label") or ""),
