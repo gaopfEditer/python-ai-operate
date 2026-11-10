@@ -13,7 +13,11 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from signals.store import parse_dt, parse_list_id, parse_user_handle
-from signals.cdp_session_loader import ensure_x_graphql_query_ids, get_cached_x_session
+from signals.cdp_session_loader import (
+    ensure_x_graphql_query_ids,
+    get_cached_x_session,
+    invalidate_cached_x_query_id,
+)
 from signals.http_proxy import urlopen as vpn_urlopen
 from signals.x_session import DEFAULT_QUERY_IDS, query_id, resolve_x_session, session_ready
 
@@ -199,7 +203,39 @@ def parse_timeline_payload(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
 
 def _is_x_auth_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
-    return "401" in msg or "could not authenticate" in msg or "code\":32" in msg
+    return "401" in msg or "could not authenticate" in msg or 'code":32' in msg
+
+
+def _is_x_query_not_found_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "query not found" in msg or (
+        "404" in msg and ("query" in msg or "graphql" in msg)
+    )
+
+
+def _refresh_session_query_ids(
+    client: "XApiClient",
+    operations: Tuple[str, ...],
+    *,
+    debugger_url: str = "",
+    navigate_urls: Tuple[str, ...] = (),
+    progress: ProgressCb = None,
+    invalidate_op: str = "",
+) -> bool:
+    """401 或 404 Query not found 后 force 刷新 queryId；成功则更新 client 会话。仅调用方重试一次。"""
+    if invalidate_op:
+        invalidate_cached_x_query_id(invalidate_op)
+    refreshed = ensure_x_graphql_query_ids(
+        operations,
+        debugger_url=debugger_url,
+        navigate_urls=navigate_urls or None,
+        progress=progress,
+        force=True,
+    )
+    if not refreshed:
+        return False
+    client.replace_session(refreshed)
+    return True
 
 
 class XApiClient:
@@ -384,24 +420,25 @@ def fetch_list_timeline_api(
         except Exception as e:
             if by_id:
                 break
-            if page_i == 0 and _is_x_auth_error(e):
-                _log(progress, "X API 401：刷新 CDP queryId/Cookie 后重试…")
-                refreshed = ensure_x_graphql_query_ids(
-                    ("ListLatestTweetsTimeline",),
+            if page_i == 0 and (_is_x_auth_error(e) or _is_x_query_not_found_error(e)):
+                if _is_x_query_not_found_error(e):
+                    _log(progress, "X API 404 Query not found：清除 queryId 并 force 刷新后重试…")
+                else:
+                    _log(progress, "X API 401：刷新 CDP queryId/Cookie 后重试…")
+                op = "ListLatestTweetsTimeline"
+                if _refresh_session_query_ids(
+                    client,
+                    (op,),
                     debugger_url=debugger_url,
                     navigate_urls=(
                         f"https://x.com/i/lists/{lid}",
                         "https://x.com/home",
                     ),
                     progress=progress,
-                    force=True,
-                )
-                if refreshed:
-                    client.replace_session(refreshed)
+                    invalidate_op=op if _is_x_query_not_found_error(e) else "",
+                ):
                     try:
-                        chunk, next_cur = client.fetch_timeline_page(
-                            "ListLatestTweetsTimeline", variables
-                        )
+                        chunk, next_cur = client.fetch_timeline_page(op, variables)
                     except Exception as e2:
                         return {"success": False, "error": str(e2), "items": [], "route": "x_api"}
                 else:
@@ -485,17 +522,20 @@ def fetch_user_timeline_api(
     try:
         uid = client.user_id_by_screen_name(h)
     except Exception as e:
-        if _is_x_auth_error(e):
-            _log(progress, "X API 401：刷新 CDP queryId/Cookie 后重试用户解析…")
-            refreshed = ensure_x_graphql_query_ids(
-                ("UserByScreenName", op),
+        if _is_x_auth_error(e) or _is_x_query_not_found_error(e):
+            if _is_x_query_not_found_error(e):
+                _log(progress, "X API 404 Query not found：清除 UserByScreenName queryId 并 force 刷新…")
+            else:
+                _log(progress, "X API 401：刷新 CDP queryId/Cookie 后重试用户解析…")
+            resolve_op = "UserByScreenName"
+            if _refresh_session_query_ids(
+                client,
+                (resolve_op, op),
                 debugger_url=debugger_url,
                 navigate_urls=(f"https://x.com/{h}", "https://x.com/home"),
                 progress=progress,
-                force=True,
-            )
-            if refreshed:
-                client.replace_session(refreshed)
+                invalidate_op=resolve_op if _is_x_query_not_found_error(e) else "",
+            ):
                 try:
                     uid = client.user_id_by_screen_name(h)
                 except Exception as e2:
@@ -528,17 +568,19 @@ def fetch_user_timeline_api(
         except Exception as e:
             if by_id:
                 break
-            if page_i == 0 and _is_x_auth_error(e):
-                _log(progress, "X API 401：刷新 CDP queryId 后重试时间线…")
-                refreshed = ensure_x_graphql_query_ids(
+            if page_i == 0 and (_is_x_auth_error(e) or _is_x_query_not_found_error(e)):
+                if _is_x_query_not_found_error(e):
+                    _log(progress, f"X API 404 Query not found：清除 {op} queryId 并 force 刷新…")
+                else:
+                    _log(progress, "X API 401：刷新 CDP queryId 后重试时间线…")
+                if _refresh_session_query_ids(
+                    client,
                     (op,),
                     debugger_url=debugger_url,
                     navigate_urls=(f"https://x.com/{h}", "https://x.com/home"),
                     progress=progress,
-                    force=True,
-                )
-                if refreshed:
-                    client.replace_session(refreshed)
+                    invalidate_op=op if _is_x_query_not_found_error(e) else "",
+                ):
                     try:
                         chunk, next_cur = client.fetch_timeline_page(op, variables)
                     except Exception as e2:
