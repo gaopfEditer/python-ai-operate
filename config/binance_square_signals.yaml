@@ -11,7 +11,7 @@ cycle_min_minutes: 5
 cycle_max_minutes: 15
 first_crawl_hours: 8
 cycle_cutoff_hours: 8
-last_crawl_at: '2026-11-11T08:36:58+08:00'
+last_crawl_at: '2026-11-11T23:10:25+08:00'
 profiles:
 - id: yanchibit
   name: yanchibit
