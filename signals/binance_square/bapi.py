@@ -333,21 +333,30 @@ def resolve_square_uid(profile_slug: str) -> str:
     raise RuntimeError(f"无法解析 Square UID: {slug} ({last_err})")
 
 
+def _profile_list_params(square_uid: str, time_offset: int, filter_type: str) -> Dict[str, Any]:
+    """与 Square profile 页一致：targetSquareUid + filterType=ALL；首页 timeOffset=-1。"""
+    off = int(time_offset if time_offset is not None else 0)
+    if off == 0:
+        off = -1
+    ft = str(filter_type or "ALL").strip().upper() or "ALL"
+    return {
+        "targetSquareUid": square_uid,
+        "timeOffset": off,
+        "filterType": ft,
+    }
+
+
 def fetch_profile_posts_page(
     square_uid: str,
     *,
     time_offset: int = 0,
-    filter_type: str = "all",
+    filter_type: str = "ALL",
     profile_slug: str = "",
 ) -> Tuple[List[Dict[str, Any]], int]:
     referer = f"https://www.binance.com/{_LOCALE}/square/profile/{profile_slug or square_uid}"
 
     def _load(off: int) -> Tuple[List[Dict[str, Any]], int, Any]:
-        params = {
-            "squareUid": square_uid,
-            "timeOffset": int(off or 0),
-            "filterType": filter_type or "all",
-        }
+        params = _profile_list_params(square_uid, off, filter_type)
         data = _http_json(_PROFILE_POSTS_URL, params=params, referer=referer)
         if not _bapi_envelope_ok(data):
             raise RuntimeError(_bapi_error_message(data))
@@ -363,9 +372,6 @@ def fetch_profile_posts_page(
         return rows, nxt, data
 
     rows, next_offset, _data = _load(time_offset)
-    if not rows and int(time_offset or 0) == 0:
-        now_ms = int(time.time() * 1000)
-        rows, next_offset, _data = _load(now_ms)
     return rows, next_offset
 
 
@@ -386,15 +392,13 @@ def fetch_profile_posts(
         since_cmp = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     merged: List[Dict[str, Any]] = []
     seen_ids: set = set()
-    offset = int(time.time() * 1000) if realtime_incremental else 0
+    # 实时增量也从首页 -1 拉最新帖；勿用当前毫秒作 timeOffset（会 400）
+    offset = -1
     stale_pages = 0
     for page_i in range(40):
         rows, next_off = fetch_profile_posts_page(uid, time_offset=offset, profile_slug=slug)
         if not rows:
-            if page_i == 0 and offset != 0:
-                rows, next_off = fetch_profile_posts_page(uid, time_offset=0, profile_slug=slug)
-            if not rows:
-                break
+            break
         from signals.incremental import filter_newest_until_known, square_id_from_post
 
         stop_page = False

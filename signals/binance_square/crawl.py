@@ -5,7 +5,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from signals.control import RunControl
@@ -73,7 +73,8 @@ def _fetch_profiles_via_api(
     progress: ProgressCb,
     control: Optional["RunControl"],
     realtime_incremental: bool = False,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], bool]:
+    """返回 (帖子, bapi 是否至少一个博主请求成功)。增量 0 条仍算成功，避免误回退 CDP。"""
     from signals.backfill_range import resolve_backfill_since
     from signals.incremental import build_square_known_checker
 
@@ -88,6 +89,7 @@ def _fetch_profiles_via_api(
         since_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     posts: List[Dict[str, Any]] = []
+    any_bapi_ok = False
     for i, prof in enumerate(profiles, 1):
         if _wait_control(control, progress) == "stop":
             break
@@ -109,6 +111,8 @@ def _fetch_profiles_via_api(
         except Exception as e:
             _log(progress, f"  bapi 失败: {e}")
             chunk = []
+        else:
+            any_bapi_ok = True
         from signals.fetch_source import FETCH_COOKIE_API
 
         for row in chunk:
@@ -119,7 +123,7 @@ def _fetch_profiles_via_api(
                 row["fetch_source"] = FETCH_COOKIE_API
         _log(progress, f"  bapi 抽到 {len(chunk)} 条")
         posts.extend(chunk)
-    return posts
+    return posts, any_bapi_ok
 
 
 def _slug_from_profile(url: str) -> str:
@@ -273,7 +277,7 @@ def run_binance_square_fetch(
         api_ok = False
         if _square_api_primary(cfg):
             _log(progress, "Square 博主：bapi 分页（默认）…")
-            api_posts = _fetch_profiles_via_api(
+            api_posts, bapi_ran = _fetch_profiles_via_api(
                 profiles,
                 max_n=max_n,
                 time_spec=time_spec,
@@ -281,9 +285,13 @@ def run_binance_square_fetch(
                 control=control,
                 realtime_incremental=incremental_fetch,
             )
-            if api_posts:
-                all_posts.extend(api_posts)
-                routes.append("bapi_profile")
+            if api_posts or bapi_ran:
+                if api_posts:
+                    all_posts.extend(api_posts)
+                    routes.append("bapi_profile")
+                elif bapi_ran:
+                    _log(progress, "bapi 增量：本窗无新帖（跳过 CDP 滚动）")
+                    routes.append("bapi_profile")
                 for prof in profiles:
                     slug = str(prof.get("id") or "").strip()
                     profile_stats.append(
@@ -320,7 +328,10 @@ def run_binance_square_fetch(
                 driver = connect_cdp(dbg)
             except Exception as e:
                 invalidate_cdp_driver(dbg)
-                return {"success": False, "error": f"CDP 连接失败: {e}", "posts": []}
+                err = f"CDP 连接失败: {e}"
+                if use_bapi and _square_api_primary(cfg):
+                    _log(progress, f"{err}（bapi 无数据，跳过 CDP 滚动）")
+                return {"success": False, "error": err, "posts": []}
 
             scroll_kw = _scroll_params_for_time_spec(time_spec)
             try:

@@ -25,6 +25,14 @@ class TestFetchSourceLabeling(unittest.TestCase):
         post = {"source": "profile_cdp", "content_id": "1"}
         self.assertEqual(fetch_source_for_item(post, ""), FETCH_CDP)
 
+    def test_profile_list_query_params_match_web(self):
+        from signals.binance_square.bapi import _profile_list_params
+
+        p = _profile_list_params("uidABC", 0, "all")
+        self.assertEqual(p["targetSquareUid"], "uidABC")
+        self.assertEqual(p["timeOffset"], -1)
+        self.assertEqual(p["filterType"], "ALL")
+
     def test_binance_enrich_card_uses_yaml_profile_name(self):
         from signals.push import enrich_card_channel
 
