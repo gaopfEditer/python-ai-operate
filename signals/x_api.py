@@ -446,7 +446,8 @@ def fetch_list_timeline_api(
             else:
                 return {"success": False, "error": str(e), "items": [], "route": "x_api"}
         if not chunk and not by_id:
-            return {"success": False, "error": "列表 API 无数据", "items": [], "route": "x_api"}
+            _log(progress, "X API 列表：无新帖（请求成功）")
+            break
         stop, stale, seen_delta, old_delta = _ingest_timeline_chunk(
             chunk,
             since_cmp=since_cmp,
@@ -621,8 +622,10 @@ def fetch_user_timeline_api(
         or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     )[:max_tweets]
+    if not items:
+        _log(progress, f"X API @{h}：无新帖（请求成功 · 页曝光 {page_seen}）")
     return {
-        "success": bool(items),
+        "success": True,
         "items": items,
         "count": len(items),
         "page_seen": page_seen,
