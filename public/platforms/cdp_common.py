@@ -117,9 +117,11 @@ def _cdp_http_base(debugger_url: str) -> str:
 
 def fetch_cdp_browser_version(debugger_url: str) -> Optional[str]:
     """读 CDP 端口上正在运行的 Chrome 版本（与系统安装的 Chrome 可能不是同一只）。"""
+    from signals.http_proxy import urlopen as local_urlopen
+
     url = f"{_cdp_http_base(debugger_url)}/json/version"
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with local_urlopen(url, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
         browser = str((data or {}).get("Browser") or "")
         if "/" in browser:
@@ -131,9 +133,11 @@ def fetch_cdp_browser_version(debugger_url: str) -> Optional[str]:
 
 def fetch_cdp_target_count(debugger_url: str) -> Optional[int]:
     """CDP /json 目标数（标签页 + 扩展/worker 等）。过多时 Selenium attach 易变慢或卡住。"""
+    from signals.http_proxy import urlopen as local_urlopen
+
     url = f"{_cdp_http_base(debugger_url)}/json"
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with local_urlopen(url, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
         if isinstance(data, list):
             return len(data)

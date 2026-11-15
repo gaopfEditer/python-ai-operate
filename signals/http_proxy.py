@@ -1,5 +1,5 @@
 # coding=utf-8
-"""出站 HTTP：按本地 VPN 端口顺序尝试代理（7890 → 7891），本机 CDP 等直连。"""
+"""出站 HTTP：按本地 Clash/VPN 端口顺序尝试代理，本机 CDP 等直连。"""
 from __future__ import annotations
 
 import errno
@@ -16,11 +16,15 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 _ENV_KEY = "AI_OPERATE_HTTP_PROXIES"
-# Clash Verge 默认 mixed-port 为 7890；7891 常未监听。优先 7890，失败再试 7891。
+# Clash / Verge 常见 mixed-port：7890–7893，实际监听端口因配置而异。
 _DEFAULT_PROXIES: Sequence[str] = (
     "http://127.0.0.1:7890",
     "http://127.0.0.1:7891",
+    "http://127.0.0.1:7892",
+    "http://127.0.0.1:7893",
 )
+_PROXY_DISCOVER_CACHE_SEC = 25.0
+_proxy_list_cache: tuple[float, List[str]] = (0.0, [])
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 _ENV_PER_PROXY_RETRIES = "AI_OPERATE_HTTP_RETRIES"
@@ -29,11 +33,36 @@ _ENV_RETRY_BACKOFF = "AI_OPERATE_HTTP_RETRY_BACKOFF_SEC"
 _DEFAULT_RETRY_BACKOFF_SEC = 0.35
 
 
-def parse_vpn_proxy_list() -> List[str]:
+def _proxy_port_reachable(proxy: str, timeout_sec: float = 0.2) -> bool:
+    try:
+        parsed = urlparse(proxy if "://" in proxy else f"http://{proxy}")
+        host = parsed.hostname or "127.0.0.1"
+        port = int(parsed.port or 7890)
+        with socket.create_connection((host, port), timeout=timeout_sec):
+            return True
+    except OSError:
+        return False
+
+
+def parse_vpn_proxy_list(*, refresh: bool = False) -> List[str]:
     raw = os.environ.get(_ENV_KEY, "").strip()
     if raw:
         return [p.strip() for p in raw.split(",") if p.strip()]
-    return list(_DEFAULT_PROXIES)
+
+    global _proxy_list_cache
+    now = time.monotonic()
+    ts, cached = _proxy_list_cache
+    if not refresh and cached and (now - ts) < _PROXY_DISCOVER_CACHE_SEC:
+        return list(cached)
+
+    base = list(_DEFAULT_PROXIES)
+    alive = [p for p in base if _proxy_port_reachable(p)]
+    dead = [p for p in base if p not in alive]
+    ordered = alive + dead if alive else base
+    _proxy_list_cache = (now, ordered)
+    if alive and len(alive) < len(base):
+        logger.debug("HTTP 代理探测：优先 %s（未监听 %s）", alive, dead)
+    return list(ordered)
 
 
 def _per_proxy_retries() -> int:

@@ -47,7 +47,9 @@ def _http_json(path: str) -> Any:
     if not base.startswith("http"):
         base = f"http://{base}"
     url = f"{base}{path}"
-    with urllib.request.urlopen(url, timeout=5) as resp:
+    from signals.http_proxy import urlopen as local_urlopen
+
+    with local_urlopen(url, timeout=5) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 

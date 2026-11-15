@@ -68,12 +68,13 @@ def resolve_debugger_url(*, explicit: str = "", binance_cfg_debugger: str = "") 
 
 def _http_json_on_host(host: str, path: str) -> Any:
     import json
-    import urllib.request
+
+    from signals.http_proxy import urlopen as local_urlopen
 
     base = host if host.startswith("http") else f"http://{host}"
     base = base.rstrip("/")
     url = f"{base}{path}"
-    with urllib.request.urlopen(url, timeout=8) as resp:
+    with local_urlopen(url, timeout=8) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 

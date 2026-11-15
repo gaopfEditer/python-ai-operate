@@ -91,14 +91,34 @@ class TestHttpProxyFallback(unittest.TestCase):
         self.assertIs(out, sentinel)
         direct.open.assert_called_once()
 
-    def test_default_proxy_order_prefers_7890(self):
+    def test_default_proxy_list_includes_clash_ports(self):
         with mock.patch.dict("os.environ", {}, clear=False):
-            # ensure env override not set
             import os
+
             os.environ.pop("AI_OPERATE_HTTP_PROXIES", None)
-            proxies = parse_vpn_proxy_list()
-        self.assertEqual(proxies[0], "http://127.0.0.1:7890")
-        self.assertIn("http://127.0.0.1:7891", proxies)
+            with mock.patch("signals.http_proxy._proxy_port_reachable", return_value=False):
+                proxies = parse_vpn_proxy_list(refresh=True)
+        self.assertEqual(
+            proxies,
+            [
+                "http://127.0.0.1:7890",
+                "http://127.0.0.1:7891",
+                "http://127.0.0.1:7892",
+                "http://127.0.0.1:7893",
+            ],
+        )
+
+    def test_default_proxy_puts_reachable_ports_first(self):
+        import os
+
+        os.environ.pop("AI_OPERATE_HTTP_PROXIES", None)
+
+        def alive(proxy: str, timeout_sec: float = 0.2) -> bool:
+            return proxy.endswith(":7892")
+
+        with mock.patch("signals.http_proxy._proxy_port_reachable", side_effect=alive):
+            proxies = parse_vpn_proxy_list(refresh=True)
+        self.assertEqual(proxies[0], "http://127.0.0.1:7892")
 
     def test_rebuilds_request_when_switching_proxy(self):
         """换端口时必须重建 Request，避免 set_proxy 污染 host。"""
