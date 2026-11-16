@@ -6683,6 +6683,7 @@ function bind() {
     }
   });
 
+  $("#btnTaskOsLiveWatchPush")?.addEventListener("click", () => pushTaskOsLiveWatch());
   $("#btnSigSaveCfg")?.addEventListener("click", () => saveSignalsConfig());
   $("#btnSigRun")?.addEventListener("click", () => runSignalsCrawl());
   $("#btnSigPause")?.addEventListener("click", () => signalsControl("pause"));
@@ -7219,6 +7220,63 @@ function bindSigUserFormPersistence() {
   }
 }
 
+async function refreshTaskOsLiveWatchHint() {
+  const el = $("#taskOsLiveWatchHint");
+  if (!el) return;
+  try {
+    const st = await api("/api/task-os/live-watch/status");
+    if (!st.success) {
+      el.textContent = "看板 —";
+      return;
+    }
+    const sched = st.scheduler_enabled ? "整点" : "仅手动";
+    const nxt = st.next_run_at ? String(st.next_run_at).replace("T", " ").slice(0, 16) : "—";
+    const added = st.last_added != null ? st.last_added : "?";
+    const last = st.last_slot ? `上次档 ${String(st.last_slot).slice(0, 16)} +${added}` : "尚未同步";
+    el.textContent = `看板 ${sched} · ${last} · 下次 ${nxt}`;
+    el.title = st.git_push
+      ? "自动/手动同步后默认 push 到 GitHub task-os"
+      : "config/task_os_live_watch.yaml · git_push 关闭";
+  } catch (_) {
+    el.textContent = "看板 —";
+  }
+}
+
+async function pushTaskOsLiveWatch() {
+  const btn = $("#btnTaskOsLiveWatchPush");
+  if (btn?.disabled) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "推送中…";
+  }
+  try {
+    const data = await api("/api/task-os/live-watch/sync", {
+      method: "POST",
+      body: JSON.stringify({ push: true }),
+    });
+    if (!data.success) {
+      toast(data.error || "看板同步失败", "error");
+      return;
+    }
+    const rep = data.report || {};
+    const pushMsg = rep.git_push?.message || "";
+    const pushOk = rep.git_push?.ok;
+    const kind = pushOk === false ? "error" : "ok";
+    toast(
+      `看板 +${rep.added ?? 0} 条${pushMsg ? " · " + pushMsg : ""}`,
+      kind,
+    );
+    await refreshTaskOsLiveWatchHint();
+  } catch (e) {
+    toast(String(e), "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "推送看板";
+    }
+  }
+}
+
 async function loadSignalsPanel() {
   try {
     const data = await api("/api/signals/config");
@@ -7292,6 +7350,7 @@ async function loadSignalsPanel() {
       /* binance cycle 状态可选 */
     }
     updateSigRtActiveBanner();
+    await refreshTaskOsLiveWatchHint();
   } catch (e) {
     /* ignore */
   }

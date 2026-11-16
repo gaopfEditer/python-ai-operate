@@ -3625,6 +3625,24 @@ def handle_api(
             }
         )
 
+    if path == "/api/task-os/live-watch/status" and method == "GET":
+        from console import task_os_live_watch as tolw
+
+        return _json_bytes({"success": True, **tolw.load_status()})
+
+    if path == "/api/task-os/live-watch/sync" and method == "POST":
+        from console import task_os_live_watch as tolw
+
+        slot_raw = body.get("slot")
+        slot = int(slot_raw) if slot_raw is not None else None
+        push = body.get("push")
+        push_flag = None if push is None else bool(push)
+        try:
+            rep = tolw.run_sync(slot=slot, push=push_flag, dry_run=bool(body.get("dry_run")))
+        except Exception as exc:
+            return _json_bytes({"success": False, "error": str(exc)}, status=500)
+        return _json_bytes({"success": True, "report": rep})
+
     if path == "/api/signals/push" and method == "POST":
         """手动把已存卡片增量/强制推送到 Cards API。"""
         from signals.push import push_cards_batch
@@ -5196,6 +5214,13 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
             start_kol_realtime_watcher(force=True)
     except Exception as e:
         safe_print(f" KOL 实时抓取初始化跳过: {e}")
+    live_watch_sched = False
+    try:
+        from console import task_os_live_watch as tolw
+
+        live_watch_sched = tolw.start_scheduler()
+    except Exception as e:
+        safe_print(f" task-os 实时关注调度跳过: {e}")
     _free_port(port, log=safe_print)
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}/"
@@ -5225,6 +5250,8 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = F
         safe_print(" 币安 Square: 周期抓取已开启（5–15 分钟随机间隔）")
     if kol_rt_on:
         safe_print(" KOL 实时: 周期抓取已开启（列表信号 Tab 配置间隔）")
+    if live_watch_sched:
+        safe_print(" task-os 实时关注: 整点调度已开启（0/8/12/16/20 · 默认 push GitHub）")
     safe_print(" 外部发布: POST /api/v1/publish  （文档 docs/cdp-publish-api.md）")
     safe_print(" 交易信号发布: POST /api/v1/trade-signal/publish  （AI+OI截图→发布）")
     safe_print(" 按 Ctrl+C 停止")

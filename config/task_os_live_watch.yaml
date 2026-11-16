@@ -1,0 +1,20 @@
+# python-ai-operate → task-os「实时关注」增量同步
+timezone: Asia/Shanghai
+slots: [0, 8, 12, 16, 20]
+vpn_slots: [12, 20]
+
+task_os_repo: ../task-os
+feed_path: data/live_watch.json
+state_path: output/task_os_live_watch_state.json
+
+cards_db: output/signals/cards.db
+publish_log_dir: output/publish_logs
+publish_history_db: output/publish_history.db
+
+collector_api_base: http://127.0.0.1:3851
+bitget_history_json: ../auto-script/discord-collector/data/bitget-order-history.json
+vpn_state_json: ~/Library/Logs/vpn-guard/state.json
+
+max_items: 500
+git_push: true
+scheduler_enabled: true

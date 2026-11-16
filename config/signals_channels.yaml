@@ -29,6 +29,7 @@ channels:
     channelId: "444962489551814726"
     channelName: "熬鹰"
     channelAvatar: ""
+    important: true
     name: "熬鹰资本"
     aliases: ["熬鹰", "allincrypto"]
     enabled: true
@@ -85,6 +86,7 @@ channels:
     channelId: ""
     channelName: "鲁哥"
     channelAvatar: ""
+    important: true
     name: "鲁哥"
     aliases: ["藤蔓鲁哥", "luge517"]
     enabled: true

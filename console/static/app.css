@@ -2604,6 +2604,14 @@ label.publish-media-add {
   flex-shrink: 0;
   padding-top: 4px;
 }
+.task-os-lw-hint {
+  font-size: .72rem;
+  max-width: min(280px, 38vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
 .sig-cdp-badge {
   font-size: .72rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
