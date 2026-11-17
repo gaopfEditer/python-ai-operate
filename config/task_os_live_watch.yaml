@@ -14,6 +14,8 @@ publish_history_db: output/publish_history.db
 collector_api_base: http://127.0.0.1:3851
 bitget_history_json: ../auto-script/discord-collector/data/bitget-order-history.json
 vpn_state_json: ~/Library/Logs/vpn-guard/state.json
+# 与 state.json 同目录的 json/jsonl/log。缺字段时正文写「不可用」，不编造次数。
+vpn_log_dir: ~/Library/Logs/vpn-guard
 
 max_items: 500
 git_push: true
