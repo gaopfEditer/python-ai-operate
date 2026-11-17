@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 from datetime import date, datetime, time, timedelta
@@ -45,6 +46,7 @@ _DISCONNECT_KINDS = {
     "offline",
     "fail",
     "failure",
+    "fail_start",
     "timeout",
     "high_latency",
     "unstable",
@@ -53,9 +55,41 @@ _DISCONNECT_KINDS = {
     "超时",
     "高延迟",
 }
-_SWITCH_KINDS = {"switch", "rotate", "failover", "handoff", "切换", "轮换", "换节点"}
+_SWITCH_KINDS = {
+    "switch",
+    "rotate",
+    "failover",
+    "handoff",
+    "node_ok",
+    "node_try",
+    "recover_action",
+    "owner_change",
+    "manual_clash",
+    "切换",
+    "轮换",
+    "换节点",
+}
 _RESTART_KINDS = {"restart", "relaunch", "app_restart", "重启", "重启应用"}
-_SITE_KINDS = {"site", "site_check", "probe", "block", "blocked", "屏蔽", "站点"}
+_SITE_KINDS = {
+    "site",
+    "site_check",
+    "probe",
+    "block",
+    "blocked",
+    "site_blocked",
+    "healthy",
+    "health",
+    "屏蔽",
+    "站点",
+}
+_VPN_SKIP_NAMES = {"vpn_guard.log", "launchd.out.log", "usage-summary.md"}
+_DETAIL_SITE = re.compile(
+    r"\b(chatgpt|youtube|youtu\.be|twitter|binance_square|binance|x)\s*=\s*(ok|blocked|fail|down|up)\b",
+    re.I,
+)
+_DETAIL_DOWNTIME = re.compile(r"downtime_sec\s*=\s*([0-9]+(?:\.[0-9]+)?)", re.I)
+_DETAIL_NODE = re.compile(r"(?:^|[\s;])node\s*=\s*([^;]+)", re.I)
+_DETAIL_SITES_BLOCKED = re.compile(r"sites_blocked\s*=\s*([^;]+)", re.I)
 _ROLLUP_KINDS = {"daily", "summary", "rollup", "day"}
 _EVENT_LIST_KEYS = (
     "events",
@@ -813,7 +847,71 @@ def _event_ts(raw: Dict[str, Any]) -> Optional[datetime]:
     return dcdr.parse_datetime(_first(raw, ("ts", "time", "at", "timestamp", "checked_at")))
 
 
+def _client_label(raw: str) -> str:
+    key = str(raw or "").strip().lower()
+    if key in ("gsycloud", "gsy", "光速云"):
+        return "光速云"
+    if key == "clash":
+        return "Clash"
+    return str(raw or "").strip()
+
+
+def _detail_text(raw: Dict[str, Any]) -> str:
+    return str(raw.get("detail") or "")
+
+
+def _downtime_from_detail(detail: str) -> Optional[float]:
+    match = _DETAIL_DOWNTIME.search(detail or "")
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+def _node_from_detail(detail: str) -> str:
+    match = _DETAIL_NODE.search(detail or "")
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _event_node(raw: Dict[str, Any]) -> str:
+    named = str(_first(raw, ("gsy_node", "node", "current_node", "node_name")) or "").strip()
+    if named:
+        return named
+    return _node_from_detail(_detail_text(raw))
+
+
+def _split_site_names(value: Any) -> List[str]:
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
+
+
+def _sites_from_detail(detail: str) -> Dict[str, Optional[bool]]:
+    out: Dict[str, Optional[bool]] = {}
+    for match in _DETAIL_SITE.finditer(detail or ""):
+        canon = _canon_site(match.group(1))
+        if not canon:
+            continue
+        flag = match.group(2).lower()
+        out[canon] = flag in ("ok", "up")
+    blocked = _DETAIL_SITES_BLOCKED.search(detail or "")
+    if blocked:
+        for name in _split_site_names(blocked.group(1)):
+            canon = _canon_site(name)
+            if canon:
+                out[canon] = False
+    return out
+
+
 def _duration_sec(raw: Dict[str, Any]) -> Optional[float]:
+    downtime = _downtime_from_detail(_detail_text(raw))
+    if downtime is None:
+        downtime = _as_float(raw.get("downtime_sec"))
+    if downtime is not None and downtime >= 0:
+        return downtime
     for key in ("duration_sec", "duration_s", "seconds", "elapsed_sec", "unstable_seconds"):
         num = _as_float(raw.get(key))
         if num is not None and num >= 0:
@@ -847,18 +945,23 @@ def _parse_sites(raw: Dict[str, Any]) -> Dict[str, Optional[bool]]:
     payload = raw.get("sites")
     if not isinstance(payload, dict):
         payload = raw.get("site_status")
-    if not isinstance(payload, dict):
-        return {}
     out: Dict[str, Optional[bool]] = {}
-    for key, value in payload.items():
-        canon = _canon_site(str(key))
-        if not canon:
-            continue
-        if isinstance(value, dict):
-            flag = _coerce_bool(_first(value, ("ok", "up", "success", "status")))
-        else:
-            flag = _coerce_bool(value)
-        out[canon] = flag
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            canon = _canon_site(str(key))
+            if not canon:
+                continue
+            if isinstance(value, dict):
+                flag = _coerce_bool(_first(value, ("ok", "up", "success", "status")))
+            else:
+                flag = _coerce_bool(value)
+            out[canon] = flag
+    for key, flag in _sites_from_detail(_detail_text(raw)).items():
+        out[key] = flag
+    for name in _split_site_names(raw.get("blocked_sites")):
+        canon = _canon_site(name)
+        if canon:
+            out[canon] = False
     return out
 
 
@@ -911,7 +1014,7 @@ def _parse_rollup(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 def _disconnect_reason(raw: Dict[str, Any], kind: str) -> str:
     blob = " ".join(
         str(raw.get(key) or "")
-        for key in ("reason", "cause", "failure", "error", "message")
+        for key in ("reason", "cause", "failure", "error", "message", "detail")
         if not _secret_key(key)
     ).lower()
     kind_l = kind.lower()
@@ -929,40 +1032,86 @@ def _parse_event(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     kind_l = kind.lower()
     sites = _parse_sites(raw)
     from_node = str(_first(raw, ("from_node", "from")) or "")
-    to_node = str(_first(raw, ("to_node", "to")) or "")
-    is_disconnect = kind_l in _DISCONNECT_KINDS
-    is_switch = kind_l in _SWITCH_KINDS or bool(from_node and to_node)
+    node_name = _event_node(raw)
+    to_node = str(_first(raw, ("to_node", "to")) or "") or node_name
+    is_fail_start = kind_l == "fail_start"
+    is_fail_recover = kind_l == "fail_recover"
+    is_disconnect = (kind_l in _DISCONNECT_KINDS) and not is_fail_recover
+    is_switch = kind_l in _SWITCH_KINDS or bool(from_node and to_node and kind_l not in ("fail_start", "fail_recover", "healthy", "health"))
     is_restart = kind_l in _RESTART_KINDS or _coerce_bool(raw.get("restarted_app")) is True
     is_site = bool(sites) or kind_l in _SITE_KINDS
-    if not any((is_disconnect, is_switch, is_restart, is_site, kind_l in ("health", "status", "check", "heartbeat"))):
-        if _event_ts(raw) is None and not _first(raw, ("node", "current_node", "client", "ip")):
+    if not any((is_disconnect, is_fail_recover, is_switch, is_restart, is_site, kind_l in ("health", "healthy", "status", "check", "heartbeat"))):
+        if _event_ts(raw) is None and not node_name and not raw.get("ip"):
             return None
+    owner_raw = str(raw.get("owner") or "").strip()
     text_client = str(_first(raw, ("to_client", "client", "current_client", "app")) or "")
-    clash = _coerce_bool(raw.get("switched_clash"))
-    if clash is None:
-        clash = _coerce_bool(raw.get("clash")) if isinstance(raw.get("clash"), bool) else None
-    if clash is None and is_switch and "clash" in text_client.lower():
+    client = _client_label(text_client) if text_client else _client_label(owner_raw)
+    action_l = str(raw.get("action") or "").strip().lower()
+    owner_l = owner_raw.lower()
+    if isinstance(raw.get("switched_clash"), bool):
+        clash: Optional[bool] = raw.get("switched_clash")
+    elif isinstance(raw.get("clash"), bool):
+        clash = raw.get("clash")
+    elif kind_l == "manual_clash" or "clash" in action_l or (owner_l == "clash" and is_switch):
         clash = True
+    elif is_switch and (owner_l in ("gsycloud", "gsy") or action_l == "return_to_gsy" or kind_l in ("node_ok", "node_try")):
+        clash = False
+    elif is_switch and "clash" in text_client.lower():
+        clash = True
+    else:
+        clash = None
     ok = _coerce_bool(raw.get("ok"))
     if ok is None:
         ok = _coerce_bool(raw.get("success"))
+    if kind_l == "node_ok":
+        switch_ok: Optional[bool] = True
+    elif kind_l == "node_try":
+        switch_ok = True if ok is True else False
+    elif is_switch:
+        switch_ok = False if ok is False else True if ok is True else None
+    else:
+        switch_ok = None
+    duration = _duration_sec(raw) if (is_disconnect or is_fail_recover) else None
     return {
         "ts": _event_ts(raw),
         "is_disconnect": is_disconnect,
+        "is_fail_start": is_fail_start,
+        "is_fail_recover": is_fail_recover,
         "reason": _disconnect_reason(raw, kind) if is_disconnect else "",
-        "duration_sec": _duration_sec(raw) if is_disconnect else None,
+        "duration_sec": duration,
         "is_switch": is_switch,
-        "switch_ok": ok if is_switch else None,
+        "switch_ok": switch_ok,
         "switched_clash": clash if is_switch or clash is not None else None,
         "is_restart": is_restart,
-        "node": str(_first(raw, ("node", "current_node", "node_name")) or ""),
+        "node": node_name,
         "from_node": from_node,
-        "to_node": to_node,
-        "client": text_client,
+        "to_node": to_node if is_switch else "",
+        "client": client,
         "ip": str(_first(raw, ("ip", "exit_ip", "current_ip", "public_ip")) or ""),
         "sites": sites,
         "keys": sorted(str(k) for k in raw.keys() if not _secret_key(str(k))),
     }
+
+
+def _pair_fail_recovers(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """fail_recover 的 downtime_sec 记到尚未闭合的 fail_start 上，恢复本身不算另一次断开。"""
+    ordered = sorted(
+        events,
+        key=lambda ev: ev["ts"] if isinstance(ev.get("ts"), datetime) else datetime.min.replace(tzinfo=TZ),
+    )
+    open_starts: List[Dict[str, Any]] = []
+    for ev in ordered:
+        if ev.get("is_fail_start"):
+            open_starts.append(ev)
+            continue
+        if not ev.get("is_fail_recover"):
+            continue
+        dur = ev.get("duration_sec")
+        if not open_starts or dur is None:
+            continue
+        start_ev = open_starts.pop(0)
+        start_ev["duration_sec"] = dur
+    return ordered
 
 
 def _walk_objects(obj: Any) -> Iterable[Dict[str, Any]]:
@@ -1078,6 +1227,9 @@ def _load_vpn_sources(
     for path in sorted(directory.iterdir()):
         if not path.is_file():
             continue
+        if path.name in _VPN_SKIP_NAMES:
+            notes.append(f"已跳过 {path.name}（不作为今日数据源）")
+            continue
         if path.suffix.lower() not in {".json", ".jsonl", ".log"}:
             continue
         try:
@@ -1087,6 +1239,7 @@ def _load_vpn_sources(
             continue
         files.append(path.name)
         _read_vpn_file(path, events, rollups, keys, notes)
+    events = _pair_fail_recovers(events)
     return events, rollups, notes, sorted(keys), files
 
 
@@ -1102,13 +1255,21 @@ def _health_view(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if ok is None and isinstance(state, dict) and state is not health and "ok" in state:
         ok = _coerce_bool(state.get("ok"))
     owner = str(_first(health, ("owner",)) or (state or {}).get("owner") or "").strip()
-    node = str(_first(health, ("node", "current_node", "node_name")) or "")
-    client = str(_first(health, ("client", "current_client", "app")) or "")
+    node = str(_first(health, ("gsy_node", "node", "current_node", "node_name")) or "")
+    explicit_client = str(_first(health, ("client", "current_client", "app")) or "")
+    client = _client_label(explicit_client) if explicit_client else _client_label(owner)
     ip = str(_first(health, ("ip", "exit_ip", "current_ip", "public_ip")) or "")
+    country = str(_first(health, ("country",)) or "")
     sites = _parse_sites(health)
     fail_since = ""
     if isinstance(state, dict) and state.get("fail_since"):
         fail_since = str(state.get("fail_since"))
+    last_action = ""
+    manual_clash = None
+    if isinstance(state, dict):
+        last_action = str(state.get("last_action") or "").strip()
+        if isinstance(state.get("manual_clash"), bool):
+            manual_clash = state.get("manual_clash")
     report = ""
     if isinstance(state, dict):
         for key in ("report", "summary_text"):
@@ -1124,6 +1285,9 @@ def _health_view(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "node": node,
         "client": client,
         "ip": ip,
+        "country": country,
+        "last_action": last_action,
+        "manual_clash": manual_clash,
         "sites": sites,
         "fail_since": fail_since,
         "report": report,
@@ -1343,16 +1507,20 @@ def _stability_sentence(today: Dict[str, Any], yday: Dict[str, Any]) -> str:
     return "断开次数、不稳定时长或屏蔽次数一好一坏，不能简单说更稳。"
 
 
-def _snapshot_line(client: str, node: str, ip: str) -> str:
+def _snapshot_line(client: str, node: str, ip: str, country: str = "", owner: str = "") -> str:
     if not any((client, node, ip)):
         return "不可用（无客户端、节点、出口 IP）"
-    return " · ".join(
-        [
-            client or "客户端不可用",
-            node or "节点不可用",
-            f"出口 IP {ip}" if ip else "出口 IP 不可用",
-        ]
-    )
+    who = client or "客户端不可用"
+    if owner and owner != who:
+        who = f"{who}（{owner}）" if client else owner
+    bits = [
+        who,
+        node or "节点不可用",
+        f"出口 IP {ip}" if ip else "出口 IP 不可用",
+    ]
+    if country:
+        bits.append(country)
+    return " · ".join(bits)
 
 
 def collect_vpn(
@@ -1427,6 +1595,10 @@ def collect_vpn(
     disconnects = today["disconnects"]
     minutes = today["unstable_minutes"]
     title_bits = ["VPN Guard", "OK" if ok is True else "FAULT" if ok is False else "UNKNOWN", owner]
+    if node:
+        title_bits.append(node)
+    if ip:
+        title_bits.append(ip)
     if disconnects is not None and minutes is not None:
         title_bits.append(f"断开{disconnects}次 / 不稳定{_fmt_minutes(minutes)}分钟")
     elif disconnects is not None:
@@ -1463,7 +1635,7 @@ def collect_vpn(
         if disconnects is None:
             unavailable.append("断开次数")
 
-    lines.append(f"当前客户端与节点: {_snapshot_line(client, node, ip)}")
+    lines.append(f"当前客户端与节点: {_snapshot_line(client, node, ip, health.get('country') or '', health.get('owner') or '')}")
     if not client:
         unavailable.append("当前客户端")
     if not node:
@@ -1527,11 +1699,16 @@ def collect_vpn(
             else:
                 clash_text = "日志未写"
                 unavailable.append("是否切过 Clash")
+            if health.get("manual_clash") is True:
+                clash_text = "是"
+                unavailable = [name for name in unavailable if name != "是否切过 Clash"]
         else:
             success_n = rollup.get("switch_success") if rollup else None
             success_text = f"成功 {success_n} 次（按日汇总，无逐次记录）" if success_n is not None else "不可用"
             clash_flag = rollup.get("switched_clash") if rollup else None
             clash_text = "是" if clash_flag is True else "否" if clash_flag is False else "日志未写"
+            if health.get("manual_clash") is True:
+                clash_text = "是"
         if restarts:
             restart_text = "是"
         elif saw_events:
@@ -1541,7 +1718,10 @@ def collect_vpn(
         else:
             restart_text = "不可用"
             unavailable.append("是否重启应用")
-        lines.append(f"守卫轮换/切换: {success_text}；切过 Clash: {clash_text}；重启应用: {restart_text}")
+        switch_line = f"守卫轮换/切换: {success_text}；切过 Clash: {clash_text}；重启应用: {restart_text}"
+        if health.get("last_action"):
+            switch_line += f"；最近动作 {health['last_action']}"
+        lines.append(switch_line)
         if switches and any(ev.get("switch_ok") is not None for ev in switches):
             switch_success: Optional[int] = sum(1 for ev in switches if ev.get("switch_ok") is True)
         elif switches:
@@ -1552,7 +1732,7 @@ def collect_vpn(
             "success": switch_success,
             "attempts": len(switches) if switches else None,
             "switched_clash": True
-            if any(ev.get("switched_clash") is True for ev in switches)
+            if health.get("manual_clash") is True or any(ev.get("switched_clash") is True for ev in switches)
             else False
             if switches and all(ev.get("switched_clash") is False for ev in switches)
             else (rollup or {}).get("switched_clash"),

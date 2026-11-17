@@ -67,12 +67,12 @@ VPN 仅在 12 / 20 槽写入。
 
 仍只在 12 / 20 点写入一条，`id` 为 `vpn:{slot}:{date}`。
 
-- `config/task_os_live_watch.yaml` 的 `vpn_state_json`（默认 `~/Library/Logs/vpn-guard/state.json`）和同目录 `vpn_log_dir` 里的 `*.json` / `*.jsonl` / `*.log`。
-- 快照字段（有则用）：`last_health.ok`、`owner`、`node` / `current_node` / `node_name`、`client` / `current_client` / `app`、`ip` / `exit_ip` / `current_ip` / `public_ip`、`sites` / `site_status`、顶层 `fail_since`。
-- 事件字段（有则用）：`event` / `type` / `kind`、`ts`、`reason`、`duration_sec`（或 `duration_minutes`、`down_at`+`up_at`）、`from_node`、`to_node`、`switched_clash`、`ok`。断开类：`disconnect` / `timeout` / `high_latency` / `断开` / `超时` / `高延迟`。切换类：`switch` / `切换`。重启类：`restart` / `重启`。站点名会归一成 ChatGPT、YouTube、X、币安广场。
-- 按日汇总字段（没有逐条事件时才用来计数）：`disconnects`、`unstable_minutes`、`blocks`、`switch_success`，放在 `today` / `days` / `daily`。
-- 标题例：`VPN Guard · OK · gsycloud · 断开20次 / 不稳定13.4分钟`。次数或时长算不出来就不写进标题。
-- 正文用中文写截止时间（Asia/Shanghai）、断开与不稳定时长、当前客户端/节点/出口 IP、四站通断、断开分布、切换与是否切过 Clash、是否重启、节点时段、屏蔽后换到哪里、近三日同时段对比。没有的段落写「不可用」。
+- 快照：`vpn_state_json`（默认 `~/Library/Logs/vpn-guard/state.json`）。当前节点读 `last_health.gsy_node`（没有时才看 `node`），出口 IP 读 `last_health.ip`，客户端读 `last_health.owner`：`gsycloud` 写成「光速云」，`clash` 写成「Clash」。另外会用到 `last_health.ok` / `country` / `at`，以及顶层 `last_action`、`manual_clash`。
+- 事件主源：同目录 `usage.jsonl`（低于 8MB 时整文件读取）。每行一个 JSON。`vpn_guard.log`、`launchd.out.log` 是普通文本，不读取；`usage-summary.md` 是旧汇总，不当今日数据源。
+- 事件名：`fail_start`（断开开始，`detail` 里的 `timeout` 计超时，`latency …ms` 计高延迟）、`fail_recover`（`detail` 里的 `downtime_sec=` 记到对应的 `fail_start`，恢复本身不算另一次断开）、`healthy` / `health`（从 `detail` 文本解析 `chatgpt=ok` / `BLOCKED` 这类四站结果）、`site_blocked`（`blocked_sites` 或 `sites_blocked=`）、`node_ok`（成功换点，节点优先 `gsy_node`）、`node_try`、`recover_action` / `owner_change` / `manual_clash`。通用字段还有 `ts`、`owner`、`ip`、`country`、`ok`。
+- 仍兼容旧夹具里的 `disconnect` / `switch` / `site_check` / `restart`，以及 `sites` 字典、`duration_sec`。没有逐条断开事件时，才用 `today` / `days` / `daily` 里的按日汇总。
+- 标题例：`VPN Guard · OK · gsycloud · 🇨🇳台湾一号专线03 · 1.2.3.4 · 断开2次 / 不稳定13.4分钟`。有节点和出口 IP 就写进标题；次数或时长算不出来就不写进标题。
+- 正文用中文写截止时间（Asia/Shanghai）、断开与不稳定时长、当前客户端/节点/出口 IP、四站通断、断开分布、切换与是否切过 Clash、是否重启、节点时段、屏蔽后换到哪里、近三日同时段对比。这些字段在 `usage.jsonl` 里已经有对应事件时，正文不写「不可用」。
 - `meta`：`ok`、`owner`、`disconnects`、`unstable_minutes`、`current_client`、`current_node`、`current_ip`、`site_status`、`switches`、`unavailable`。
 
 ## 自测

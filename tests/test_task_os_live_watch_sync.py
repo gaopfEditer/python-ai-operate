@@ -416,9 +416,12 @@ class TestVpnSummary(unittest.TestCase):
             items = collect_vpn(state, 12, end, log_dir=root)
         item = items[0]
         self.assertEqual(item["id"], "vpn:12:2026-11-17")
-        self.assertEqual(item["title"], "VPN Guard · OK · gsycloud · 断开2次 / 不稳定13.4分钟")
+        self.assertEqual(
+            item["title"],
+            "VPN Guard · OK · gsycloud · jp-3 · 1.2.3.4 · 断开2次 / 不稳定13.4分钟",
+        )
         body = item["body"]
-        self.assertIn("当前客户端与节点: clash · jp-3 · 出口 IP 1.2.3.4", body)
+        self.assertIn("当前客户端与节点: Clash（gsycloud） · jp-3 · 出口 IP 1.2.3.4", body)
         self.assertIn("ChatGPT 通", body)
         self.assertIn("超时 1 次，高延迟 1 次", body)
         self.assertIn("成功 2 次", body)
@@ -433,7 +436,7 @@ class TestVpnSummary(unittest.TestCase):
         meta = item["meta"]
         self.assertEqual(meta["disconnects"], 2)
         self.assertEqual(meta["unstable_minutes"], 13.4)
-        self.assertEqual(meta["current_client"], "clash")
+        self.assertEqual(meta["current_client"], "Clash")
         self.assertEqual(meta["current_node"], "jp-3")
         self.assertEqual(meta["current_ip"], "1.2.3.4")
         self.assertEqual(meta["site_status"]["币安广场"], True)
@@ -461,6 +464,213 @@ class TestVpnSummary(unittest.TestCase):
         self.assertIn("守卫按日汇总", items[0]["body"])
         self.assertEqual(items[0]["meta"]["disconnects"], 20)
         self.assertEqual(items[0]["meta"]["unstable_minutes"], 13.4)
+
+    def test_usage_jsonl_real_shape(self):
+        _start, end = _slot12()
+        node_before = "🇨🇳台湾一号专线03"
+        node_after = "🇨🇳台湾一号专线04"
+        ip = "203.0.113.8"
+        four_ok = (
+            "chatgpt=ok (http 200, 2263ms); youtube=ok (http 200, 180ms); "
+            "x=ok (http 200, 90ms); binance_square=ok (http 200, 140ms)"
+        )
+        blocked_detail = (
+            "sites_blocked=binance_square; chatgpt=ok (http 200, 10ms); "
+            "youtube=ok (http 200, 10ms); x=ok (http 200, 10ms); binance_square=BLOCKED"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "state.json").write_text(
+                json.dumps(
+                    {
+                        "last_health": {
+                            "ok": True,
+                            "owner": "gsycloud",
+                            "country": "TW",
+                            "ip": ip,
+                            "gsy_node": node_after,
+                            "at": "2026-11-17T11:50:00+08:00",
+                        },
+                        "last_action": "rotate_gsy_node_ok",
+                        "last_owner": "gsycloud",
+                        "manual_clash": False,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            rows = [
+                {
+                    "ts": "2026-11-17T00:30:00+08:00",
+                    "event": "health",
+                    "owner": "gsycloud",
+                    "gsy_node": "🇨🇳香港01",
+                    "ip": "198.51.100.1",
+                    "ok": True,
+                    "detail": four_ok,
+                },
+                {
+                    "ts": "2026-11-17T01:00:00+08:00",
+                    "event": "fail_start",
+                    "owner": "gsycloud",
+                    "gsy_node": "🇨🇳香港01",
+                    "ip": "198.51.100.1",
+                    "ok": False,
+                    "detail": "timeout: timed out",
+                },
+                {
+                    "ts": "2026-11-17T01:02:00+08:00",
+                    "event": "fail_recover",
+                    "owner": "gsycloud",
+                    "gsy_node": "🇨🇳香港01",
+                    "ok": True,
+                    "detail": "downtime_sec=120",
+                },
+                {
+                    "ts": "2026-11-17T02:10:00+08:00",
+                    "event": "fail_start",
+                    "owner": "gsycloud",
+                    "gsy_node": "🇨🇳香港01",
+                    "ok": False,
+                    "detail": "latency 1574ms > 1500ms",
+                },
+                {
+                    "ts": "2026-11-17T02:22:00+08:00",
+                    "event": "fail_recover",
+                    "owner": "gsycloud",
+                    "ok": True,
+                    "detail": "downtime_sec=684",
+                },
+                {
+                    "ts": "2026-11-17T02:25:00+08:00",
+                    "event": "node_try",
+                    "owner": "gsycloud",
+                    "node": "tw-try",
+                    "ok": False,
+                    "detail": "try tw-try",
+                },
+                {
+                    "ts": "2026-11-17T02:30:00+08:00",
+                    "event": "owner_change",
+                    "owner": "clash",
+                    "action": "to_clash",
+                    "ok": True,
+                },
+                {
+                    "ts": "2026-11-17T02:40:00+08:00",
+                    "event": "recover_action",
+                    "owner": "gsycloud",
+                    "action": "return_to_gsy",
+                    "gsy_node": node_before,
+                    "ok": True,
+                    "detail": f"node={node_before}",
+                },
+                {
+                    "ts": "2026-11-17T03:05:00+08:00",
+                    "event": "site_blocked",
+                    "owner": "gsycloud",
+                    "gsy_node": node_before,
+                    "ip": "198.51.100.8",
+                    "blocked_sites": "binance_square",
+                    "detail": blocked_detail,
+                },
+                {
+                    "ts": "2026-11-17T03:08:00+08:00",
+                    "event": "node_ok",
+                    "owner": "gsycloud",
+                    "node": "tw-04",
+                    "gsy_node": node_after,
+                    "ip": ip,
+                    "ok": True,
+                    "detail": four_ok,
+                },
+                {
+                    "ts": "2026-11-17T03:12:00+08:00",
+                    "event": "healthy",
+                    "owner": "gsycloud",
+                    "gsy_node": node_after,
+                    "ip": ip,
+                    "ok": True,
+                    "detail": four_ok,
+                },
+                {
+                    "ts": "2026-11-17T13:00:00+08:00",
+                    "event": "fail_start",
+                    "owner": "gsycloud",
+                    "gsy_node": "AFTER-SLOT",
+                    "detail": "timeout: timed out",
+                },
+                {
+                    "ts": "2026-11-17T13:01:00+08:00",
+                    "event": "fail_recover",
+                    "detail": "downtime_sec=999",
+                },
+            ]
+            (root / "usage.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            (root / "vpn_guard.log").write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-11-17T04:00:00+08:00",
+                        "event": "fail_start",
+                        "detail": "timeout: timed out",
+                        "gsy_node": "DECOY-NODE",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "launchd.out.log").write_text(
+                "plain text line\n"
+                + json.dumps({"event": "fail_start", "ts": "2026-11-17T04:05:00+08:00", "gsy_node": "LAUNCHD-NODE"})
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "usage-summary.md").write_text("今日断开 99 次\n", encoding="utf-8")
+            items = collect_vpn(root / "state.json", 12, end, log_dir=root)
+        item = items[0]
+        self.assertEqual(
+            item["title"],
+            f"VPN Guard · OK · gsycloud · {node_after} · {ip} · 断开2次 / 不稳定13.4分钟",
+        )
+        body = item["body"]
+        self.assertNotIn("不可用", body)
+        self.assertIn("由事件计算", body)
+        self.assertIn(f"当前客户端与节点: 光速云（gsycloud） · {node_after} · 出口 IP {ip} · TW", body)
+        self.assertIn("超时 1 次，高延迟 1 次", body)
+        self.assertIn("超时 2 分钟", body)
+        self.assertIn("高延迟 11.4 分钟", body)
+        self.assertIn(f"节点 {node_before} 挡住 币安广场", body)
+        self.assertIn(f"换到 {node_after}", body)
+        self.assertIn("换后四站都通", body)
+        self.assertIn("ChatGPT 通", body)
+        self.assertIn("币安广场 通", body)
+        self.assertIn("切过 Clash: 是", body)
+        self.assertIn("重启应用: 否", body)
+        self.assertIn("最近动作 rotate_gsy_node_ok", body)
+        self.assertNotIn("DECOY-NODE", body)
+        self.assertNotIn("LAUNCHD-NODE", body)
+        self.assertNotIn("AFTER-SLOT", body)
+        self.assertNotIn("99", body)
+        self.assertNotIn("999", body)
+        meta = item["meta"]
+        self.assertEqual(meta["disconnects"], 2)
+        self.assertEqual(meta["unstable_minutes"], 13.4)
+        self.assertEqual(meta["owner"], "gsycloud")
+        self.assertEqual(meta["current_client"], "光速云")
+        self.assertEqual(meta["current_node"], node_after)
+        self.assertEqual(meta["current_ip"], ip)
+        self.assertEqual(meta["site_status"]["ChatGPT"], True)
+        self.assertEqual(meta["site_status"]["YouTube"], True)
+        self.assertEqual(meta["site_status"]["X"], True)
+        self.assertEqual(meta["site_status"]["币安广场"], True)
+        self.assertIn("usage.jsonl", meta["sources"])
+        self.assertNotIn("vpn_guard.log", meta["sources"])
+        self.assertNotIn("launchd.out.log", meta["sources"])
+        self.assertNotIn("usage-summary.md", meta["sources"])
 
 
 if __name__ == "__main__":
