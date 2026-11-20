@@ -226,6 +226,70 @@ class TestIncrementalStop(unittest.TestCase):
         ids = [x["tweet_id"] for x in res.get("items") or []]
         self.assertNotIn("1001", ids)
 
+    def test_fetch_user_timeline_api_empty_is_success(self):
+        from signals import x_api
+
+        since = datetime(2099, 1, 1, tzinfo=timezone.utc)
+
+        class EmptyClient:
+            def user_id_by_screen_name(self, screen_name):
+                return "9001"
+
+            def fetch_timeline_page(self, operation, variables):
+                return [], ""
+
+        with mock.patch("signals.x_api.session_ready", return_value=True), mock.patch(
+            "signals.x_api.ensure_x_graphql_query_ids", return_value={"auth_token": "a", "ct0": "c"}
+        ), mock.patch("signals.x_api.XApiClient", return_value=EmptyClient()):
+            res = x_api.fetch_user_timeline_api("quietkol", since=since, max_tweets=10)
+        self.assertTrue(res.get("success"), msg=str(res))
+        self.assertEqual(res.get("items"), [])
+        self.assertEqual(res.get("count"), 0)
+        self.assertNotIn("error", res)
+
+    def test_fetch_list_timeline_api_empty_chunk_is_success(self):
+        from signals import x_api
+
+        since = datetime(2099, 1, 1, tzinfo=timezone.utc)
+
+        class EmptyClient:
+            def fetch_timeline_page(self, operation, variables):
+                return [], ""
+
+        with mock.patch("signals.x_api.session_ready", return_value=True), mock.patch(
+            "signals.x_api.XApiClient", return_value=EmptyClient()
+        ):
+            res = x_api.fetch_list_timeline_api("2088443239435215337", since=since, max_tweets=10)
+        self.assertTrue(res.get("success"), msg=str(res))
+        self.assertEqual(res.get("items"), [])
+        self.assertNotIn("error", res)
+
+    def test_crawl_user_timeline_marks_empty_api_ok(self):
+        from signals import crawl
+
+        since = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        api_res = {
+            "success": True,
+            "items": [],
+            "count": 0,
+            "route": "x_api",
+            "handle": "quietkol",
+        }
+        with mock.patch.object(crawl, "_x_api_primary", return_value=True), mock.patch.object(
+            crawl, "_try_x_api_user", return_value=api_res
+        ):
+            res = crawl.crawl_user_timeline(
+                "quietkol",
+                since=since,
+                max_tweets=10,
+                realtime_incremental=True,
+            )
+        self.assertTrue(res.get("success"))
+        self.assertEqual(res.get("fetch_route"), "cookie+api")
+        attempt = res.get("api_attempt") or {}
+        self.assertTrue(attempt.get("ok"), msg=str(attempt))
+        self.assertEqual(attempt.get("reason"), "")
+
 
 class TestBinanceRealtime(unittest.TestCase):
     def test_parse_profile_posts_fixture(self):
