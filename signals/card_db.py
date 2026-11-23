@@ -93,11 +93,9 @@ def _loads(raw: Any, default: Any = None) -> Any:
 
 
 def _card_user_handle(card: Dict[str, Any]) -> str:
-    lid = str(card.get("list_id") or "")
-    if lid.startswith("user:"):
-        return lid.split(":", 1)[-1].strip().lower()
-    h = _parse_user_handle(str(card.get("author") or ""))
-    return h.lower() if h else ""
+    from signals.card_author import effective_author_handle
+
+    return effective_author_handle(card)
 
 
 def _card_created_ts(card: Dict[str, Any]) -> int:
@@ -472,6 +470,9 @@ def _upsert_fields(conn: sqlite3.Connection, fields: Dict[str, Any], now: str) -
 
 
 def db_upsert_card(card: Dict[str, Any]) -> Dict[str, Any]:
+    from signals.card_author import normalize_card_author_fields
+
+    card = normalize_card_author_fields(card)
     init_db()
     now = _now_iso()
     with _LOCK:

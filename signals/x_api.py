@@ -111,6 +111,36 @@ def _images_from_legacy(legacy: Dict[str, Any]) -> List[Dict[str, str]]:
     return images
 
 
+def _screen_name_from_user(user_result: Any) -> str:
+    if not isinstance(user_result, dict):
+        return ""
+    if str(user_result.get("__typename") or "").endswith("Unavailable"):
+        return ""
+    legacy = user_result.get("legacy")
+    if isinstance(legacy, dict):
+        s = str(legacy.get("screen_name") or "").strip()
+        if s:
+            return s
+    core = user_result.get("core")
+    if isinstance(core, dict):
+        s = str(core.get("screen_name") or "").strip()
+        if s:
+            return s
+        nested = core.get("user_results", {}).get("result")
+        if isinstance(nested, dict):
+            s = _screen_name_from_user(nested)
+            if s:
+                return s
+    for key in ("user", "user_results"):
+        nested = user_result.get(key)
+        if isinstance(nested, dict):
+            sub = nested.get("result") if key == "user_results" else nested
+            s = _screen_name_from_user(sub)
+            if s:
+                return s
+    return ""
+
+
 def _unwrap_tweet_result(node: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(node, dict):
         return None
@@ -131,19 +161,12 @@ def tweet_node_to_item(node: Any) -> Optional[Dict[str, Any]]:
     tid = str(t.get("rest_id") or legacy.get("id_str") or "").strip()
     if not tid:
         return None
-    user = {}
+    user_result: Any = {}
     try:
-        user = (
-            t.get("core", {})
-            .get("user_results", {})
-            .get("result", {})
-            .get("legacy", {})
-        )
+        user_result = t.get("core", {}).get("user_results", {}).get("result", {})
     except Exception:
-        user = {}
-    if not isinstance(user, dict):
-        user = {}
-    screen = str(user.get("screen_name") or legacy.get("screen_name") or "").strip()
+        user_result = {}
+    screen = _screen_name_from_user(user_result) or str(legacy.get("screen_name") or "").strip()
     author = f"@{screen}" if screen else ""
     created_raw = str(legacy.get("created_at") or "")
     created_iso = twitter_created_to_iso(created_raw)
@@ -480,6 +503,12 @@ def fetch_list_timeline_api(
         or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     )[:max_tweets]
+    try:
+        from signals.tweet_author_cache import record_tweet_authors
+
+        record_tweet_authors(items)
+    except Exception:
+        pass
     return {
         "success": True,
         "list_id": lid,
@@ -621,6 +650,12 @@ def fetch_user_timeline_api(
         or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     )[:max_tweets]
+    try:
+        from signals.tweet_author_cache import record_tweet_authors
+
+        record_tweet_authors(items)
+    except Exception:
+        pass
     return {
         "success": bool(items),
         "items": items,

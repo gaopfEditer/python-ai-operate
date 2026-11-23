@@ -236,10 +236,20 @@ def normalize_handle(author: str) -> str:
 
 
 def resolve_channel(author: str, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    from signals.card_author import is_unmapped_channel_label
+
     cfg = cfg or load_channels_config()
     default = cfg.get("default_channel") if isinstance(cfg.get("default_channel"), dict) else {}
     channels = cfg.get("channels") if isinstance(cfg.get("channels"), dict) else {}
     handle = normalize_handle(author)
+    if not handle:
+        return {
+            "handle": "",
+            "channelId": "",
+            "channelName": "",
+            "channelAvatar": "",
+            "mapped": False,
+        }
     mapped: Any = None
     if handle:
         mapped = channels.get(handle)
@@ -247,41 +257,57 @@ def resolve_channel(author: str, cfg: Optional[Dict[str, Any]] = None) -> Dict[s
             mapped = channels.get(f"@{handle}")
         if not isinstance(mapped, dict):
             for k, v in channels.items():
-                if normalize_handle(str(k)) == handle and isinstance(v, dict):
+                if not isinstance(v, dict):
+                    continue
+                if normalize_handle(str(k)) == handle:
                     mapped = v
+                    break
+                aliases = v.get("aliases") if isinstance(v.get("aliases"), list) else []
+                for a in aliases:
+                    if normalize_handle(str(a)) == handle:
+                        mapped = v
+                        break
+                if isinstance(mapped, dict):
                     break
     if not isinstance(mapped, dict):
         mapped = {}
     channel_name = str(
         mapped.get("channelName")
         or mapped.get("name")
-        or default.get("channelName")
         or handle
-        or "未映射推特源"
     )
+    if not mapped and is_unmapped_channel_label(str(default.get("channelName") or "")):
+        channel_name = handle
+    channel_id = str(mapped.get("channelId") or default.get("channelId") or "")
     return {
         "handle": handle,
-        "channelId": str(mapped.get("channelId") or default.get("channelId") or "api"),
+        "channelId": channel_id,
         "channelName": channel_name,
         "channelAvatar": str(
             mapped.get("channelAvatar") or default.get("channelAvatar") or ""
         ),
-        "mapped": bool(mapped.get("channelId")),
+        "mapped": bool(
+            mapped
+            and (
+                mapped.get("channelId")
+                or mapped.get("channelName")
+                or mapped.get("name")
+            )
+        ),
     }
 
 
 def _signal_at_iso(card: Dict[str, Any]) -> str:
-    """Cards API signalAt：UTC ISO（与 cards-api.md 示例一致）。"""
+    """Cards API signalAt：北京时间 ISO +08:00（与 collector MySQL 上海墙钟一致）。"""
+    from signals.tweet_log import fmt_beijing_iso, to_beijing
+
     raw = str(card.get("created_at") or "").strip()
+    if not raw:
+        raw = str(card.get("display_time") or "").strip()
     dt = parse_dt(raw)
     if dt is None:
         dt = datetime.now(timezone.utc)
-    elif dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
-    ms = int(dt.microsecond / 1000)
-    return dt.strftime(f"%Y-%m-%dT%H:%M:%S.{ms:03d}Z")
+    return fmt_beijing_iso(to_beijing(dt))
 
 
 def _image_urls(card: Dict[str, Any]) -> List[str]:
@@ -304,7 +330,10 @@ def build_cards_payload(
 ) -> Dict[str, Any]:
     cfg = cfg or load_channels_config()
     api = cfg.get("cards_api") if isinstance(cfg.get("cards_api"), dict) else {}
-    ch = resolve_channel(str(card.get("author") or ""), cfg)
+    if _is_binance_square_card(card):
+        ch = resolve_binance_square_channel(card)
+    else:
+        ch = resolve_channel(str(card.get("author") or ""), cfg)
     sig = card.get("signal") if isinstance(card.get("signal"), dict) else {}
 
     coins = []
@@ -359,10 +388,22 @@ def build_cards_payload(
     is_binance = ("binance" in sm) or list_id.startswith("binance")
     source = "binance" if is_binance else cards_api_source_platform(cfg=cfg)
 
+    handle = str(ch.get("handle") or card.get("user_handle") or "").strip().lstrip("@")
+    author_line = str(card.get("author") or "").strip()
+    parsed_json: Dict[str, Any] = {
+        "channelName": ch.get("channelName") or "",
+        "listId": str(card.get("list_id") or ""),
+        "userHandle": handle,
+        "author": author_line or (f"@{handle}" if handle else ""),
+    }
+    post_url = str(card.get("url") or card.get("replay_url") or "").strip()
+    if post_url.startswith("http"):
+        parsed_json["url"] = post_url
     payload: Dict[str, Any] = {
         "channelId": ch["channelId"],
         "channelName": ch["channelName"],
         "channelAvatar": ch["channelAvatar"],
+        "parsedJson": parsed_json,
         "source": source,
         "body": body,
         "images": _image_urls(card),
@@ -777,11 +818,23 @@ def resolve_binance_square_channel(card: Dict[str, Any]) -> Dict[str, str]:
 
 def enrich_card_channel(card: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """给卡片附上频道映射，供前端 sig-author 展示。"""
-    out = dict(card)
+    from signals.card_author import normalize_card_author_fields, stored_author_handle
+
+    out = normalize_card_author_fields(card)
+    if stored_author_handle(out) and not stored_author_handle(card):
+        try:
+            from signals.store import upsert_card
+
+            upsert_card(out)
+        except Exception:
+            pass
     if _is_binance_square_card(card):
-        out["channel"] = resolve_binance_square_channel(card)
+        out["channel"] = resolve_binance_square_channel(out)
     else:
-        out["channel"] = resolve_channel(str(card.get("author") or ""), cfg)
+        author = str(out.get("author") or "").strip()
+        if not author and out.get("user_handle"):
+            author = f"@{out['user_handle']}"
+        out["channel"] = resolve_channel(author, cfg)
     out["display_time"] = resolve_display_time(
         str(card.get("created_at") or ""),
         str(card.get("time_label") or ""),

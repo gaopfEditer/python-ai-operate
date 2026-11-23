@@ -124,6 +124,69 @@ class TestXApiParse(unittest.TestCase):
         self.assertEqual(res.get("route"), "x_api")
         self.assertGreaterEqual(len(res.get("items") or []), 1)
 
+    def test_tweet_node_core_screen_name_without_legacy(self):
+        from signals.x_api import tweet_node_to_item
+
+        node = {
+            "rest_id": "9001",
+            "legacy": {
+                "id_str": "9001",
+                "created_at": "Wed Oct 10 20:19:24 +0000 2018",
+                "full_text": "core only user",
+            },
+            "core": {
+                "user_results": {
+                    "result": {
+                        "__typename": "User",
+                        "core": {"screen_name": "thankucrypto"},
+                    }
+                }
+            },
+        }
+        item = tweet_node_to_item(node)
+        self.assertEqual(item["author"], "@thankucrypto")
+        self.assertIn("thankucrypto/status/9001", item["url"])
+
+    def test_signal_at_iso_beijing_wall_clock(self):
+        from signals.push import _signal_at_iso
+
+        card = {"created_at": "2026-11-23T14:51:26+08:00"}
+        iso = _signal_at_iso(card)
+        self.assertIn("+08:00", iso)
+        self.assertIn("14:51:26", iso)
+        self.assertNotIn("06:51", iso)
+
+    def test_enrich_card_channel_tradermige_mige(self):
+        from signals.push import enrich_card_channel
+
+        card = {
+            "author": "@tradermige",
+            "user_handle": "tradermige",
+            "url": "https://x.com/tradermige/status/2124872738301251707",
+            "tweet_id": "2124872738301251707",
+            "list_id": "2088443239435215337",
+        }
+        out = enrich_card_channel(card)
+        ch = out.get("channel") or {}
+        self.assertEqual(ch.get("channelName"), "米哥")
+        self.assertEqual(ch.get("handle"), "tradermige")
+
+    def test_enrich_card_channel_from_status_url(self):
+        from signals.push import enrich_card_channel
+
+        card = {
+            "author": "",
+            "user_handle": "",
+            "url": "https://x.com/thankucrypto/status/2124872738301251707",
+            "tweet_id": "2124872738301251707",
+            "list_id": "2088443239435215337",
+        }
+        out = enrich_card_channel(card)
+        ch = out.get("channel") or {}
+        self.assertEqual(ch.get("channelName"), "熬鹰")
+        self.assertEqual(ch.get("handle"), "thankucrypto")
+        self.assertNotIn("未映射", ch.get("channelName") or "")
+
 
 class TestPublishTime(unittest.TestCase):
     def test_square_iso_beats_relative_label(self):

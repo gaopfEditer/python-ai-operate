@@ -8612,6 +8612,37 @@ function parseSigUserHandle(raw) {
   return "";
 }
 
+function sigCardAuthorHandle(c) {
+  return String(c?.user_handle || parseSigUserHandle(c?.author || c?.url || ""))
+    .replace(/^@/, "")
+    .toLowerCase();
+}
+
+function sigBloggerDisplayName(handle) {
+  const h = String(handle || "").toLowerCase();
+  if (!h) return "";
+  const hit = (_sigBloggersCache || []).find(
+    (b) => String(b.id || b.handle || "").toLowerCase() === h
+  );
+  return String(hit?.name || hit?.channelName || "").trim();
+}
+
+const _SIG_UNMAPPED_CHANNEL_NAMES = new Set(["未映射", "未映射推特源"]);
+
+function sigCardAuthorLabel(c) {
+  const chMap = c.channel || {};
+  const handle = sigCardAuthorHandle(c);
+  let displayName = String(chMap.channelName || "").trim();
+  if (_SIG_UNMAPPED_CHANNEL_NAMES.has(displayName)) displayName = "";
+  if (!displayName) displayName = sigBloggerDisplayName(handle);
+  if (displayName && handle) {
+    return `${escapeHtml(displayName)} <span class="sig-handle">@${escapeHtml(handle)}</span>`;
+  }
+  if (displayName) return escapeHtml(displayName);
+  if (handle) return `<span class="sig-handle">@${escapeHtml(handle)}</span>`;
+  return '<span class="muted">未知作者</span>';
+}
+
 function setSigUserControlButtons({ running = false, paused = false } = {}) {
   const pause = $("#btnSigUserPause");
   const resume = $("#btnSigUserResume");
@@ -10633,10 +10664,7 @@ function renderSigCardItem(c) {
     })
     .join("");
   const chMap = c.channel || {};
-  const authorHandle = String(c.author || "").replace(/^@/, "");
-  const authorLabel = chMap.channelName
-    ? `${chMap.channelName} <span class="sig-handle">@${escapeHtml(authorHandle)}</span>`
-    : escapeHtml(c.author || "");
+  const authorLabel = sigCardAuthorLabel(c);
   const channelMeta = chMap.channelId
     ? `<span class="sig-channel-id" title="Cards channelId">#${escapeHtml(String(chMap.channelId))}</span>`
     : "";
