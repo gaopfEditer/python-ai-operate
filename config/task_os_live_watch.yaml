@@ -13,6 +13,7 @@ publish_history_db: output/publish_history.db
 
 collector_api_base: http://127.0.0.1:3851
 bitget_history_json: ../auto-script/discord-collector/data/bitget-order-history.json
+kolvip_autotrade_json: ../auto-script/discord-collector/config/kolvip-autotrade.json
 vpn_state_json: ~/Library/Logs/vpn-guard/state.json
 
 max_items: 500

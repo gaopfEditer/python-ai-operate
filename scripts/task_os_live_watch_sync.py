@@ -31,7 +31,7 @@ CONFIG_PATH = ROOT / "config" / "task_os_live_watch.yaml"
 CAT_LABEL = {
     "signal": "信号",
     "publish": "发布",
-    "bitget": "Bitget",
+    "bitget": "自动下单",
     "vpn": "VPN",
 }
 
@@ -69,6 +69,10 @@ def load_config() -> Dict[str, Any]:
     cfg.setdefault(
         "bitget_history_json",
         "../auto-script/discord-collector/data/bitget-order-history.json",
+    )
+    cfg.setdefault(
+        "kolvip_autotrade_json",
+        "../auto-script/discord-collector/config/kolvip-autotrade.json",
     )
     cfg.setdefault("vpn_state_json", "~/Library/Logs/vpn-guard/state.json")
     cfg.setdefault("max_items", 500)
@@ -377,7 +381,7 @@ def collect_bitget(
             item_id = f"bitget:card:{cid}:{bo.get('orderId') or bo.get('status')}"
             sym = bo.get("symbol") or parsed.get("symbol") or "?"
             status = str(bo.get("status") or "?")
-            title = f"Bitget 自动 · {sym} · {status}"
+            title = f"自动下单 · {sym} · {status}"
             body = json.dumps(
                 {k: bo.get(k) for k in ("holdSide", "orderType", "size", "stopLossPrice", "error", "reason")},
                 ensure_ascii=False,
@@ -422,7 +426,7 @@ def collect_bitget(
                             "id": item_id,
                             "category": "bitget",
                             "ts": dt.isoformat(timespec="seconds"),
-                            "title": f"Bitget {row.get('source')} · {row.get('symbol')} · {row.get('status')}",
+                            "title": f"自动下单 · {row.get('source')} · {row.get('symbol')} · {row.get('status')}",
                             "body": str(row.get("error") or row.get("orderId") or ""),
                             "meta": {"source": "history_json"},
                         }
@@ -439,6 +443,96 @@ def collect_bitget(
                 }
             )
     return items
+
+
+def _channel_name_map(autotrade_path: Path) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    if not autotrade_path.is_file():
+        return out
+    try:
+        raw = json.loads(autotrade_path.read_text(encoding="utf-8"))
+        for ch in raw.get("channels") or []:
+            if not isinstance(ch, dict):
+                continue
+            name = str(ch.get("name") or ch.get("key") or "").strip()
+            for cid in ch.get("channelIds") or []:
+                out[str(cid).strip()] = name or str(cid)
+    except Exception:
+        pass
+    return out
+
+
+def collect_autotrade_daily_summary(
+    history_path: Path,
+    autotrade_path: Path,
+    day_start: datetime,
+    end: datetime,
+) -> List[Dict[str, Any]]:
+    """当日 0 点至今：按跟单频道汇总自动下单笔数（含熬鹰 5U）。"""
+    names = _channel_name_map(autotrade_path)
+    buckets: Dict[str, Dict[str, Any]] = {}
+
+    def bump(row: Dict[str, Any]) -> None:
+        cid = str(row.get("channelId") or row.get("channel_id") or "").strip()
+        cname = str(row.get("channelName") or row.get("channel_name") or "").strip()
+        label = names.get(cid) or cname or cid or "未知频道"
+        key = cid or label
+        st = buckets.setdefault(
+            key,
+            {"channel": label, "channel_id": cid, "orders": 0, "ok": 0, "fail": 0, "margin_u": None},
+        )
+        st["orders"] += 1
+        status = str(row.get("status") or "").lower()
+        if status in ("filled", "success", "ok", "placed", "dry_run"):
+            st["ok"] += 1
+        elif status in ("error", "failed", "fail", "rejected", "skipped"):
+            st["fail"] += 1
+        else:
+            st["ok"] += 1
+        mu = row.get("orderSizeUsdt") or row.get("margin_u")
+        if mu is not None:
+            try:
+                st["margin_u"] = float(mu)
+            except (TypeError, ValueError):
+                pass
+
+    if history_path.is_file():
+        try:
+            rows = json.loads(history_path.read_text(encoding="utf-8"))
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("source") or "").lower() == "manual":
+                        continue
+                    dt = dcdr.parse_datetime(row.get("at"))
+                    if dt is None or not dcdr.in_window(dt, day_start, end):
+                        continue
+                    bump(row)
+        except Exception:
+            pass
+
+    if not buckets:
+        return []
+    items = sorted(buckets.values(), key=lambda x: (-int(x["orders"]), str(x["channel"])))
+    total = sum(int(x["orders"]) for x in items)
+    return [
+        {
+            "id": f"bitget:daily:{end.date().isoformat()}",
+            "category": "bitget",
+            "ts": end.isoformat(timespec="seconds"),
+            "title": f"自动下单 · 今日汇总 · {len(items)} 频道 · {total} 笔",
+            "body": "",
+            "meta": {
+                "kind": "autotrade_daily",
+                "window_start": day_start.isoformat(timespec="seconds"),
+                "window_end": end.isoformat(timespec="seconds"),
+                "items": items,
+                "count": len(items),
+                "total_orders": total,
+            },
+        }
+    ]
 
 
 def collect_vpn(state_path: Path, slot: int, end: datetime) -> List[Dict[str, Any]]:
@@ -500,11 +594,21 @@ def merge_feed(
     seen = {str(it.get("id")) for it in existing.get("items") or [] if isinstance(it, dict)}
     merged = list(existing.get("items") or [])
     added = 0
+    upsert_prefixes = ("bitget:daily:",)
     for it in new_items:
         if not isinstance(it, dict):
             continue
         iid = str(it.get("id") or "")
-        if not iid or iid in seen:
+        if not iid:
+            continue
+        if any(iid.startswith(p) for p in upsert_prefixes):
+            merged = [x for x in merged if not (isinstance(x, dict) and str(x.get("id") or "") == iid)]
+            if iid not in seen:
+                seen.add(iid)
+            merged.insert(0, it)
+            added += 1
+            continue
+        if iid in seen:
             continue
         seen.add(iid)
         merged.insert(0, it)
@@ -590,6 +694,15 @@ def run_sync(
             str(cfg["collector_api_base"]),
             expand_path(str(cfg["bitget_history_json"]), ROOT),
             start,
+            end,
+        )
+    )
+    day_start = end.replace(hour=0, minute=0, second=0, microsecond=0)
+    new_items.extend(
+        collect_autotrade_daily_summary(
+            expand_path(str(cfg["bitget_history_json"]), ROOT),
+            expand_path(str(cfg["kolvip_autotrade_json"]), ROOT),
+            day_start,
             end,
         )
     )
