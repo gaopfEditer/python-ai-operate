@@ -288,8 +288,25 @@ def _run_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
     t0 = time.perf_counter()
     try:
+        content = {"title": payload["title"], "content": payload["content"]}
+        for key in (
+            "channel",
+            "channelName",
+            "channel_name",
+            "symbol",
+            "direction",
+            "cardId",
+            "card_id",
+            "cardOpenedAt",
+            "card_opened_at",
+            "openedAt",
+            "signalAt",
+        ):
+            val = payload.get(key)
+            if val not in (None, ""):
+                content[key] = val
         result = publish_content_with_retry(
-            content={"title": payload["title"], "content": payload["content"]},
+            content=content,
             platform_ids=payload["platforms"] or None,
             tags=payload.get("tags"),
             use_cdp=True,

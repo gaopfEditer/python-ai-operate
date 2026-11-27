@@ -43,6 +43,11 @@ def handle(
         payload["platforms"] = _as_list(payload.get("platforms"))
     async_mode = _truthy(payload.get("async"), True)
 
+    if not str(payload.get("job_id") or payload.get("jobId") or "").strip():
+        payload["job_id"] = uuid.uuid4().hex
+    else:
+        payload["job_id"] = str(payload.get("job_id") or payload.get("jobId") or "").strip()
+
     if not async_mode:
         from signals.trade_signal_publish import run_trade_signal_pipeline
 
@@ -57,7 +62,8 @@ def handle(
 
     from console.app import _set_job
 
-    job_id = uuid.uuid4().hex
+    job_id = str(payload.get("job_id") or "").strip() or uuid.uuid4().hex
+    payload["job_id"] = job_id
     _set_job(
         job_id,
         status="queued",

@@ -99,6 +99,7 @@ def publish_content(
         str(content.get("title") or ""),
         str(content.get("content") or content.get("text") or ""),
     )
+    signal = publish_log.signal_fields_from_content(content)
     publish_log.log_run_start(
         platform_ids=platform_ids,
         debugger_url=str(debugger_url or ""),
@@ -106,6 +107,11 @@ def publish_content(
         media_count=len(media),
         job_id=trace_job,
         content_ref=content_ref,
+        channel=signal.get("channel") or "",
+        symbol=signal.get("symbol") or "",
+        direction=signal.get("direction") or "",
+        card_id=signal.get("card_id") or "",
+        card_opened_at=signal.get("card_opened_at") or "",
     )
     needs_cdp = use_cdp or any(
         (get_platform_config(pid) or {}).get("type")

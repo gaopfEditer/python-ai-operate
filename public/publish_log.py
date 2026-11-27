@@ -21,6 +21,11 @@ _FILE_LOCK = threading.Lock()
 
 _trace_job_id: ContextVar[str] = ContextVar("publish_trace_job_id", default="")
 _trace_content_ref: ContextVar[str] = ContextVar("publish_trace_content_ref", default="")
+_trace_channel: ContextVar[str] = ContextVar("publish_trace_channel", default="")
+_trace_symbol: ContextVar[str] = ContextVar("publish_trace_symbol", default="")
+_trace_direction: ContextVar[str] = ContextVar("publish_trace_direction", default="")
+_trace_card_id: ContextVar[str] = ContextVar("publish_trace_card_id", default="")
+_trace_card_opened_at: ContextVar[str] = ContextVar("publish_trace_card_opened_at", default="")
 
 _SECRET_PATTERNS = (
     re.compile(r"(?i)(cookie|set-cookie|authorization|bearer\s+)[^\s,;]{8,}"),
@@ -38,16 +43,106 @@ def default_log_file(for_day: Optional[datetime] = None) -> Path:
     return _LOG_DIR / f"publish_{day}.log"
 
 
-def set_trace_context(*, job_id: str = "", content_ref: str = "") -> None:
+def set_trace_context(
+    *,
+    job_id: str = "",
+    content_ref: str = "",
+    channel: Optional[str] = None,
+    symbol: Optional[str] = None,
+    direction: Optional[str] = None,
+    card_id: Optional[str] = None,
+    card_opened_at: Optional[str] = None,
+) -> None:
     if job_id is not None:
         _trace_job_id.set(str(job_id or "").strip())
     if content_ref is not None:
         _trace_content_ref.set(str(content_ref or "").strip())
+    if channel is not None:
+        _trace_channel.set(str(channel or "").strip())
+    if symbol is not None:
+        _trace_symbol.set(str(symbol or "").strip())
+    if direction is not None:
+        _trace_direction.set(str(direction or "").strip())
+    if card_id is not None:
+        _trace_card_id.set(str(card_id or "").strip())
+    if card_opened_at is not None:
+        _trace_card_opened_at.set(str(card_opened_at or "").strip())
 
 
 def clear_trace_context() -> None:
     _trace_job_id.set("")
     _trace_content_ref.set("")
+    _trace_channel.set("")
+    _trace_symbol.set("")
+    _trace_direction.set("")
+    _trace_card_id.set("")
+    _trace_card_opened_at.set("")
+
+
+def signal_fields_from_content(content: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """Pick channel/symbol/direction/cardId/cardOpenedAt from a publish payload or card."""
+    row = content if isinstance(content, dict) else {}
+    nested = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    channel = str(
+        row.get("channel")
+        or row.get("channelName")
+        or row.get("channel_name")
+        or nested.get("channel")
+        or nested.get("channelName")
+        or ""
+    ).strip()
+    symbol = str(row.get("symbol") or nested.get("symbol") or "").strip()
+    direction = str(row.get("direction") or nested.get("direction") or "").strip()
+    card_id = row.get("cardId")
+    if card_id in (None, ""):
+        card_id = row.get("card_id")
+    if card_id in (None, ""):
+        card_id = nested.get("cardId") or nested.get("card_id")
+    card_id = str(card_id or "").strip()
+    opened = str(
+        row.get("cardOpenedAt")
+        or row.get("card_opened_at")
+        or row.get("openedAt")
+        or row.get("signalAt")
+        or nested.get("cardOpenedAt")
+        or nested.get("openedAt")
+        or nested.get("signalAt")
+        or ""
+    ).strip()
+    out: Dict[str, str] = {}
+    if channel:
+        out["channel"] = channel
+    if symbol:
+        out["symbol"] = symbol
+    if direction:
+        out["direction"] = direction
+    if card_id:
+        out["card_id"] = card_id
+    if opened:
+        out["card_opened_at"] = opened
+    return out
+
+
+def _signal_fields_from_trace() -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    channel = _trace_channel.get()
+    symbol = _trace_symbol.get()
+    direction = _trace_direction.get()
+    card_id = _trace_card_id.get()
+    opened = _trace_card_opened_at.get()
+    if channel:
+        out["channel"] = channel
+    if symbol:
+        out["symbol"] = symbol
+    if direction:
+        out["direction"] = direction
+    if card_id:
+        out["cardId"] = card_id
+        out["card_id"] = card_id
+    if opened:
+        out["cardOpenedAt"] = opened
+        out["card_opened_at"] = opened
+    return out
 
 
 def content_ref_from_body(title: str, content: str) -> str:
@@ -201,6 +296,14 @@ def log_event(event: str, **fields: Any) -> None:
         payload["job_id"] = job_id
     if content_ref:
         payload["content_ref"] = content_ref
+    # Prefer explicit fields, then fill remaining signal keys from trace.
+    sig = _signal_fields_from_trace()
+    for key in ("channel", "symbol", "direction", "cardId", "card_id", "cardOpenedAt", "card_opened_at"):
+        val = fields.pop(key, None)
+        if val not in (None, ""):
+            payload[key] = val
+        elif key in sig:
+            payload[key] = sig[key]
     payload.update(fields)
     _emit(payload)
 
@@ -213,8 +316,21 @@ def log_run_start(
     media_count: int = 0,
     job_id: str = "",
     content_ref: str = "",
+    channel: str = "",
+    symbol: str = "",
+    direction: str = "",
+    card_id: str = "",
+    card_opened_at: str = "",
 ) -> None:
-    set_trace_context(job_id=job_id, content_ref=content_ref)
+    set_trace_context(
+        job_id=job_id,
+        content_ref=content_ref,
+        channel=channel,
+        symbol=symbol,
+        direction=direction,
+        card_id=card_id,
+        card_opened_at=card_opened_at,
+    )
     dbg = sanitize_message(debugger_url or "127.0.0.1:9222")
     log_event(
         "run_start",

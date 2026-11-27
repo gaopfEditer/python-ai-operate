@@ -309,6 +309,40 @@ def _default_platforms() -> List[str]:
     return ["gate"]
 
 
+def publish_payload_signal_fields(body: Optional[Dict[str, Any]] = None, *, job_id: str = "") -> Dict[str, Any]:
+    """Forward job_id and card signal fields into _run_publish / publish_log."""
+    row = body if isinstance(body, dict) else {}
+    out: Dict[str, Any] = {}
+    jid = str(job_id or row.get("job_id") or row.get("jobId") or "").strip()
+    if jid:
+        out["job_id"] = jid
+    channel = str(row.get("channel") or row.get("channelName") or row.get("channel_name") or "").strip()
+    if channel:
+        out["channel"] = channel
+        out["channelName"] = channel
+    symbol = str(row.get("symbol") or "").strip()
+    if symbol:
+        out["symbol"] = symbol
+    direction = str(row.get("direction") or "").strip()
+    if direction:
+        out["direction"] = direction
+    card_id = row.get("cardId")
+    if card_id in (None, ""):
+        card_id = row.get("card_id")
+    if card_id not in (None, ""):
+        out["cardId"] = card_id
+    opened = str(
+        row.get("cardOpenedAt")
+        or row.get("card_opened_at")
+        or row.get("openedAt")
+        or row.get("signalAt")
+        or ""
+    ).strip()
+    if opened:
+        out["cardOpenedAt"] = opened
+    return out
+
+
 def publish_text_with_image(
     *,
     text: str,
@@ -317,6 +351,8 @@ def publish_text_with_image(
     title: str = "",
     submit: bool = True,
     debugger_url: str | None = None,
+    job_id: str = "",
+    signal: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """调用本进程发布实现（等同 /api/v1/publish）。"""
     from console.publish_api import _run_publish
@@ -333,6 +369,7 @@ def publish_text_with_image(
         "submit": bool(submit),
         "media_paths": [str(path.resolve())],
     }
+    payload.update(publish_payload_signal_fields(signal, job_id=job_id))
     return _run_publish(payload)
 
 
@@ -349,6 +386,8 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": "缺少 direction", "elapsed_ms": 0, "timings": timings}
 
     event = str(body.get("event") or body.get("phase") or "entry").strip() or "entry"
+    job_id = str(body.get("job_id") or body.get("jobId") or "").strip()
+    signal_fields = publish_payload_signal_fields(body, job_id=job_id)
     narrative = str(body.get("narrative") or body.get("body") or body.get("rawContent") or "").strip()
     note = str(body.get("note") or "").strip()
     entry = str(body.get("entry") or "").strip()
@@ -436,17 +475,17 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
             # 仅文：仍走 publish
             from console.publish_api import _run_publish
 
-            publish_result = _run_publish(
-                {
-                    "title": str(body.get("title") or "").strip(),
-                    "content": analysis,
-                    "platforms": platforms or _default_platforms(),
-                    "tags": None,
-                    "debugger_url": str(body.get("debugger_url") or "").strip(),
-                    "submit": bool(submit),
-                    "media_paths": [],
-                }
-            )
+            publish_payload = {
+                "title": str(body.get("title") or "").strip(),
+                "content": analysis,
+                "platforms": platforms or _default_platforms(),
+                "tags": None,
+                "debugger_url": str(body.get("debugger_url") or "").strip(),
+                "submit": bool(submit),
+                "media_paths": [],
+            }
+            publish_payload.update(signal_fields)
+            publish_result = _run_publish(publish_payload)
         else:
             publish_result = publish_text_with_image(
                 text=analysis,
@@ -455,6 +494,8 @@ def run_trade_signal_pipeline(body: Dict[str, Any]) -> Dict[str, Any]:
                 title=str(body.get("title") or "").strip(),
                 submit=bool(submit),
                 debugger_url=str(body.get("debugger_url") or "").strip() or None,
+                job_id=job_id,
+                signal=signal_fields,
             )
         timings["publish_ms"] = int(
             publish_result.get("elapsed_ms")
